@@ -171,3 +171,108 @@ though work proceeds under the pre-authorized default.
 - **Rationale**: 043 explicitly targets "settled code"; 045 changes the very
   behavior 043 asserts, so 045 is part of the settlement. The division of
   test labor avoids duplicate E2E harness work.
+
+---
+
+# Plan-phase additions (2026-08-02)
+
+Entries below were decided while planning (`plan.md`, `research.md`). Same rule:
+best default, nothing silent, Sam may overturn any of them.
+
+## RBD-045-8 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Resolution is computed at READ time and memoized; NO migration
+
+- **Question**: FR-009 requires resolution to be computed once and reused, and
+  explicitly leaves the mechanism to the plan: persist the result (a schema
+  migration), cache it, or memoize it lazily.
+- **Why it matters**: it decides whether this feature takes the one in-flight
+  migration slot and whether the deploy needs a backfill.
+- **Decision**: **Read-time resolution with a bounded per-process memo. No
+  migration, no column, no backfill.** The persisted option is rejected because
+  (a) it cannot satisfy FR-008 — historical `via_sync` rows must resolve with no
+  backfill, so the read path ships anyway, and two mechanisms that must agree is
+  the divergence FR-007 forbids; and (b) the costly half of resolution is
+  EVIDENCE (the client-identity→user bindings of prior rows), and persisting
+  that retroactively means decoding every `yjs_updates` row in every document,
+  not just the small `via_sync` population. A Redis cache was rejected too:
+  Redis is optional here and 042 just removed a dormant Redis doc cache.
+- **Rationale**: the memo buys everything the column would buy (FR-009, SC-005)
+  at zero deploy risk, and outcomes are immutable — evidence is strictly prior
+  in clock order over an append-only log — so the memo never needs invalidation.
+
+## RBD-045-9 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Single-slot surfaces collapse multi-origin rows to the synced contribution
+
+- **Question**: the per-clock author (and the MCP `lastModifiedBy`) display ONE
+  author. What do they show for a `via_sync` row that resolves to several
+  origins, or resolves partially?
+- **Why it matters**: FR-007 requires one resolution everywhere; these surfaces
+  cannot render a list.
+- **Decision**: exactly one resolved origin with nothing unresolved ⇒ that
+  author; anything else (multiple origins, or any unresolved part) ⇒ the synced
+  contribution. The RESOLUTION is identical to the timeline's; only the
+  rendering arity differs.
+- **Rationale**: showing "the first resolved origin" would present a
+  true-but-partial author as the whole story and let the per-clock view and the
+  timeline disagree about who is credited.
+
+## RBD-045-10 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02) — FLAGGED FOR SAM** — A no-evidence self-relay renders as "Synced content", softening one 038 promise
+
+- **Question**: a user's genuine offline edits, re-supplied by their own client,
+  carry evidence ONLY if that editing session already committed at least one
+  direct row in the same document. When it did not (offline from the moment the
+  document opened), the row is unresolvable. Show the stamped user anyway, or
+  the honest synced label?
+- **Why it matters**: 038 promises genuine offline edits stay credited to their
+  author; FR-004 forbids ever displaying the stamped identity of a `via_sync`
+  row as authorship. In this narrow case the two pull in opposite directions.
+- **Decision**: **the honest label wins** — it renders as the synced
+  contribution. The server genuinely cannot distinguish "A's own first-session
+  offline edit" from "B relaying A's content"; trusting the stamp there is
+  exactly the lie this feature exists to end. The SC-002 test matrix stages
+  prior attributed rows for the self-relay case, matching US1 scenario 3's
+  framing ("A has prior attributed edits").
+- **Rationale**: false credit is worse than an honest hedge. Flagged because it
+  is a visible (if narrow) softening of a shipped promise; the mitigation
+  (capturing the connection's own Yjs client identity at write time) is a
+  separate feature, not a side effect of this one.
+
+## RBD-045-11 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Deleted-account resupply: Unknown author while resolvable, synced contribution once evidence is erased
+
+- **Question**: the spec's edge case says a resupply whose original author's
+  account was deleted follows the deleted-account "Unknown author" rule. But
+  `yjs_updates.user_id` is `ON DELETE SET NULL`, so account deletion also erases
+  the evidence rows that made the mapping possible.
+- **Why it matters**: after deletion the mapping cannot be re-derived, so the
+  spec's edge case is not reachable as a steady state.
+- **Decision**: a resolved origin whose `users` row is gone renders
+  `UNKNOWN_AUTHOR` (spec edge case honored wherever it is reachable — e.g. a
+  memoized outcome, or an account deleted between the evidence write and the
+  read). Once evidence is erased, later resolutions honestly yield the synced
+  contribution. Both statements are true; neither invents a person.
+- **Rationale**: matching the FK policy's reality beats pretending the mapping
+  survived it. Recorded so the difference is not later read as a bug.
+
+## RBD-045-12 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — `lastModifiedBy` joins FR-001's covered surfaces
+
+- **Question**: FR-001 enumerates its covered surfaces as exhaustive, but MCP
+  `read_document` also returns `lastModifiedBy`, built with the same
+  `createAuthor(lastUpdate)` call on a row that may be `via_sync`.
+- **Why it matters**: leaving it out would keep an agent-facing field naming the
+  relayer as the last editor, which is the exact lie the feature closes, in the
+  exact place (agent input) US3 argues is most dangerous.
+- **Decision**: **include it.** It consumes the same resolution context as
+  `recentAuthors` in the same call, under the single-slot rule (RBD-045-9). No
+  new mechanism, no schema change, one extra line.
+- **Rationale**: the surface list was written to bound scope, not to protect a
+  fifth lying field; the cost of covering it is a line, the cost of leaving it
+  is a lying feed for agents.
+
+## N-045-1 — NOTE (no decision required) — Pre-038 unmarked resupplies are evidence-eligible
+
+Rows written before the `via_sync` marker existed carry `NULL`, and the 038
+contract forbids treating `NULL` as suspicious, so a pre-038 resupply row can
+bind a client identity to the RELAYER. Where that is the only binding for the
+identity, a later resupply can resolve to the wrong user. It is bounded (it
+requires the true author to have no correctly attributed row for that session in
+the same document) and strictly better than today's unconditional relayer
+credit. No fix in this feature; recorded so nobody re-derives it as a surprise.
+
