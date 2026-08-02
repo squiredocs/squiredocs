@@ -533,7 +533,13 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
  * @param {object} [deps]
  * @param {Function|null} [deps.getSharedDoc] - docGuid -> Y.Doc|null (in-memory doc)
  * @param {object|null} [deps.redisPubSub] - cross-instance fan-out when not loaded
- * @param {string|null} [deps.agentName] - acting agent name; null for a human UI restore
+ * @param {string|null} [deps.agentName] - The acting identity this restore is
+ *   recorded under, in BOTH the update log and the edit record (feature 040
+ *   FR-001). An MCP restore passes the agent token's own name; the web-UI
+ *   restore route passes the chat-assistant identity acting for the
+ *   requesting user. `null` is not a supported value for a real caller — it
+ *   is left as the default so it reaches `recordEdit`'s FR-006 guard and
+ *   fails loudly by name rather than being coerced to an unreachable `''` row.
  * @returns {Promise<Object>} Result with new version info
  */
 async function restoreVersion(persistence, docGuid, versionId, userId, {
@@ -647,15 +653,30 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   console.log(`[Restore] Stored restore update with clock ${newClock}`);
 
   // Record the restore as an edit record so log-derived undo can invert it
-  // (feature 023 FR-020, D-4). A human UI restore records under the '' agent
-  // sentinel (agent_edits.agent_name is NOT NULL); an agent restore records under
-  // the acting agent's name. Non-fatal (modify parity): a recording failure logs
-  // and the restore still succeeds — undo simply finds nothing to invert.
+  // (feature 023 FR-020, D-4).
+  //
+  // Feature 040 (FR-001): the SAME `agentName` now feeds BOTH stores — the
+  // `storeUpdate` above and this `recordEdit`. The old `agentName ?? ''`
+  // fallback here is gone: it meant a human UI restore wrote the acting
+  // identity into `yjs_updates` but the `''` sentinel into `agent_edits`, so
+  // the two stores disagreed and no undo surface could ever find the record.
+  // Callers supply a real identity (the REST route passes the chat-assistant
+  // identity, the MCP tool passes the acting agent's name).
+  //
+  // The `agentName = null` default parameter is KEPT ON PURPOSE (research
+  // R2): a null must now reach `recordEdit`'s FR-006 precondition and be
+  // rejected loudly by name. That rejection is the tripwire that catches a
+  // future caller which forgets to supply an identity — silently coercing it
+  // to `''` here is exactly the bug this feature removes.
+  //
+  // Non-fatal (modify parity, D6): a recording failure logs and the restore
+  // still succeeds — undo simply finds nothing to invert. The user's content
+  // change is never lost to a bookkeeping failure.
   try {
     await editRecords.recordEdit(persistence, {
       docGuid,
       userId,
-      agentName: agentName ?? '',
+      agentName,
       clockStart: newClock,
       clockEnd: newClock,
       clocks: [newClock],

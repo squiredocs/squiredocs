@@ -14,6 +14,55 @@
  * and the redo record are atomic (FR-014, FR-028, RBD-7). rowCount = 0 on any
  * transition means a concurrent request won: the caller returns the honest
  * already-undone/redone result and applies nothing.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SINGLE SENTINEL RULE FOR `agent_name` (feature 040, FR-007, D1)
+ * ---------------------------------------------------------------------------
+ *
+ * `agent_edits.agent_name` is `NOT NULL`, and there is exactly ONE class of
+ * permitted value: a **real, non-empty agent display name**. In practice that
+ * is either an MCP token's own agent name, or the shared chat-assistant
+ * identity (`CHAT_AGENT_NAME` from `server/agent-identity.js`), which is what
+ * a human web-UI restore now records under.
+ *
+ * The empty string `''` is **RETIRED**. It was previously written as a "human,
+ * no agent" sentinel by the restore path, which is precisely why those rows
+ * were unreachable: no undo surface queries for `''`, so the record existed
+ * but nothing could ever invert it. `recordEdit` now REJECTS `''` (and `null`,
+ * `undefined`, whitespace-only, and non-strings) before any SQL runs.
+ *
+ * Legacy `''` rows are **left exactly where they are** — no migration, no
+ * backfill (FR-014's zero-migration constraint). They remain intentionally
+ * unreachable. `isSameIdentity` deliberately treats `''` as a DISTINCT
+ * identity rather than folding it into "absent", so those rows can never be
+ * silently claimed by the human identity.
+ *
+ * NOTE: `insertLegacyUndone` (below) is deliberately NOT guarded. It runs
+ * inside the `finalizeClaim` transaction, so throwing there would roll back a
+ * legitimate legacy undo — turning a data-hygiene check into data loss
+ * (research R7, D12). Do not "complete" the guard by extending it there.
+ *
+ * ---------------------------------------------------------------------------
+ * FK-POLICY DIVERGENCE — INTENTIONAL, DO NOT UNIFY (feature 040, FR-012, D3)
+ * ---------------------------------------------------------------------------
+ *
+ * `yjs_updates.user_id` is `ON DELETE SET NULL`, while `agent_edits.user_id`
+ * is `ON DELETE CASCADE`. That asymmetry looks like an oversight and is not:
+ *
+ *  - **History must survive a deleted account, anonymized.** A document's
+ *    update log is the document. Cascading it away would silently destroy
+ *    other people's collaborative history because one contributor closed
+ *    their account. `SET NULL` keeps the content and drops the identity —
+ *    which is exactly what surfaces in version history as the "Unknown
+ *    author" contributor entry (FR-008).
+ *  - **An undo chain must NOT survive its owner.** `agent_edits` rows are
+ *    per-identity undo state, and a deleted user can never undo anything
+ *    again. Keeping their chain would leave rows no one can act on, still
+ *    occupying the `(doc_guid, user_id, agent_name, edit_clock_start)` unique
+ *    key. `CASCADE` is the coherent policy.
+ *
+ * The two policies must stay different. Migration files are not touched by
+ * this feature.
  */
 
 function mapRow(row) {
@@ -45,9 +94,34 @@ function mapRow(row) {
  * wait knows precisely which rows carry the edit, so interleaved
  * same-identity rows from a concurrent call are excluded from future undos.
  * Omitted/null keeps the spanning-range fallback.
+ *
+ * PRECONDITION (feature 040, FR-006): `agentName` must be a real, non-empty
+ * agent display name — see the single sentinel rule in the module header. An
+ * identityless call is rejected HERE, before any SQL, with a message that
+ * names the actual problem. Previously such a call reached Postgres and came
+ * back as `null value in column "agent_name" violates not-null constraint`,
+ * which says nothing about which document, which user, or which code path —
+ * or it wrote a `''` row that no undo surface could ever find.
+ *
+ * Callers' non-fatal handling is unchanged (D6): `restoreVersion` and
+ * `modify.js` both catch, log, and continue, so the user's content change is
+ * never lost to a recording failure. The throw makes the failure loud in the
+ * logs; it does not make it fatal to the enclosing operation.
+ *
+ * @throws {Error} When `agentName` is null/undefined/non-string/blank.
  * @returns {Promise<object|null>} The inserted row, or null when it already existed.
  */
 async function recordEdit(persistence, { docGuid, userId, agentName, clockStart, clockEnd, clocks = null }) {
+  if (typeof agentName !== 'string' || agentName.trim() === '') {
+    throw new Error(
+      `[edit-records] refusing to record an edit with no agent identity: `
+      + `agentName must be a non-empty string, got ${
+        typeof agentName === 'string' ? JSON.stringify(agentName) : String(agentName)
+      } (docGuid=${docGuid}, userId=${userId}). `
+      + `Every recorded edit is scoped by (document, user, agent name); an edit `
+      + `recorded without an identity can never be found or undone.`
+    );
+  }
   const result = await persistence.getPool().query(
     `INSERT INTO agent_edits
        (doc_guid, user_id, agent_name, edit_clock_start, edit_clock_end,

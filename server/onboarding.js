@@ -15,7 +15,10 @@ const { buildYjsNode } = require('./mcp/yjs/node-builder');
 const { WELCOME_DOC_TITLE, WELCOME_DOC_NODES } = require('./onboarding/welcome-template');
 
 // Attribution shown for the seeded content (mirrors the chat assistant author).
-const AGENT_NAME = 'Squire Docs Assistant';
+// Feature 040 (FR-005, D10): consumed from the one authoritative definition
+// rather than re-declared here — this file previously held a second copy of
+// the literal, which is exactly the drift FR-005 forbids.
+const { CHAT_AGENT_NAME } = require('./agent-identity');
 
 let pool = null;
 
@@ -48,7 +51,7 @@ async function seedWelcomeDoc(userId) {
     userId,
     title: WELCOME_DOC_TITLE,
     nodes: WELCOME_DOC_NODES.map(buildYjsNode),
-    agentName: AGENT_NAME,
+    agentName: CHAT_AGENT_NAME,
   });
 
   // Claim the welcome_doc_id; if another concurrent login already claimed one,

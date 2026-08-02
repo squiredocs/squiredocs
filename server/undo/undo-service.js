@@ -224,6 +224,12 @@ async function performUndo({ docGuid, userId, agentName }, deps = {}) {
     undone: true,
     message: 'Edit undone. Later edits by you and other collaborators were preserved.',
     clock,
+    // Feature 040 (FR-019, D17): report WHICH record was actually inverted,
+    // so a caller that is about to label something "Reverted" can check that
+    // it is labelling the right thing. `row` is null on the legacy-derivation
+    // path (no agent_edits row exists), and the field is then omitted — see
+    // the fail-open rationale at the consumer in server/index.js.
+    ...(row ? { actedEditClockStart: row.editClockStart } : {}),
     ...(diff ? { diff } : {}),
   };
 }
@@ -298,6 +304,10 @@ async function performRedo({ docGuid, userId, agentName }, deps = {}) {
     redone: true,
     message: 'Edit reapplied.',
     clock,
+    // Feature 040 (FR-019, D17): which record was actually re-applied. Redo
+    // always has a real `agent_edits` row (it is selected by
+    // `nextRedoTarget`), so unlike undo this is never omitted on success.
+    actedEditClockStart: row.editClockStart,
     ...(diff ? { diff } : {}),
   };
 }
@@ -318,9 +328,27 @@ async function getUndoStatus({ docGuid, userId, agentName }, deps = {}) {
     editRecords.nextRedoTarget(persistence, identity),
   ]);
   if (undoTarget || redoTarget) {
+    const canUndo = !!undoTarget;
+    const canRedo = !!(redoTarget && redoTarget.redoTargetStart != null);
+    // Feature 040 (FR-016, D13/D14): additively report WHICH record each
+    // direction would act on, so a client control can refuse to offer an
+    // action it would misreport (FR-017).
+    //
+    // The identifier is the record's IMMUTABLE `edit_clock_start` — part of
+    // the `(doc_guid, user_id, agent_name, edit_clock_start)` unique key, set
+    // once at insert and never rewritten. It is deliberately NOT
+    // `undo_target_*` / `redo_target_*`: `finalizeClaim` REWRITES those on
+    // every undo↔redo transition, so a client matching on them would stop
+    // matching after one cycle and the control would vanish from a perfectly
+    // valid card. Do not "simplify" this to the target range.
+    //
+    // Omitted (never null, never 0) when the direction is unavailable — a
+    // client distinguishes "no target" from "target unknown" by absence.
     return {
-      canUndo: !!undoTarget,
-      canRedo: !!(redoTarget && redoTarget.redoTargetStart != null),
+      canUndo,
+      canRedo,
+      ...(canUndo ? { nextUndo: { editClockStart: undoTarget.editClockStart } } : {}),
+      ...(canRedo ? { nextRedo: { editClockStart: redoTarget.editClockStart } } : {}),
     };
   }
   // Legacy fallback (FR-021, research R8): no records at all — one bounded
@@ -330,6 +358,10 @@ async function getUndoStatus({ docGuid, userId, agentName }, deps = {}) {
   try {
     const recent = await persistence.getRecentUpdatesWithUsers(docGuid, 100);
     const derived = deriveLegacyRange(recent, { userId, agentName });
+    // No `nextUndo` here BY DESIGN (FR-016 rule 2): this branch derives a
+    // range from the update log and has no `agent_edits` row at all, so there
+    // is no stable record identity to report. The field is omitted rather
+    // than guessed; the client fails open and behaves as it does today.
     return { canUndo: !!derived, canRedo: false };
   } catch (e) {
     console.warn(`[undo-service] legacy status derivation failed for ${docGuid}:`, e.message);
