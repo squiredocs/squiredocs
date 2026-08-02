@@ -101,3 +101,94 @@ pre-040 (restores undoable) or the amended ground truth?
 a recorded edit its own undo tool inverts (040 FR-004 survived the cut). Tests must
 not resurrect the pre-cut behavior.
 **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## Added at plan time (2026-08-02)
+
+## D9 — Extraction budget: four units, with a hard ceiling (FR-001 vs FR-007)
+
+**Question**: FR-007 limits production changes to "minimal, behavior-preserving
+extractions required by FR-006" — i.e. the three US5 mirrors. But FR-001 requires the
+attribution E2E to drive "the production WebSocket upgrade and document-binding path",
+and none of that path is importable: the `bindState` update listener, the upgrade
+handler and the connection setup are all inline blocks in `server/index.js`. Which
+requirement gives?
+
+**Decision**: FR-007's "required by FR-006" is read as **"required by the tests this
+feature specifies"**, and the budget is exactly four move-only extractions:
+
+- **X1** `server/collab-bind-state.js` — the `bindState` update listener
+  (`server/index.js:276-480`). This is *already* an FR-006(a) obligation: the
+  `update-classifier.test.js:118-134` mirror is a copy of this listener. It also
+  happens to be the only place `user_id`/`agent_name`/`via_sync` are written, so
+  FR-001/FR-003/FR-004 ride on the same extraction rather than needing their own.
+- **X2** `identityFromPrincipal(user)` added to the existing zero-dependency leaf
+  `server/agent-identity.js` (3 lines, from `server/index.js:2054-2055`) — the exact
+  derivation US1 exists to guard.
+- **X3** `shouldPublishToRedis(origin)` in `server/origin.js` — FR-006(b).
+- **X4** `server/api/undo-status.js` router factory — FR-006(c).
+
+**Hard ceiling (this is the load-bearing half of the decision)**: the
+`server.on('upgrade')` handler and the `installGate(...)` call site **do not move**.
+`server/__tests__/ws-edit-gate.test.js` (feature 038's C1 structural guard) asserts by
+source-grep that `server/index.js` matches `/installGate\s*\(/` **exactly once** and
+contains the literal `request.tokenMayWrite = !Array.isArray(user.scopes) || …`.
+Moving either would break a pre-existing test — a direct violation of FR-007(4) and
+SC-008. The US1/US2 harness instead composes the real *decision* modules
+(`permissions.extractUser`, `permissions.can.view`, `identityFromPrincipal`,
+`installGate`, `createUpdateListener`) behind its own express/`ws` transport, and a new
+C1-style guard (`server/__tests__/collab-extraction-guard.test.js`) pins that
+`server/index.js` uses the same modules.
+
+**Rationale**: the alternative readings both fail. Refusing any extraction beyond the
+three named mirrors forces US1/US2/US3 to hand-write a fourth mirror of the persistence
+listener — precisely the failure mode this feature exists to kill. Extracting the whole
+upgrade/connection path breaks a shipped guard and turns a test-hardening merge into a
+hot-path refactor. Four units, with the C1 guard as the tripwire on our own budget, is
+the smallest thing that makes FR-001 honest.
+
+**Consequence**: FR-007's wording is narrower than what the feature needs. Recorded as a
+spec-vs-plan divergence rather than a silent widening; a MEDIUM analyze finding notes it
+so the implementer treats this ledger entry, not FR-007's literal text, as the budget.
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+## D10 — One shared WS harness, real modules only
+
+**Question**: US1, US2, US3 and US4 all need a running collaboration server. Copy the
+038 harness (`__tests__/integration/step2-viewer-block.test.js`) into each suite, or
+build one shared helper?
+
+**Decision**: one shared helper, `__tests__/integration/helpers/collab-harness.js`,
+with a strict rule: **it owns transport plumbing only**. Every decision — who you are,
+whether you may edit, how a frame is classified, what gets persisted with what identity
+— is made by the production module. The 038 harness's two remaining fakes (a
+hand-written "production-shaped" `bindState`, and `?role=&userId=` query-param auth) are
+replaced with X1 and the real `permissions.extractUser` / `permissions.can.view` /
+`identityFromPrincipal` chain. Identities are real rows and real tokens: a browser-shape
+session principal for the human, a real `sk_sqd_` `api_tokens` row for the agent.
+
+If a scenario cannot be expressed without faking a decision, that is a signal to stop
+and report, not to fake it.
+
+**Rationale**: three copies of a harness is three places for the mirror problem to grow
+back, and this feature's whole thesis is that copies drift silently. The 038 file stays
+as-is (it is not this feature's scope) but is not multiplied.
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+## D11 — Retroactive cleanup pass is scoped to the version/undo suites
+
+**Question**: FR-010 requires applying the cleanup-by-`doc_guid` convention "to the
+existing version/undo suites that currently orphan rows". Verification found the same
+orphan shape in six suites *outside* that area (`backfill-meaningful`, `documents`,
+`onboarding`, `postgres-gap-read`, `integration/faucet-wipe`, `integration/prod-reset`).
+Do they get fixed here?
+
+**Decision**: No. The retroactive pass covers the four version/undo suites FR-010 names
+(`undo-status-api`, `undo/undo-service`, `undo/edit-records`, `undo/legacy`) plus the
+already-compliant `version-history` suite converted to the shared helper. The six
+out-of-area suites are recorded in `promotion-notes.md` as owed follow-on. Rationale:
+the convention is what this feature ships; sweeping every suite in the repo is a
+different, larger change that would bloat a merge already sequenced last, and the
+convention being importable means the sweep is cheap whenever it is scheduled.
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
