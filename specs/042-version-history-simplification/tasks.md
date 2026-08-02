@@ -96,9 +96,9 @@ scratch edit to any pipeline source changes it; reverting restores the original.
 **Sequenced here (not by priority)** so that the US2 edits to `apply-word-marks.js` and
 `diff-service.js` auto-invalidate the cache instead of relying on a manual bump mid-feature.
 
-- [ ] T025 [US4] Add a deterministic source-fingerprint helper that digests the **contents** of `server/diff-service.js`, `server/diff/apply-word-marks.js`, and `shared/diff/word-diff.js` — sorted file list, normalized line endings, explicit encoding, and never paths, mtimes, or `__dirname` (FR-014, data-model E1)
-- [ ] T026 [US4] Fold the fingerprint into the **exported** `CACHE_VERSION` in `server/diff-service.js` as `` `${humanVersion}.${fingerprint}` ``, leaving the key template and the 3600s TTL untouched so `server/__tests__/diff-service.test.js`'s cache-key assertion passes unmodified (FR-014, DEC-8, contract C3)
-- [ ] T027 [US4] Verify US4: run the SC-006 scratch-edit demonstration from quickstart.md Step 2 in both directions, and confirm `git diff --stat server/__tests__/diff-service.test.js` is empty
+- [~] T025 **DROPPED (DEC-13)** [US4] Add a deterministic source-fingerprint helper that digests the **contents** of `server/diff-service.js`, `server/diff/apply-word-marks.js`, and `shared/diff/word-diff.js` — sorted file list, normalized line endings, explicit encoding, and never paths, mtimes, or `__dirname` (FR-014, data-model E1)
+- [~] T026 **DROPPED (DEC-13)** [US4] Fold the fingerprint into the **exported** `CACHE_VERSION` in `server/diff-service.js` as `` `${humanVersion}.${fingerprint}` ``, leaving the key template and the 3600s TTL untouched so `server/__tests__/diff-service.test.js`'s cache-key assertion passes unmodified (FR-014, DEC-8, contract C3)
+- [~] T027 **DROPPED (DEC-13)** [US4] Verify US4: run the SC-006 scratch-edit demonstration from quickstart.md Step 2 in both directions, and confirm `git diff --stat server/__tests__/diff-service.test.js` is empty
 
 **Checkpoint**: Manual cache bumps are gone; the pin test never moved.
 

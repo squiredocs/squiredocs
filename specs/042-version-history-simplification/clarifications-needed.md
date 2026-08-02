@@ -309,3 +309,62 @@ re-greped against post-041 `main` before anything was touched. Outcomes:
   `:788` and the two `console.error` at `:868`/`:963` are error-path logging and stay.
 
 **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-13 — FR-014 (US4) is unimplementable under FR-001 — ESCALATED, NOT RATIFIED, DESCOPED
+
+**Added at implement time (2026-08-02).**
+
+**Question**: DEC-8 established that FR-014's source fingerprint could be folded into the
+exported `CACHE_VERSION` so that `server/__tests__/diff-service.test.js:712`'s cache-key
+assertion passes unmodified. Implementation found that assertion is **not the only pin**.
+
+**What the survey missed.** `CACHE_VERSION` and the literal cache key are pinned in
+**five** places across two pre-existing test files, three of which no composite value can
+satisfy:
+
+| Site | Assertion | Survives a composite? |
+|---|---|---|
+| `diff-service.test.js:712` | `` `diff${CACHE_VERSION}:test-doc:-1:0` `` | yes (interpolated) |
+| `diff-service.test.js:794` | `` `diff${CACHE_VERSION}:${docGuid}:${prev}:${curr}` `` | yes (interpolated) |
+| `diff-service.test.js:795` (CW-T6) | `key.startsWith('diffv10:')` | only if the separator is `:` |
+| `diff-service.test.js:993` (CW-T6) | `expect(CACHE_VERSION).toBe('v10')` | **no** |
+| `diff-service.test.js:997` (CW-T6) | `get` called with the literal `'diffv10:doc-ns:1:2'` | **no** |
+| `markdown-strict-characterization.test.js:78` | `expect(CACHE_VERSION).toBe('v10')` | **no** |
+
+Feature 039 deliberately froze both the constant and the exact key string. FR-014 requires
+that exact string to change whenever pipeline source changes (SC-006). The two requirements
+are in direct contradiction: **any** implementation of FR-014 forces edits to at least three
+assertions in two test files whose subject is live code, not deleted code — which FR-001
+and SC-001 forbid, and which fall outside tasks.md's exhaustive permitted-edit list.
+
+Alternatives considered and rejected:
+
+- **Fingerprint inside the cached payload** instead of the key (validate on read, treat a
+  mismatch as a miss). Leaves `CACHE_VERSION` at `'v10'` and every pin intact, but the
+  pre-existing cache-hit tests seed payloads with no fingerprint field, so the guard would
+  have to treat "absent" as "accept" — which serves exactly the stale-shaped entries FR-014
+  exists to prevent, for the duration of a TTL after every rollout. Achieving the
+  requirement's letter while defeating its purpose is worse than not doing it.
+- **`CACHE_VERSION = 'v10:fp<hash>'`** (separator `:` instead of `.`). Satisfies the two
+  interpolated pins and CW-T6's `startsWith`, but still fails the two hard equalities.
+
+**Decision**: **FR-014 / US4 (T025-T027) is DESCOPED from this feature** and reverted.
+The zero-behavior-change bar (FR-001) is this feature's hard constraint and outranks a P3
+requirement; implementing FR-014 would have been the one change in 042 that alters an
+observable value, and it would have done so by rewriting pins another feature set
+deliberately. `server/diff-service.js` is unchanged from post-041 `main`.
+
+**Consequence**: SC-006 is unmet. SC-002 is unaffected (US4 only added lines). The manual
+cache-bump hazard the deep dive identified (three bumps in three weeks) **remains open**.
+
+**What enacting it would take** (an orchestrator/Sam decision, not a default this agent can
+take): ratify that the diff cache namespace may change — accepting the one-time
+invalidation, which is already an explicit spec Assumption — and authorise updating the
+three 039-era assertions (`diff-service.test.js:993`, `:997`,
+`markdown-strict-characterization.test.js:78`) to assert the *human* half of the composite
+rather than the whole constant. That is a small, well-understood change; it is simply not
+one FR-001 permits this feature to make on its own authority.
+
+**Status**: ⚠️ **OPEN — FR-014 descoped, SC-006 unmet.**
