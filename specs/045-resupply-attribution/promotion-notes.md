@@ -82,9 +82,9 @@ exactly pre-045 behavior.
 | Suite | Result |
 |---|---|
 | `server/__tests__` (full, `--runInBand`) | 130 suites / 2195 tests green |
-| `__tests__/integration` (full, `--runInBand`) | green |
-| `client` Vitest (full) | green |
-| `client` production build | green |
+| `__tests__/integration` (full, `--runInBand`) | 20 suites / 214 tests green |
+| `client` Vitest (full) | 71 files / 878 tests green |
+| `client` production build | green (`vite build` + documentation + blog) |
 
 Baseline before any edit (`version-history` + `collab-guardrail`): 112 green, so
 nothing here is masking a pre-existing failure. Backend runs used a per-worktree
