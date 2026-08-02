@@ -2114,6 +2114,14 @@ wss.on('connection', (ws, req) => {
   // user had a valid session. The periodic role re-check (every 60s) handles
   // access revocation, and the client reconnects with fresh cookies on auth errors.
 
+  // The shared Yjs doc for this connection's document, resolved lazily below
+  // (feature 044). The gate is installed BEFORE setupWSConnection — 038's
+  // wiring, and its structural guards, depend on that order — so the doc handle
+  // does not exist yet at install time. Until it does, `getConns` returns null
+  // and the awareness guard stands down, which is safe: with no message
+  // listener attached yet, a frame cannot reach any applier.
+  let sharedDoc = null;
+
   // Install the sync-protocol edit gate (feature 038 US1). It classifies each
   // frame, drops edit frames from connections that may not edit — SYNC_UPDATE
   // and SYNC_STEP2 alike, since both reach Y.applyUpdate — and scopes the step2
@@ -2123,6 +2131,9 @@ wss.on('connection', (ws, req) => {
   // table and the synchronicity assumption behind the flag window.
   installGate(ws, {
     canEdit: () => currentCanEdit,
+    // Feature 044: the ownership record for the awareness guard, resolved per
+    // frame. y-websocket is its sole maintainer; the guard only reads it.
+    getConns: () => (sharedDoc ? sharedDoc.conns : null),
     onBlocked: (event) => {
       logPerf(event, { connId, userId, docId, role: userRole });
       const what = event === 'WS_STEP2_BLOCKED' ? 'Sync step2 (catch-up) frame' : 'Edit';
@@ -2171,6 +2182,9 @@ wss.on('connection', (ws, req) => {
     // We need to get the SAME doc instance that y-websocket is using
     const wsDocName = `s/${docId}`;
     const doc = getYDoc(wsDocName, true);
+    // From here the awareness guard (feature 044) can see who owns which
+    // clientID on this document. See the `getConns` handler above.
+    sharedDoc = doc;
 
     if (docId && doc) {
       // Debug: Log connection state
