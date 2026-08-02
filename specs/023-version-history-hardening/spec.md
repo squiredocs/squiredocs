@@ -177,6 +177,8 @@ A developer (or agent) reading the version-history code finds only code that run
 
 **Restore integration (US5)**
 
+> **SUPERSEDED IN PART (feature 040 D19, Sam, 2026-08-02)**: FR-020 and FR-021 no longer hold for human web-UI restores. Only agent/MCP restores record an agent_edits row (under the acting agent's own identity) and are undoable; a human web-UI restore records no edit record and is reverted by restoring again. See `specs/040-restore-undo-attribution/spec.md` ("Post-merge cut") and the 2026-08-02 amendment in `design/collaboration-core.md`. FR-022 and FR-023 stand unchanged.
+
 - **FR-020**: Every restore, on every surface, MUST record an edit record in the same system agent modifies use (agent_edits via the shared edit-record path), carrying the performing identity (user; plus agent name when an agent performs it) and the restore update's durable clock range, so log-derived undo can invert it.
 - **FR-021**: Chat Undo (and the MCP undo tool — same handler) MUST be able to invert a restore under feature-016 semantics: surgical inverse as a normal forward update, later edits preserved, superseded content skipped, fully-superseded restore yields the honest "nothing left to undo", and redo derives by inverting the inverse.
 - **FR-022**: The REST and MCP restore surfaces MUST converge on one shared core with identical semantics: identical attribution recording (the performing identity, human or agent), identical edit-record creation, identical broadcast behavior, and identical error/response contracts for equivalent inputs.

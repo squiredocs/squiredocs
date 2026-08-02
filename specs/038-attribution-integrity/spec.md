@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-01
 
-**Status**: Draft
+**Status**: Merged (2026-08-01)
 
 **Input**: User description: "038-attribution-integrity — attribution integrity fixes for the collaboration sync protocol (viewer step2 write bypass, via_sync tagging, origin parsing hardening, capture race, connectionClientId removal)"
 

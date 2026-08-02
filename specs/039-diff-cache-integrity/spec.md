@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-01
 
-**Status**: Draft
+**Status**: Merged (2026-08-02)
 
 **Input**: User description: "039-diff-cache-integrity — diff cache integrity and two-surface parity hardening" (verified audit findings F7–F14)
 
