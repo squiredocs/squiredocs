@@ -60,3 +60,4 @@ distribution/.mcp-publisher-key
 
 # feature 032 registry DNS setup artifacts (Sam-op, not source; key is secret)
 distribution/route53-txt-upsert.json
+dump.rdb
