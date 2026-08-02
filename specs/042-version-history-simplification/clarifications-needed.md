@@ -486,3 +486,23 @@ Recorded rather than left silent, because "four parameters but `.length` is 3" r
 gaming a test unless the reason is written down.
 
 **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+## Orchestrator resolutions at merge (2026-08-02)
+
+**DEC-13 — RESOLVED: descope accepted.** The cache-bump automation stays out of
+042; FR-001's zero-behavior-change bar wins over SC-006. The manual-bump hazard
+is recorded as an owed follow-on for the post-train convergence round, where the
+three frozen 039 pin assertions can be updated deliberately (their subject — the
+cache key shape — is exactly what the fingerprint changes, so touching them is
+legitimate only in a feature whose contract says so). Until then the hazard's
+mitigation is the pin tests themselves forcing a conscious decision on every
+pipeline edit.
+
+**DEC-15 — RESOLVED: basis renegotiated.** SC-002 counts net lines excluding
+newly-added test files (T034/T037/T038 were mandated by the plan itself; a
+dead-code target must not penalize adding coverage). On that basis: -512 net,
+-56 production-only, ~900 gross dead lines removed. SC-002 judged MET in intent.
+
+**DEC-14 — noted for the reviewer** (loadContentAtClock deletion took a same-day
+fixer test with it; property preserved a fortiori). **DEC-16 — noted for the
+reviewer** (defaulted fourth parameter keeps the 039 arity pin honest).
