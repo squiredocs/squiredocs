@@ -168,22 +168,25 @@ undo its own restore). It is now `'Test MCP Agent'`, which is what those tests a
 
 ---
 
-## 4. FR-010 was not already done — D18
+## 4. FR-010 — nothing owed; and a rebase the queue must know about
 
-Phase 7 was specified as verification-only on the basis that feature 039 had shipped this as its
-FR-018. **It had not.** `HierarchicalVersionList.jsx` still imported `colorUtils` and used the
-**date-salted** `generateColorFromId`, so a colourless author's history badge changed colour
-overnight; and the test T030 said to run did not exist (the file was 465 lines, the citation was
-`:487`). Full evidence and reasoning in `clarifications-needed.md` **D18**.
+**This branch was rebased onto current `main` (`f43a19b1`) before handoff.** It was originally
+branched from `6107b41e`, which predates 039's `61a387af`.
 
-Shipped: the stable-neutral fallback, the `colorUtils` import removed so the two systems cannot
-be silently re-unified, and the missing test written for real (same colour on two mocked dates).
-`colorUtils.js` itself is untouched — the presence rotation must survive, and does.
+That stale base produced one wrong finding, now **retracted** in `clarifications-needed.md`
+**D18**. Implementation briefly concluded that FR-010 had never shipped — `colorUtils` still
+imported, the date-salted fallback still in place, the cited test at `:487` absent — and wrote a
+fix. All of those observations were true **of the old base** and false of `main`: 039 shipped its
+FR-018 in `61a387af`, in exactly the shape 040 wanted, and the cited test exists at line 487
+exactly.
 
-**Merge queue**: 039's FR-018 can be considered discharged by this commit. Close any open 039
-verification item for it.
+**Resolution**: the redundant 040 change was dropped during the rebase in favour of 039's (they
+were substantively identical; 039's is better commented). Phase 7 is verification-only after all,
+as written. **Nothing is owed here, and no 039 item needs closing.**
 
----
+D18 is kept rather than deleted because the trap is worth recording: from inside a worktree,
+"the task's citation is stale" and "my base is old" look identical, and the second is far more
+likely. Check `git show main:<path>` before concluding the former.
 
 ## 5. Verification results (T036–T040)
 
@@ -257,7 +260,7 @@ Recorded in the final implementation report. Baseline before any change was **se
 | 2. US2 — agent restores do not regress | **PASS**, automated: T017/T018. `restore-document-version.js` verified unchanged by `git diff` (T019). |
 | 3. US3 — no silently empty contributor list | **PASS**, automated: T026 (a)–(e) incl. the drill-down path, plus client T027. |
 | 4. US4 — an unattributable edit record fails loudly | **PASS**, automated: T020 (guard runs before any query — the persistence double throws if reached) + T021 (restore still succeeds). |
-| 5. US5 — history colours are stable | **PASS, but NOT verification-only** — it required a real fix. See §4 / D18. |
+| 5. US5 — history colours are stable | **PASS, verification-only as written** — 039 already shipped it. See §4 and the retracted D18. |
 | 5b. US6 — the Undo button never lies | **PASS**, automated: T045/T046/T047/T048, plus T052 for the FR-019 server half. |
 | 6. FR-015 — one identity predicate | **PASS**: `identity-predicate.test.js` + the T036a grep in §5. |
 | 7. Documentation closures (SC-008) | **PASS** by inspection: sentinel rule and FK rationale in `edit-records.js`; F7 limitation comment at `edit-range.js`. The README half is **owed** — §1. |
@@ -298,7 +301,7 @@ Neither can be executed here; both are `promotion-notes.md` OWED-2 items.
 ## 7. What the merge queue must do
 
 1. Apply the two `README.md` replacements in §1 (**the only file edit owed**).
-2. Note D17/FR-019/SC-013 and D18 as post-gate additions to the artifacts.
-3. Close 039's FR-018 verification item, if one is open, against §4.
+2. Note D17/FR-019/SC-013 as post-gate additions to the artifacts, and D18 as a **retracted** finding.
+3. Nothing owed for 039's FR-018 — it was already delivered; see §4.
 4. Leave `promotion-notes.md` OWED-1 (document-level undo affordance) open — still not built,
    deliberately.
