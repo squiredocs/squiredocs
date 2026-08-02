@@ -16,7 +16,7 @@ The only sign-in path is Google OAuth (`server/auth/google.js`, routes in `serve
 - Two token types with separate secrets (`server/auth/jwt.js`): access (15 min; carries userId, email, name, picture, isAdmin) and refresh (7 days; carries userId + tokenVersion). Production refuses to boot on missing/default secrets.
 - Stored as httpOnly cookies (secure + strict SameSite in production); the access token is also returned in the JSON body for Authorization-header clients.
 - `POST /auth/refresh` re-checks `token_version` against the DB and rotates both cookies WITHOUT incrementing the version — deliberate, to avoid a multi-tab revocation race. Logout increments `users.token_version`, invalidating every outstanding refresh token at once.
-- There is no server-side session store. Redis plays no role in auth — it caches Yjs docs and fans out updates/awareness across instances (`server/redis-persistence.js`, `server/redis-pubsub.js`), and is optional.
+- There is no server-side session store. Redis plays no role in auth — it fans out Yjs updates/awareness across instances (`server/redis-pubsub.js`), and is optional. (Amended 2026-08-02: a dormant Redis doc-cache module was never wired into any load path and is removed by feature 042; Redis is pub/sub fan-out only.)
 
 ## Abuse signals: signup/login IP + user-agent
 

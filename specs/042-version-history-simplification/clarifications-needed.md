@@ -110,3 +110,143 @@ the real test would remove the only marker that the coverage gap exists. Recorde
 non-goal in the spec.
 
 **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-7 — FR-002 deletes a module the design docs describe as live — ESCALATED, NOT RATIFIED
+
+**Added at plan time (2026-08-02).**
+
+**Question**: FR-002 deletes `server/redis-persistence.js`. Two `design/` exports describe
+that module as live infrastructure. Constitution Principle VI makes `design/` ground truth
+and forbids hand-editing exports. What happens?
+
+**The two exposures** (verified at plan time):
+
+- `design/authentication-and-sharing.md:19` — *"Redis plays no role in auth — it caches Yjs
+  docs and fans out updates/awareness across instances (`server/redis-persistence.js`,
+  `server/redis-pubsub.js`), and is optional."* Names the file **by path**; deleting it
+  leaves a dangling reference.
+- `design/collaboration-core.md:23` — *"Named-version snapshots and a 24-hour Redis doc
+  cache are the only materialized states."* That 24-hour cache (`DOC_TTL_SECONDS =
+  24*60*60`, key prefix `yjs:doc:`) exists **only** in the module being deleted; grep found
+  no other implementation.
+
+**Why it matters**: both claims are **already false today** — nothing wires the module up,
+so there is no 24-hour doc cache in the running system. This is pre-existing design drift
+that FR-002 surfaces rather than causes. Constitution Principle I ("when analysis reveals
+docs are already out of date, they MUST be corrected as part of the work that discovered
+the drift") and Principle VI (amend the Squire source, re-export via `node design/sync.mjs`,
+never hand-edit) both bind.
+
+**Why this is NOT ratified by default**: every other decision in this ledger is a choice
+this feature can execute. This one is not. The fix requires authoring an amendment in the
+**source Squire documents**, which no pipeline agent can do — and the spec contains no FR
+covering it, so the work is unscoped as well as unassignable.
+
+**Default recommendation (needs an orchestrator/Sam action to enact)**: amend both Squire
+design docs — drop the `server/redis-persistence.js` reference from the auth doc's Redis
+sentence, and remove the 24-hour Redis doc cache from `collaboration-core`'s "materialized
+states" claim — then `node design/sync.mjs`, and land that amendment **before or with**
+042's merge. FR-002 is blocked until it does.
+
+**Fallback if the amendment cannot be obtained**: descope FR-002 (keep
+`server/redis-persistence.js` and its test). This costs 470 of roughly 865 available
+deletion lines and makes **SC-002's ≥600-line target unreachable**, which would then also
+need renegotiating (see contract C11).
+
+**Status**: ⚠️ **OPEN — blocks FR-002.** Surfaced as the analyze gate's stop-the-line
+finding.
+
+---
+
+## DEC-8 — FR-014: fold the fingerprint into the exported CACHE_VERSION
+
+**Added at plan time (2026-08-02).**
+
+**Question**: DEC-1 chose a source fingerprint in the cache-key namespace. *Where*
+mechanically does it go — appended at the key-build site, or folded into the exported
+`CACHE_VERSION` constant?
+
+**Why it matters**: `server/__tests__/diff-service.test.js:712` pins the cache key as
+`` `diff${CACHE_VERSION}:test-doc:-1:0` ``, interpolating the module's **exported**
+`CACHE_VERSION`. Appending the fingerprint separately at the key-build site
+(`diff-service.js:58`) would break that assertion and force a test edit — which FR-001 and
+SC-001 forbid, since that test's subject is not deleted code.
+
+**Decision**: make the exported `CACHE_VERSION` the composite itself
+(`` `${humanVersion}.${sourceFingerprint}` ``, e.g. `v10.a1b2c3d4`) and leave the key
+template at `:58` untouched. The pin test then passes **unmodified**, the human-readable
+`v10` prefix stays legible for logs per DEC-1, and FR-014's semantics are unchanged.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-9 — FR-010 moves the restore surgery without fixing its shape
+
+**Added at plan time (2026-08-02).**
+
+**Question**: FR-010 says the extracted `cloneXmlElement`/replace-delta code lands in
+`server/yjs-utils.js` "where the viewer-deletion bug class is guarded". Verification
+**falsified the premise**: `server/yjs-utils.js` (79 lines, exports `extractXml` and
+`extractText`) contains no such guard, and no file in `server/`, `shared/`, or `client/src`
+contains one. The nearest prior art is a comment at `server/markdown-import.js:328-331`
+asserting "never recreate the fragment or doc" — above code that is itself a
+delete-all+reinsert. Meanwhile the code being moved (`version-history.js:653-681`) *is* a
+delete-all+reinsert, which sits in tension with Constitution Principle IV.
+
+**Decision**: move it **unchanged**. `yjs-utils.js` is the right home for generic Yjs
+surgery, but this feature adds no guard: doing so would be a behavior change forbidden by
+FR-001, and the y-tiptap viewer-deletion bug class deserves its own feature with its own
+tests (already tracked separately as the proposed 021 work).
+
+The Principle IV tension is recorded in the plan's Constitution Check and Complexity
+Tracking so that relocating the code does not launder it into "already reviewed".
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-10 — FR-015 date consolidation is a collision resolution, not a merge
+
+**Added at plan time (2026-08-02).**
+
+**Question**: FR-015 requires date-formatter consolidation "without changing any rendered
+string". Verification found the three implementations produce three **different** strings:
+
+| Source | Output |
+|---|---|
+| `client/src/utils/datetime.js` `formatDateTime` | `Jun 20, 2026 at 8:16 AM` |
+| `HierarchicalVersionList.jsx` local | `Jan 5, 4:30 PM` (no year, different join, explicit `hour12`) |
+| `AdminPage.jsx` local | `Jun 20, 2026, 8:16 AM` (plus a `'Never'` null-guard) |
+
+They are not substitutable. A literal "consolidation" would change rendered output in the
+version-history panel and three admin tables.
+
+**Decision**: treat this as the **name-collision resolution** the deep dive actually
+described. Move each variant into `client/src/utils/datetime.js` under a distinct,
+descriptive name and re-point its call sites; the `'Never'` null-guard travels with its
+function as behavior. Net effect: one module owns date formatting, three names instead of
+one colliding name, and **zero** rendered strings change. `formatVersionTimestamp` (a
+fourth, already-shared variant) is untouched.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+**RESOLVED by the orchestrator (2026-08-02, option 1)**: both Squire source docs amended
+same-day — authentication-and-sharing now reads "Redis is pub/sub fan-out only" with a
+dated amendment note, and collaboration-core's materialized-states sentence now records
+that the 24-hour doc cache was never wired up (and that named versions are pure
+clock-range labels per 023, fixing a second stale claim in the same sentence found during
+the amendment). Re-exported via `node design/sync.mjs` and committed alongside these plan
+artifacts. FR-002 (delete the module + its test) and SC-002 stand unchanged. Gate cleared.
+
+## DEC-11 — the nine [Restore] console.log lines (analyze finding M9) — RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)
+
+**Question**: `server/version-history.js`'s restore path carries nine `console.log('[Restore] …')`
+diagnostic lines that no FR scopes; analyze flagged that removing them needed a decision.
+
+**Decision**: remove them under FR-003's diagnostic-cleanup umbrella. FR-001 explicitly
+exempts removed diagnostics/logging from the zero-behavior-change bar, and these are the
+same class of leftover investigation logging as the ROOT CAUSE block FR-003 removes.
+Error-path logging (console.error / notifier pages) stays untouched.
