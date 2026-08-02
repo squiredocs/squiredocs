@@ -250,3 +250,62 @@ diagnostic lines that no FR scopes; analyze flagged that removing them needed a 
 exempts removed diagnostics/logging from the zero-behavior-change bar, and these are the
 same class of leftover investigation logging as the ROOT CAUSE block FR-003 removes.
 Error-path logging (console.error / notifier pages) stays untouched.
+
+---
+
+## DEC-12 — FR-017 rebase re-verification against post-041 `main` (544573c0)
+
+**Added at implement time (2026-08-02).** Every claim in `research.md` R1-R17 was
+re-greped against post-041 `main` before anything was touched. Outcomes:
+
+**Claims that HELD unchanged** (proceed as written):
+
+- **R1 / FR-002** — `server/redis-persistence.js` (142 lines) and its test (328 lines);
+  the test is still the module's only `require` site. **DEC-7 gate: CLEARED** — `design/`
+  no longer references `redis-persistence` anywhere, and `design/collaboration-core.md:23`
+  now reads "the once-planned 24-hour Redis doc cache was never wired into any load path
+  (dormant module removed, feature 042, amended 2026-08-02)". T011 proceeds.
+- **R2 / FR-003** — the ROOT CAUSE block is intact (now `server/index.js:2214-2246`),
+  8 `[RedisPubSub:ROOT_CAUSE]` lines, sibling `onAwareness` handler at `:2202`.
+- **R5 / FR-006** — no external importer for `claimUndo`, `claimRedo`,
+  `insertLegacyUndone`, `EDIT_ORIGIN`, `HISTORY_ORIGIN`, `LEGACY_GAP_MS`. The
+  `baselineClock` branch survives at `legacy.js:97/108/118-119`, still with no production
+  caller. `LEGACY_FRESHNESS_MS` and `_isIdentityRow` still have live test importers.
+- **R6 / FR-007** — `getDiff` still has zero callers (`postgres-persistence.js:497`), and
+  the doc comment naming it is at `:449`.
+- **R4 / FR-005** — every `version-*` flat-list class family still matches **zero** JSX.
+  (The only near-hits, `version-authors` and `version-menu`, are the `hierarchy-`-prefixed
+  classes.) In `HierarchicalVersionList.css`, `.hierarchy-version-date`,
+  `.hierarchy-version-edits`, `.hierarchy-combined*` and `.hierarchy-breadcrumb*` remain
+  unreferenced.
+
+**Claims that CHANGED** (tasks adapted or dropped):
+
+- **DEC-5 / T046 — DROPPED.** 041 **did** introduce the shared helper:
+  `isMeaningful(update)` at `server/version-history.js:204`, exported at `:1128`, already
+  used at all five predicate sites (`:248`, `:558`, `:701`, `:1009`). FR-015's
+  meaningfulness clause is therefore satisfied by 041 and is dropped from 042 per DEC-5.
+- **FR-004's `refresh` alias — DROPPED from the deletion set.** Pre-041 its only consumer
+  was one test (`useVersionHistory.test.js:481`). 041 made it the live test API for its own
+  behaviour: it is now called at `:567`, `:591`, `:691`, `:716`, `:744`, `:762`, inside
+  describes whose subject is 041's cache-invalidation and selection-reconciliation work,
+  **not** `refresh` itself. Deleting it would force edits to tests outside the permitted
+  list — which FR-001 forbids — so `refresh` stays. The rest of FR-004 is unaffected.
+- **FR-005 CSS line anchors moved.** 041 grew the loading/error/empty group and added the
+  live `.version-history-retry-btn`; `VersionHistoryPanel.css` is now 532 lines. Dead
+  ranges re-derived by content, not by number. `.version-history-error` (`:170`) and
+  `.version-history-retry-btn` (`:174-188`) are both **live** and kept.
+- **FR-010's extraction target was rewritten by 041.** `restoreVersion` no longer builds a
+  replace-delta inline: 041 introduced `applyRestoreTo(doc)` (`:832-859`), a fragment
+  replacement run either on the live doc inside a transaction or on a temp doc. The
+  extraction therefore takes `cloneXmlElement` (`:800-826`) **and** the delete-all+reinsert
+  body of `applyRestoreTo`, leaving 041's live/durable path selection in place. Behaviour
+  unchanged per DEC-9.
+- **FR-015's `includeData` second call site moved.** `getUpdatesForVersion` is now at
+  `:1000` (041 added the meaningful filter and the row-count fix) and `getContentAtClock`'s
+  single-row re-fetch at `:1105`. Both still discard `updateData`; both still opt out.
+- **DEC-11 count confirmed at nine.** `[Restore]` `console.log` lines are at `:771`,
+  `:775`, `:793`, `:836`, `:852`, `:858`, `:908`, `:921`, `:927`. The `console.warn` at
+  `:788` and the two `console.error` at `:868`/`:963` are error-path logging and stay.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**

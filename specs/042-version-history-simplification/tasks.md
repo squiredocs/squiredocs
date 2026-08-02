@@ -31,9 +31,9 @@ Dependencies for the one deliberate deviation (US4 before US2/US3).
 **Purpose**: Isolated worktree, isolated database, and a captured green baseline. Without
 the baseline there is no way to prove FR-001.
 
-- [ ] T001 Create the implementation worktree branched off **post-041** `main` and install dependencies with `npm ci && (cd client && npm ci)` (worktrees do not inherit `node_modules`)
-- [ ] T002 Create the per-worktree database and export it: `createdb collab_test_db_042` then `export DATABASE_URL=postgresql://$USER@localhost:5432/collab_test_db_042` — never point at the shared `collab_test_db`, and note `server/__tests__/globalSetup.js` only auto-creates the DB named by its `TEST_DB_NAME` constant
-- [ ] T003 Capture the green baseline: `npm run test:server`, `npm run test:client`, `npm run build`, and record the merge-base SHA for the SC-002 measurement in contracts/behavior-preservation.md C11
+- [x] T001 Create the implementation worktree branched off **post-041** `main` and install dependencies with `npm ci && (cd client && npm ci)` (worktrees do not inherit `node_modules`)
+- [x] T002 Create the per-worktree database and export it: `createdb collab_test_db_042` then `export DATABASE_URL=postgresql://$USER@localhost:5432/collab_test_db_042` — never point at the shared `collab_test_db`, and note `server/__tests__/globalSetup.js` only auto-creates the DB named by its `TEST_DB_NAME` constant
+- [x] T003 Capture the green baseline: `npm run test:server`, `npm run test:client`, `npm run build`, and record the merge-base SHA for the SC-002 measurement in contracts/behavior-preservation.md C11
 
 **Checkpoint**: Both suites green before any edit.
 
@@ -47,13 +47,13 @@ claimed in research.md must be re-verified against post-041 `main` **before it i
 **⚠️ CRITICAL**: No user story work may begin until this phase completes. Exclude
 `.claude/worktrees/` from every grep — it holds ~45 stale full-repo copies.
 
-- [ ] T004 Re-verify every US1 deletion target against post-041 `main` with fresh reference greps (`redis-persistence`, `getDiff(`, `baselineClock` in `server/undo/`, `claimUndo`/`claimRedo`/`insertLegacyUndone`/`EDIT_ORIGIN`/`HISTORY_ORIGIN`/`LEGACY_GAP_MS`, and the `useVersionHistory` legacy symbols); confirm counts match research.md R1-R6 and record any drift
-- [ ] T005 Re-verify the backend refactor anchors in `server/version-history.js`, `server/postgres-persistence.js`, `server/undo/undo-service.js`, and `server/diff/apply-word-marks.js` — 041 rewrote `restoreVersion`'s delta source (FR-010's extraction target) and the drill-down `getUpdatesForVersion` (FR-015's `includeData` target), so re-derive both from post-041 code
-- [ ] T006 [P] Re-verify the frontend anchors in `client/src/hooks/useVersionHistory.js`, `client/src/components/EditorView.jsx`, and `client/src/components/HierarchicalVersionList.jsx` — 041 may have added consumers of state FR-004 plans to delete, and its selection-reconciliation work rewrites FR-013's restore targeting
-- [ ] T007 [P] Re-verify the dead-CSS determination against post-041 rendered markup in `client/src/components/VersionHistoryPanel.css` and `client/src/components/HierarchicalVersionList.css`; confirm `.version-history-error` is now referenced by 041's error rendering and MUST be kept
-- [ ] T008 [P] Resolve DEC-5: grep for an `isMeaningful` helper introduced by 041. If 041 introduced one, FR-015's meaningfulness clause is **dropped** from this feature; if not, it proceeds as a pure refactor of the surviving predicates
-- [ ] T009 Check the DEC-7 gate: confirm whether the Squire design amendment removing the `server/redis-persistence.js` reference (`design/authentication-and-sharing.md:19`) and the 24-hour Redis doc cache claim (`design/collaboration-core.md:23`) has landed via `node design/sync.mjs`. **If it has not, T011 is blocked and FR-002 is descoped** — record the outcome and its SC-002 consequence
-- [ ] T010 Update `specs/042-version-history-simplification/clarifications-needed.md` with every claim that changed in T004-T009, per FR-017
+- [x] T004 Re-verify every US1 deletion target against post-041 `main` with fresh reference greps (`redis-persistence`, `getDiff(`, `baselineClock` in `server/undo/`, `claimUndo`/`claimRedo`/`insertLegacyUndone`/`EDIT_ORIGIN`/`HISTORY_ORIGIN`/`LEGACY_GAP_MS`, and the `useVersionHistory` legacy symbols); confirm counts match research.md R1-R6 and record any drift
+- [x] T005 Re-verify the backend refactor anchors in `server/version-history.js`, `server/postgres-persistence.js`, `server/undo/undo-service.js`, and `server/diff/apply-word-marks.js` — 041 rewrote `restoreVersion`'s delta source (FR-010's extraction target) and the drill-down `getUpdatesForVersion` (FR-015's `includeData` target), so re-derive both from post-041 code
+- [x] T006 [P] Re-verify the frontend anchors in `client/src/hooks/useVersionHistory.js`, `client/src/components/EditorView.jsx`, and `client/src/components/HierarchicalVersionList.jsx` — 041 may have added consumers of state FR-004 plans to delete, and its selection-reconciliation work rewrites FR-013's restore targeting
+- [x] T007 [P] Re-verify the dead-CSS determination against post-041 rendered markup in `client/src/components/VersionHistoryPanel.css` and `client/src/components/HierarchicalVersionList.css`; confirm `.version-history-error` is now referenced by 041's error rendering and MUST be kept
+- [x] T008 [P] Resolve DEC-5: grep for an `isMeaningful` helper introduced by 041. If 041 introduced one, FR-015's meaningfulness clause is **dropped** from this feature; if not, it proceeds as a pure refactor of the surviving predicates
+- [x] T009 Check the DEC-7 gate: confirm whether the Squire design amendment removing the `server/redis-persistence.js` reference (`design/authentication-and-sharing.md:19`) and the 24-hour Redis doc cache claim (`design/collaboration-core.md:23`) has landed via `node design/sync.mjs`. **If it has not, T011 is blocked and FR-002 is descoped** — record the outcome and its SC-002 consequence
+- [x] T010 Update `specs/042-version-history-simplification/clarifications-needed.md` with every claim that changed in T004-T009, per FR-017
 
 **Checkpoint**: Every downstream task now references verified post-041 reality.
 
