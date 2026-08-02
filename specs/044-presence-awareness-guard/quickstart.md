@@ -20,20 +20,26 @@ the repo root (`docs/dev.md`).
 
 ```bash
 # Unit — the guard module itself
-npx jest server/__tests__/ws-awareness-guard.test.js --runInBand
+npx jest server/__tests__/ws-awareness-guard.test.js --runInBand --forceExit
 
 # Unit — the interceptor + the structural drift guards (extended 038 suite)
-npx jest server/__tests__/ws-edit-gate.test.js --runInBand
+npx jest server/__tests__/ws-edit-gate.test.js --runInBand --forceExit
 
 # Protocol-level end-to-end — real frames, real installGate, real setupWSConnection
-npx jest __tests__/integration/awareness-spoof-block.test.js --runInBand
+npx jest __tests__/integration/awareness-spoof-block.test.js --runInBand --forceExit
 
 # Regression: presence paths this feature must not disturb
 npx jest server/__tests__/awareness-removal-propagation.test.js \
          server/__tests__/import-presence.test.js \
          server/__tests__/live-fanout.test.js \
-         __tests__/integration/step2-viewer-block.test.js --runInBand
+         __tests__/integration/step2-viewer-block.test.js --runInBand --forceExit
 ```
+
+`--forceExit` is **pre-existing hygiene, not this feature's doing**: any suite that
+touches y-protocols `Awareness` leaves its staleness-prune `setInterval` running, so jest
+prints "did not exit one second after the test run has completed" and sits for minutes
+after reporting all-green. The results above the message are complete and correct either
+way; the flag just stops the wait.
 
 Expected: all green. The 038 suites must pass **unmodified in behavior** — the only edits to
 `ws-edit-gate.test.js` are *additions* (awareness cases, extended C1 guards).
@@ -96,11 +102,19 @@ operationalises SC-002.
 Unit-level, with an injected clock (no `sleep`, no flake):
 
 1. Drive 500 dropped frames through one connection inside a single 60 s window.
-2. Assert exactly **one** `onBlocked` emission, carrying `dropped: 500`.
+2. Assert exactly **one** `onBlocked` emission. It carries `dropped: 1` — the **first**
+   drop always emits (contract §2), which is what makes SC-003's "every spoofing
+   connection produces at least one countable event" true; a suppressor that waited for
+   the window to close could report richer counts but stay silent for a full minute about
+   an attack in progress.
 3. Advance the fake clock past the window, drop once more, assert a **second** emission
-   carrying the accumulated `sinceLastLog`.
+   carrying the accumulated counts (`dropped: 501`, `sinceLastLog: 500`) — this is where
+   the suppressed volume becomes visible, and it is what "countable with no counter"
+   means.
 4. Assert a *second connection* spoofing in the same window produces its **own** first
    emission — suppression is per connection, so no attacker can silence another's alarm.
+
+The protocol-level suite mirrors 1–2 and 4 over a real burst of spoofed frames.
 
 ---
 

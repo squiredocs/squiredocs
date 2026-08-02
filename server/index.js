@@ -2060,6 +2060,18 @@ server.on('upgrade', async (request, socket, head) => {
 // per-connection CONTROLLED-IDS set it maintains — exactly the ids each
 // connection actually announced. (The Redis pub/sub cleanup that shared the close
 // handler is preserved; see the close handler below.)
+//
+// AWARENESS FRAMES ARE PARSED AGAIN (feature 044) — and this is NOT that bug
+// coming back. The deleted code asked "which id does the SENDER own?", which a
+// broadcast-about-a-set frame simply cannot answer. The 044 guard, in
+// server/ws-awareness-guard.js, asks the opposite and answerable question:
+// "WHICH IDS DOES THIS FRAME ASSERT?" — exactly what such a frame does tell you
+// — and refuses the frame when a connection asserts an id another user's
+// connection owns. Two things stay true regardless: eviction still comes solely
+// from `closeConn` plus y-websocket's controlled-ids set, and that set is READ
+// by the guard and never written, so y-websocket remains its sole maintainer.
+// No parsing happens in this file; see the C1 structural guards in
+// server/__tests__/ws-edit-gate.test.js, which fail if any reappears.
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
@@ -2114,6 +2126,14 @@ wss.on('connection', (ws, req) => {
   // user had a valid session. The periodic role re-check (every 60s) handles
   // access revocation, and the client reconnects with fresh cookies on auth errors.
 
+  // The shared Yjs doc for this connection's document, resolved lazily below
+  // (feature 044). The gate is installed BEFORE setupWSConnection — 038's
+  // wiring, and its structural guards, depend on that order — so the doc handle
+  // does not exist yet at install time. Until it does, `getConns` returns null
+  // and the awareness guard stands down, which is safe: with no message
+  // listener attached yet, a frame cannot reach any applier.
+  let sharedDoc = null;
+
   // Install the sync-protocol edit gate (feature 038 US1). It classifies each
   // frame, drops edit frames from connections that may not edit — SYNC_UPDATE
   // and SYNC_STEP2 alike, since both reach Y.applyUpdate — and scopes the step2
@@ -2123,7 +2143,26 @@ wss.on('connection', (ws, req) => {
   // table and the synchronicity assumption behind the flag window.
   installGate(ws, {
     canEdit: () => currentCanEdit,
-    onBlocked: (event) => {
+    // Feature 044: the ownership record for the awareness guard, resolved per
+    // frame. y-websocket is its sole maintainer; the guard only reads it.
+    getConns: () => (sharedDoc ? sharedDoc.conns : null),
+    onBlocked: (event, info = {}) => {
+      // Feature 044: an awareness frame refused for asserting someone else's
+      // clientID. Already rate-suppressed per connection by the gate, so this
+      // fires at most once per window; the counts in `info` are what keeps the
+      // suppressed volume recoverable. Distinct wording from the edit-block
+      // line below because it is a different accusation: this connection tried
+      // to speak AS another participant, whatever its edit permission.
+      if (event === 'WS_AWARENESS_BLOCKED') {
+        const { foreignIds, dropped, sinceLastLog } = info;
+        logPerf(event, { connId, userId, docId, role: userRole, foreignIds, dropped, sinceLastLog });
+        console.log(
+          `✗ Awareness frame blocked: user ${userId} asserted clientIds [${foreignIds}] `
+          + `it does not control on doc ${docId} (dropped=${dropped} on this connection)`
+        );
+        return;
+      }
+
       logPerf(event, { connId, userId, docId, role: userRole });
       const what = event === 'WS_STEP2_BLOCKED' ? 'Sync step2 (catch-up) frame' : 'Edit';
       console.log(`✗ ${what} blocked for viewer ${userId} on doc ${docId}`);
@@ -2171,6 +2210,9 @@ wss.on('connection', (ws, req) => {
     // We need to get the SAME doc instance that y-websocket is using
     const wsDocName = `s/${docId}`;
     const doc = getYDoc(wsDocName, true);
+    // From here the awareness guard (feature 044) can see who owns which
+    // clientID on this document. See the `getConns` handler above.
+    sharedDoc = doc;
 
     if (docId && doc) {
       // Debug: Log connection state

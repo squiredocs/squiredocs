@@ -47,7 +47,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Nothing here parses frame payloads beyond the two header varints: this is an
- * ingestion surface for untrusted client bytes (Constitution V).
+ * ingestion surface for untrusted client bytes (Constitution V). The ONE thing
+ * that does need the payload — which clientIDs an awareness frame asserts
+ * (feature 044) — lives in server/ws-awareness-guard.js and is called from
+ * `installGate` below, so this file's invariant stays true while the connection
+ * still has exactly ONE frame-interception point.
  */
 
 const decoding = require('lib0/decoding');
@@ -69,6 +73,22 @@ const SYNC_UPDATE = 2; // Send an update (edit)
  * different origin object).
  */
 const STEP2_ORIGIN_FLAG = '_applyingSyncStep2';
+
+/**
+ * The awareness ownership guard (feature 044), resolved on FIRST USE.
+ *
+ * The two modules reference each other by design: the guard reuses the protocol
+ * constants defined here rather than keeping a second copy of the wire format,
+ * and `installGate` below calls the guard. Requiring it at module scope would
+ * hand the guard this file's half-built `module.exports` (assigned at the
+ * bottom) and `MESSAGE_AWARENESS` would arrive as `undefined`. Resolving at
+ * call time means both modules are fully loaded whichever is required first.
+ * `require` is cached, so this is a hash lookup per install, not a re-read.
+ */
+let awarenessGuardModule = null;
+const awarenessGuard = () => (
+  awarenessGuardModule || (awarenessGuardModule = require('./ws-awareness-guard'))
+);
 
 /**
  * Classify a raw WebSocket frame by its two header varints.
@@ -198,12 +218,27 @@ function viaSyncFromOrigin(origin) {
  * @param {function(): boolean} handlers.canEdit - Reads the connection's CURRENT
  *   edit capability at frame time (so the 60 s role re-check, which fails closed,
  *   takes effect for step2 exactly when it does for update frames).
- * @param {function(string, {kind: 'update'|'step2'}): void} [handlers.onBlocked] -
- *   Called with the event name from `blockedEventFor` when a frame is dropped.
+ * @param {function(string, object): void} [handlers.onBlocked] -
+ *   Called with the event name from `blockedEventFor` when an edit frame is
+ *   dropped, or AWARENESS_BLOCKED_EVENT when an awareness frame is (044).
+ * @param {function(): (Map|null)} [handlers.getConns] - OPTIONAL (044). Resolves
+ *   the document's `Map<conn, Set<number>>` ownership record PER FRAME — the doc
+ *   does not exist yet when the gate is installed. Returning null/non-Map
+ *   disables the awareness check for that frame, which is safe: before
+ *   setupWSConnection runs there is no message listener for a frame to reach.
+ * @param {function(*): (string|null)} [handlers.principalOf] - OPTIONAL (044).
+ *   The same-user tie-break input; defaults to reading `conn.userId`.
  * @returns {function} The original (unwrapped) `ws.emit`, bound to `ws`.
  */
-function installGate(ws, { canEdit, onBlocked } = {}) {
+function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
   const originalEmit = ws.emit.bind(ws);
+
+  // Per-connection log suppression for awareness drops (feature 044, FR-007),
+  // created on the FIRST drop so honest connections never allocate one. Living
+  // in this closure means it is garbage collected with the socket: no global
+  // map to leak, no cleanup handler to forget, and one connection's flood can
+  // never suppress another connection's first alarm.
+  let dropSuppressor = null;
 
   ws.emit = (event, ...args) => {
     if (event === 'message') {
@@ -214,6 +249,46 @@ function installGate(ws, { canEdit, onBlocked } = {}) {
       if (kind !== null && !canEdit()) {
         if (onBlocked) onBlocked(blockedEventFor(kind), { kind });
         return false;
+      }
+
+      // ── Awareness ownership guard (feature 044) ────────────────────────────
+      // Orthogonal to edit classification, which is untouched: this runs only
+      // on frames `classifyFrame` already called "not an edit", and it never
+      // changes what `classifyFrame` returns (FR-005). Awareness frames remain
+      // "not an edit" for every role; the guard applies to viewers and editors
+      // alike. Skipped entirely when the caller passes no `getConns`, which is
+      // what keeps every pre-044 caller and test byte-for-byte unaffected.
+      if (kind === null && getConns) {
+        const conns = getConns();
+        if (conns instanceof Map) {
+          const guard = awarenessGuard();
+          const { isAwareness, clientIds } = guard.parseAwarenessFrame(buffer);
+          if (isAwareness && clientIds.length > 0) {
+            const { allowed, foreignIds } = guard.evaluateAwarenessFrame({
+              conns, conn: ws, clientIds, principalOf,
+            });
+            if (!allowed) {
+              // Dropped whole: no listener runs, so nothing is applied, nothing
+              // is broadcast to other connections, and — because the Redis
+              // awareness publisher is driven by the doc's own awareness
+              // 'update' event — nothing is relayed cross-instance either.
+              // The socket stays OPEN and is NOT notified.
+              if (!dropSuppressor) dropSuppressor = guard.createDropSuppressor();
+              const counts = dropSuppressor.record();
+              // Counted always; LOGGED only when the suppressor lets one
+              // through. The counts ride in the payload, so the volume is
+              // still recoverable from the lines that were emitted.
+              if (onBlocked && counts) {
+                onBlocked(guard.AWARENESS_BLOCKED_EVENT, {
+                  kind: 'awareness',
+                  foreignIds,
+                  ...counts,
+                });
+              }
+              return false;
+            }
+          }
+        }
       }
 
       if (kind === 'step2') {

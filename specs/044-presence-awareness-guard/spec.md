@@ -141,10 +141,15 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
   same-user tie-break (see Assumptions / clarifications ledger): a connection may assert a
   clientID also held by another connection **of the same authenticated user**.
 - **Mixed frame (own + foreign ids)**: the whole frame is dropped; no partial apply.
-- **Undecodable / malformed awareness payload**: the applier already rejects it; the
-  guard treats an unparseable frame as asserting no ids and lets the applier's own
-  handling stand (no new behavior, matching the edit gate's "undecodable ⇒ pass-through,
-  y-websocket rejects it the same way" rule).
+- **Undecodable / malformed awareness payload**: a frame that fails to decode **before a
+  single complete entry** asserts no ids; the guard lets it through and the applier's own
+  handling stands (no new behavior, matching the edit gate's "undecodable ⇒ pass-through,
+  y-websocket rejects it the same way" rule). A frame with a **decodable prefix** is a
+  different case and is *not* covered by that rule: `applyAwarenessUpdate` is not atomic,
+  so it applies entries 1..N-1 before throwing on entry N. Every clientID decoded before
+  the failure therefore counts as asserted and is evaluated normally — otherwise
+  `[spoof of Ca][garbage]` would pass the guard and still land. (Plan decision D-044-1,
+  research R2; the guard's view of a frame must never be narrower than the applier's.)
 - **Empty awareness frame (zero clients)**: asserts nothing; nothing to spoof; allowed.
 
 ## Requirements *(mandatory)*
