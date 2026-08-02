@@ -378,6 +378,29 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     }
   });
 
+  test('SC-004: the honest path is ONE Set.has — other connections are never consulted', () => {
+    // Every honest awareness frame asserts exactly one id, the sender's own
+    // (a client's awarenessChangeHandler encodes only its own changedClients).
+    // Rule 1 must therefore terminate the check before any iteration over
+    // other connections' sets — that is the whole performance argument for
+    // accepting a linear scan on the miss path (research R8), and it is the
+    // only measurable claim SC-004 makes about the guard's cost.
+    const self = makeConn('u-self');
+    const ownIds = new Set([42]);
+    let ownLookups = 0;
+    const countingOwn = { has: (id) => { ownLookups += 1; return ownIds.has(id); } };
+
+    const tripwire = {
+      has: () => { throw new Error('walked another connection\'s set on the honest path'); },
+    };
+
+    const conns = new Map([[self, countingOwn], [makeConn('u-other'), tripwire]]);
+
+    expect(evaluateAwarenessFrame({ conns, conn: self, clientIds: [42] }))
+      .toEqual({ allowed: true, foreignIds: [] });
+    expect(ownLookups).toBe(1);
+  });
+
   test('is read-only about principals too — no field is written onto a connection', () => {
     const alice = makeConn('u-alice');
     const bob = makeConn('u-bob');
