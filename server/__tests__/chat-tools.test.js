@@ -110,6 +110,22 @@ describe('chat-tools', () => {
       expect(execResult).toEqual(result);
     });
 
+    it('still rejects when the model-bound copy alone exceeds the limit', async () => {
+      // The veto must not become toothless: content the model DOES receive
+      // still has to be budgeted.
+      const result = {
+        content: 'x'.repeat(MAX_RESULT_CHARS + 1),
+        diff: { lines: ['-a', '+b'], inlineSegments: { 0: [{ text: 'a', changed: true }] } },
+      };
+      mockExecuteTool.mockResolvedValue(result);
+      buildTools(fakeToken);
+
+      const executeFn = mockTool.mock.calls.find(c => c[0].description === 'Read a doc')[0].execute;
+      const execResult = await executeFn({});
+      expect(execResult).toHaveProperty('error');
+      expect(execResult.error).toContain('exceeds available context');
+    });
+
     it('catches thrown errors from tool execution', async () => {
       mockExecuteTool.mockRejectedValue(new Error('Database connection failed'));
 
@@ -378,9 +394,23 @@ describe('chat-tools', () => {
       }
     });
 
-    it('MB-3: MAX_RESULT_CHARS still measures the FULL result, not the projection', async () => {
-      // The size guard protects what is STORED and RENDERED, not only what the
-      // model sees, so it must keep measuring the unstripped result.
+    it('MB-3: MAX_RESULT_CHARS measures the MODEL-BOUND projection, not the full result', async () => {
+      // REVISED by the 039 post-merge review (LOW), overriding this test's
+      // original assertion. It previously required the guard to measure the
+      // unstripped result, reasoning that the cap protects what is stored and
+      // rendered as well as what the model sees. The guard itself disagrees:
+      // it is declared as a context cap ("Reactive compaction handles overall
+      // context"), its error reads "exceeds available context (~N characters
+      // remaining)", and its remediation tells the model to page the document
+      // with xpath. None of that applies to browser-only emphasis data — the
+      // model never receives it, and it cannot be paged. Rejecting a result
+      // for those bytes costs the user their diff card and hands the model
+      // advice that cannot help.
+      //
+      // The original concern was still real, just attached to the wrong
+      // mechanism: nothing currently budgets the STORED/RENDERED size of a
+      // tool result. That gap is recorded in 039's promotion notes; if it
+      // needs a limit, it needs its own with its own error, not this one.
       const tools = buildTools(fakeToken);
       const huge = modifyResult();
       huge.diff.inlineSegments = { 0: [{ text: 'x'.repeat(MAX_RESULT_CHARS + 1000), changed: true }] };
@@ -388,8 +418,10 @@ describe('chat-tools', () => {
       jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const executed = await tools.read_document.execute({ docGuid: DOC });
-      // Oversized because of the emphasis data alone → the guard still fires.
-      expect(executed.error).toBeDefined();
+      // Oversized by emphasis data ALONE → the model-bound copy is small, so
+      // the result passes and the browser keeps its segments.
+      expect(executed.error).toBeUndefined();
+      expect(executed.diff.inlineSegments).toBeDefined();
     });
   });
 });

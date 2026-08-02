@@ -499,7 +499,13 @@ function buildTools(syntheticAgentToken, { providerName, provider, pool, observe
             }
           }
 
-          const serialized = JSON.stringify(result);
+          // Measure what the MODEL will actually receive, not what `execute`
+          // returns. Since 039 the two differ: the full result carries
+          // `diff.inlineSegments` for the browser, while `toModelOutput` below
+          // strips them. Budgeting against the unstripped bytes would reject a
+          // result for weight no consumer ever bears — the model never sees the
+          // segments, and the browser is not what MAX_RESULT_CHARS protects.
+          const serialized = JSON.stringify(stripUiOnlyDiffFields(result));
           if (serialized.length > MAX_RESULT_CHARS) {
             console.warn(
               `[chat-tools] "${name}" result too large: ${serialized.length.toLocaleString()} chars `
