@@ -29,14 +29,19 @@
  * @param {number} [opts.maxAttempts=3] - total attempts, including the first
  * @param {number} [opts.baseDelay=100] - ms; attempt N waits
  *   `baseDelay * 2^(N-1) + jitter`, jitter being 0-50 ms
+ * @param {function(Error): boolean} [opts.retryOn] - predicate deciding whether
+ *   a given failure is retryable; a false verdict rethrows immediately with no
+ *   further attempts. Default: retry everything. Added for 042-review F2: the
+ *   store slot retries its critical section but must let a pool-acquire
+ *   failure escape un-retried, as it did before the consolidation.
  * @returns {Promise<*>} whatever `fn` resolved to
  */
-async function retryWithBackoff(fn, { maxAttempts = 3, baseDelay = 100 } = {}) {
+async function retryWithBackoff(fn, { maxAttempts = 3, baseDelay = 100, retryOn } = {}) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      if (attempt === maxAttempts) throw err;
+      if (attempt === maxAttempts || (retryOn && !retryOn(err))) throw err;
       const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 50;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

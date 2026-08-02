@@ -183,8 +183,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   } = useVersionHistory(showVersionHistory ? docGuid : null);
 
   // The header's "Restore this version" runs the SAME flow as the list's row
-  // menu (042, FR-013). It passes the LIVE `selection` at open time, so 041's
-  // reconciliation has already retargeted it to the current version id.
+  // menu (042, FR-013) but keeps its own C7 semantics: the target is the LIVE
+  // `selection` read AT CONFIRM TIME (confirmWith below, from a per-render
+  // closure), so a 10s-poll reconciliation between opening the dialog and
+  // confirming retargets the restore — and a selection reconciled to null
+  // makes confirm a no-op. Capture-at-open belongs to the row menu only.
   const restoreFlow = useRestoreFlow(restoreVersion, {
     // In-app navigation to the live doc — never a full page reload (024/FR-012).
     onSuccess: () => onNavigateToDoc?.(docGuid),
@@ -439,7 +442,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
           title="Restore this version?"
           message="A new version will be created with the restored content."
           confirmLabel="Restore"
-          onConfirm={restoreFlow.confirm}
+          onConfirm={() => restoreFlow.confirmWith(selection)}
           onCancel={restoreFlow.cancel}
           busy={restoreFlow.busy}
           error={restoreFlow.error}

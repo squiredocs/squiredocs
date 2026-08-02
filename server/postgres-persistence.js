@@ -249,6 +249,7 @@ class PostgresPersistence {
   async _runStoreSlot(docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync = null) {
     // The backoff itself is the shared helper (042, FR-015) — same 3 attempts,
     // same jittered exponential delay bindState used before 023.
+    const connectFailed = Symbol('connectFailed');
     return retryWithBackoff(async () => {
       // F2: acquire a FRESH client per attempt. A connection that dies mid-INSERT
       // (DB failover/restart, network blip) leaves its pool client permanently
@@ -257,13 +258,25 @@ class PostgresPersistence {
       // the exact backoff meant to ride out a transient DB outage. A new client
       // per attempt restores pre-023 retry semantics. Released on every path,
       // which is why the acquire/release lives INSIDE the retried function.
-      const client = await this.pool.connect();
+      //
+      // The ACQUIRE itself is not retried (042-review F2): pre-042 a pool-acquire
+      // failure — 5s acquire timeout under exhaustion, dead pool — threw straight
+      // out of the attempt loop, and retrying it would triple the time a doc's
+      // FIFO slot (and the shutdown drain) hangs on an outage without improving
+      // the odds the way a fresh attempt at the critical section does.
+      let client;
+      try {
+        client = await this.pool.connect();
+      } catch (err) {
+        if (err && typeof err === 'object') err[connectFailed] = true;
+        throw err;
+      }
       try {
         return await this._storeUpdateCritical(client, docGuid, update, userId, agentName, onBehalfOf, meaningful, viaSync, true);
       } finally {
         client.release();
       }
-    });
+    }, { retryOn: (err) => !(err && err[connectFailed]) });
   }
 
   /**

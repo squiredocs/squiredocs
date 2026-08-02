@@ -371,6 +371,64 @@ describe('PostgresPersistence', () => {
     });
   });
 
+  // 042-review F2 pin: the store slot's shared backoff retries the critical
+  // section, but a POOL-ACQUIRE failure escapes un-retried — exactly the
+  // pre-042 shape, where connect() sat outside the attempt loop. Retrying the
+  // acquire would triple how long a doc's FIFO slot (and the shutdown drain)
+  // hangs on an exhausted/dead pool without improving the outcome.
+  describe('042-review F2: pool-acquire failures are not retried', () => {
+    test('storeUpdate rejects after a single connect attempt', async () => {
+      const realConnect = persistence.pool.connect.bind(persistence.pool);
+      let connectAttempts = 0;
+      persistence.pool.connect = async () => {
+        connectAttempts += 1;
+        throw new Error('acquire timeout (simulated exhausted pool)');
+      };
+      try {
+        await expect(
+          persistence.storeUpdate(crypto.randomUUID(), new Uint8Array([0]), humanUserId, null)
+        ).rejects.toThrow('acquire timeout');
+        expect(connectAttempts).toBe(1);
+      } finally {
+        persistence.pool.connect = realConnect;
+      }
+    });
+
+    test('a critical-section failure still gets the full 3-attempt backoff, each on a fresh client', async () => {
+      const realConnect = persistence.pool.connect.bind(persistence.pool);
+      let connectAttempts = 0;
+      persistence.pool.connect = async () => {
+        connectAttempts += 1;
+        const client = await realConnect();
+        const realQuery = client.query.bind(client);
+        client.query = (sql, params) => {
+          if (typeof sql === 'string' && sql.includes('pg_advisory_xact_lock')) {
+            return realQuery('SELECT 1/0');
+          }
+          return realQuery(sql, params);
+        };
+        // Un-patch before the client returns to the shared pool — a released
+        // client keeps its own-properties, so a leaked patch would poison
+        // whichever later test draws this client.
+        const realRelease = client.release.bind(client);
+        client.release = (...args) => {
+          delete client.query;
+          delete client.release;
+          return realRelease(...args);
+        };
+        return client;
+      };
+      try {
+        await expect(
+          persistence.storeUpdate(crypto.randomUUID(), new Uint8Array([0]), humanUserId, null)
+        ).rejects.toThrow();
+        expect(connectAttempts).toBe(3);
+      } finally {
+        persistence.pool.connect = realConnect;
+      }
+    });
+  });
+
   // F7: getVersionById / updateVersionName / deleteNamedVersion are doc-scoped
   // in SQL (AND doc_id = $n), so a versionId from another document can never be
   // read, renamed, or deleted through a different docGuid — the 019 cross-doc

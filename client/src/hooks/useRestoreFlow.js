@@ -16,12 +16,17 @@ export const RESTORE_FAILURE_MESSAGE = 'Failed to restore this version.';
  * ── THE TARGET IS A PARAMETER, DELIBERATELY ─────────────────────────────────
  * The two sites resolve WHAT to restore differently, and that difference is
  * semantic (contract C7):
- *  - the header restores the LIVE selection, so a mid-flight reconciliation
- *    (feature 041) correctly retargets it to the post-split version id;
- *  - the row menu restores the item CAPTURED when its dialog opened, so a
- *    background history refresh cannot make the confirm act on a different row.
- * Resolving the target inside this hook would silently change one of them. So
- * `open(target)` takes it, and the hook only remembers what it was given.
+ *  - the header restores the LIVE selection AT CONFIRM TIME, so a mid-dialog
+ *    reconciliation (feature 041's 10s refresh) correctly retargets it to the
+ *    post-split version id — the header site calls `confirmWith(selection)`
+ *    from a per-render closure, and a selection reconciled to null makes the
+ *    confirm a no-op (dialog stays open), exactly the pre-042 behavior;
+ *  - the row menu restores the item CAPTURED when its dialog opened (`open`
+ *    remembers it; plain `confirm()` uses it), so a background history refresh
+ *    cannot make the confirm act on a different row.
+ * Resolving the target inside this hook would silently change one of them
+ * (042's review caught the header briefly moving onto captured-at-open
+ * semantics — F1, HIGH; `confirmWith` is the fix).
  *
  * Failure handling matches both originals: a `false` result (the hook's own
  * signalled failure) and a thrown error both leave the dialog OPEN carrying an
@@ -45,10 +50,10 @@ export function useRestoreFlow(restoreVersion, { onSuccess } = {}) {
 
   const cancel = useCallback(() => setState(null), []);
 
-  const confirm = useCallback(async () => {
-    // The target is whatever `open` was given — never re-resolved here.
-    const target = state?.target;
-    if (!target) return;
+  const run = useCallback(async (target) => {
+    // A missing target is a no-op with the dialog left open: the header hits
+    // this when 041's reconciliation nulled the selection mid-dialog.
+    if (!target || !state) return;
     setState((prev) => (prev ? { ...prev, busy: true, error: null } : prev));
 
     try {
@@ -66,6 +71,12 @@ export function useRestoreFlow(restoreVersion, { onSuccess } = {}) {
     }
   }, [state, restoreVersion, onSuccess]);
 
+  // Row-menu semantics: restore the target captured when the dialog opened.
+  const confirm = useCallback(() => run(state?.target), [run, state]);
+
+  // Header semantics (C7): the caller supplies the LIVE target at confirm time.
+  const confirmWith = useCallback((liveTarget) => run(liveTarget), [run]);
+
   return {
     isOpen: !!state,
     target: state?.target ?? null,
@@ -73,6 +84,7 @@ export function useRestoreFlow(restoreVersion, { onSuccess } = {}) {
     error: state?.error ?? null,
     open,
     confirm,
+    confirmWith,
     cancel,
   };
 }
