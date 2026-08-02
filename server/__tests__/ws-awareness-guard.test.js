@@ -25,6 +25,7 @@ const {
   parseAwarenessFrame,
   evaluateAwarenessFrame,
   defaultPrincipalOf,
+  createDropSuppressor,
 } = require('../ws-awareness-guard');
 
 // ─── frame crafting (raw wire bytes, no provider) ────────────────────────────
@@ -464,5 +465,97 @@ describe('ws-awareness-guard: defaultPrincipalOf', () => {
     expect(defaultPrincipalOf({})).toBe(null);
     expect(defaultPrincipalOf(null)).toBe(null);
     expect(defaultPrincipalOf(undefined)).toBe(null);
+  });
+});
+
+// ─── createDropSuppressor ────────────────────────────────────────────────────
+
+describe('ws-awareness-guard: createDropSuppressor', () => {
+  /** A fake clock the test advances by hand — no sleeps, no timing flake. */
+  function fakeClock(start = 1_000_000) {
+    let t = start;
+    return { now: () => t, advance: (ms) => { t += ms; } };
+  }
+
+  test('the FIRST drop on a connection always emits (SC-003: never silent about an attack)', () => {
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: fakeClock().now });
+    expect(suppressor.record()).toEqual({ dropped: 1, sinceLastLog: 1, windowMs: 60000 });
+  });
+
+  test('a 500-frame flood inside one window produces exactly ONE emission', () => {
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: clock.now });
+
+    const emissions = [];
+    for (let i = 0; i < 500; i++) {
+      // Frames arrive fast, but never enough to close the window.
+      clock.advance(100);
+      const payload = suppressor.record();
+      if (payload) emissions.push(payload);
+    }
+
+    expect(emissions).toHaveLength(1);
+    expect(emissions[0]).toEqual({ dropped: 1, sinceLastLog: 1, windowMs: 60000 });
+  });
+
+  test('the accumulated count survives suppression — countability with no counter', () => {
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: clock.now });
+
+    suppressor.record();                                  // emits, dropped: 1
+    for (let i = 0; i < 499; i++) suppressor.record();    // suppressed
+
+    clock.advance(60001);
+    // dropped is CUMULATIVE for the connection; sinceLastLog is what the
+    // suppressed window swallowed. Between them an operator can reconstruct
+    // the volume from the lines that were logged.
+    expect(suppressor.record()).toEqual({ dropped: 501, sinceLastLog: 500, windowMs: 60000 });
+  });
+
+  test('sinceLastLog resets on each emission while dropped keeps climbing', () => {
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 1000, now: clock.now });
+
+    expect(suppressor.record()).toMatchObject({ dropped: 1, sinceLastLog: 1 });
+    suppressor.record();
+    suppressor.record();
+    clock.advance(1000);
+    expect(suppressor.record()).toMatchObject({ dropped: 4, sinceLastLog: 3 });
+    clock.advance(1000);
+    expect(suppressor.record()).toMatchObject({ dropped: 5, sinceLastLog: 1 });
+  });
+
+  test('the window boundary is inclusive — exactly windowMs later emits again', () => {
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 1000, now: clock.now });
+
+    suppressor.record();
+    clock.advance(999);
+    expect(suppressor.record()).toBe(null);
+    clock.advance(1);
+    expect(suppressor.record()).not.toBe(null);
+  });
+
+  test('two suppressors are independent — no connection can silence another alarm', () => {
+    const clock = fakeClock();
+    const bob = createDropSuppressor({ windowMs: 60000, now: clock.now });
+    const mallory = createDropSuppressor({ windowMs: 60000, now: clock.now });
+
+    for (let i = 0; i < 50; i++) bob.record();
+    // Mallory starts spoofing inside Bob's suppression window and still gets
+    // her own first event — per-connection state, not a shared rate limiter.
+    expect(mallory.record()).toEqual({ dropped: 1, sinceLastLog: 1, windowMs: 60000 });
+    expect(mallory.record()).toBe(null);
+  });
+
+  test('defaults to the module window and the real clock', () => {
+    const suppressor = createDropSuppressor();
+    expect(suppressor.record()).toEqual({
+      dropped: 1,
+      sinceLastLog: 1,
+      windowMs: AWARENESS_BLOCK_LOG_WINDOW_MS,
+    });
+    // The real clock cannot have advanced a minute between these two lines.
+    expect(suppressor.record()).toBe(null);
   });
 });

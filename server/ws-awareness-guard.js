@@ -246,10 +246,65 @@ function evaluateAwarenessFrame({ conns, conn, clientIds, principalOf = defaultP
   return { allowed: foreignIds.length === 0, foreignIds };
 }
 
+/**
+ * A per-connection log suppressor for dropped awareness frames (FR-007).
+ *
+ * Awareness frames fire on every cursor move and every 15 s heartbeat, so an
+ * attacker sending one spoof per tick would produce one log line per tick. This
+ * bounds that: the FIRST drop on a connection always emits — which is what
+ * makes "every distinct spoofing connection produces at least one countable
+ * event" (SC-003) true — and afterwards at most one emission per window.
+ *
+ * There is no metrics pipeline in this codebase (research R9), so countability
+ * has to survive suppression inside the payload: every emission carries the
+ * connection's cumulative `dropped` and the `sinceLastLog` accumulated while it
+ * was quiet. An operator can therefore reconstruct the volume from the lines
+ * that did get logged.
+ *
+ * NOTE on the first emission's numbers: because the first drop emits
+ * immediately, its payload reads `dropped: 1`. The accumulated count arrives
+ * with the NEXT windowed emission. Emitting-first-then-summarising is the
+ * ordering SC-003's "at least one event per spoofing connection" requires — a
+ * suppressor that waited for the window to close would report richer counts but
+ * could stay silent for a full window about an attack in progress.
+ *
+ * State lives in the caller's closure (the `installGate` closure, in practice),
+ * so it is garbage collected with the socket: no global map, no cleanup handler
+ * to forget, and no way for one connection's traffic to silence another's alarm.
+ *
+ * @param {object} [options]
+ * @param {number} [options.windowMs] - Minimum gap between emissions
+ * @param {function(): number} [options.now] - Injectable clock (tests advance it
+ *   instead of sleeping, so the suite has no timing flake)
+ * @returns {{ record: function(): (null|{dropped: number, sinceLastLog: number, windowMs: number})}}
+ */
+function createDropSuppressor({ windowMs = AWARENESS_BLOCK_LOG_WINDOW_MS, now = Date.now } = {}) {
+  let dropped = 0;
+  let sinceLastLog = 0;
+  let lastLoggedAt = null;
+
+  return {
+    /** Record one dropped frame. Returns a payload to log, or null if suppressed. */
+    record() {
+      dropped += 1;
+      sinceLastLog += 1;
+
+      const at = now();
+      if (lastLoggedAt !== null && at - lastLoggedAt < windowMs) return null;
+
+      lastLoggedAt = at;
+      const payload = { dropped, sinceLastLog, windowMs };
+      sinceLastLog = 0;
+      return payload;
+    },
+  };
+}
+
 module.exports = {
   AWARENESS_BLOCKED_EVENT,
   AWARENESS_BLOCK_LOG_WINDOW_MS,
   parseAwarenessFrame,
   evaluateAwarenessFrame,
   defaultPrincipalOf,
+  createDropSuppressor,
 };

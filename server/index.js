@@ -2134,7 +2134,23 @@ wss.on('connection', (ws, req) => {
     // Feature 044: the ownership record for the awareness guard, resolved per
     // frame. y-websocket is its sole maintainer; the guard only reads it.
     getConns: () => (sharedDoc ? sharedDoc.conns : null),
-    onBlocked: (event) => {
+    onBlocked: (event, info = {}) => {
+      // Feature 044: an awareness frame refused for asserting someone else's
+      // clientID. Already rate-suppressed per connection by the gate, so this
+      // fires at most once per window; the counts in `info` are what keeps the
+      // suppressed volume recoverable. Distinct wording from the edit-block
+      // line below because it is a different accusation: this connection tried
+      // to speak AS another participant, whatever its edit permission.
+      if (event === 'WS_AWARENESS_BLOCKED') {
+        const { foreignIds, dropped, sinceLastLog } = info;
+        logPerf(event, { connId, userId, docId, role: userRole, foreignIds, dropped, sinceLastLog });
+        console.log(
+          `✗ Awareness frame blocked: user ${userId} asserted clientIds [${foreignIds}] `
+          + `it does not control on doc ${docId} (dropped=${dropped} on this connection)`
+        );
+        return;
+      }
+
       logPerf(event, { connId, userId, docId, role: userRole });
       const what = event === 'WS_STEP2_BLOCKED' ? 'Sync step2 (catch-up) frame' : 'Edit';
       console.log(`✗ ${what} blocked for viewer ${userId} on doc ${docId}`);

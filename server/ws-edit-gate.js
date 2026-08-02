@@ -233,6 +233,13 @@ function viaSyncFromOrigin(origin) {
 function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
   const originalEmit = ws.emit.bind(ws);
 
+  // Per-connection log suppression for awareness drops (feature 044, FR-007),
+  // created on the FIRST drop so honest connections never allocate one. Living
+  // in this closure means it is garbage collected with the socket: no global
+  // map to leak, no cleanup handler to forget, and one connection's flood can
+  // never suppress another connection's first alarm.
+  let dropSuppressor = null;
+
   ws.emit = (event, ...args) => {
     if (event === 'message') {
       const data = args[0];
@@ -266,10 +273,16 @@ function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
               // awareness publisher is driven by the doc's own awareness
               // 'update' event — nothing is relayed cross-instance either.
               // The socket stays OPEN and is NOT notified.
-              if (onBlocked) {
-                onBlocked(awarenessGuard().AWARENESS_BLOCKED_EVENT, {
+              if (!dropSuppressor) dropSuppressor = guard.createDropSuppressor();
+              const counts = dropSuppressor.record();
+              // Counted always; LOGGED only when the suppressor lets one
+              // through. The counts ride in the payload, so the volume is
+              // still recoverable from the lines that were emitted.
+              if (onBlocked && counts) {
+                onBlocked(guard.AWARENESS_BLOCKED_EVENT, {
                   kind: 'awareness',
                   foreignIds,
+                  ...counts,
                 });
               }
               return false;

@@ -579,4 +579,49 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
       }
     });
   });
+
+  // ══ US3 — spoofing is observable, logs are bounded ═════════════════════════
+
+  describe('US3: a spoof flood is countable without flooding the log', () => {
+    test('a burst from one connection yields ONE event; a second spoofer still gets its own first', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 4001;
+      const BURST = 40;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+      const mallory = await connect(docGuid, 'user-mallory');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+
+        for (let i = 0; i < BURST; i++) {
+          bob.ws.send(awarenessFrame([[Ca, 100 + i, userState(`MALLORY ${i}`)]]));
+        }
+        await tick(250);
+
+        // Bounded: one line for the whole burst, not one per frame — the
+        // suppression window is 60 s and the burst is milliseconds long.
+        const fromBob = blocks().filter((e) => e.userId === 'user-bob');
+        expect(fromBob).toHaveLength(1);
+        expect(fromBob[0]).toMatchObject({ kind: 'awareness', foreignIds: [Ca], dropped: 1 });
+        expect(fromBob[0].windowMs).toBeGreaterThan(0);
+
+        // Every frame was refused, not just the logged one.
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+
+        // A second spoofing connection inside the same window is NOT silenced
+        // by the first: suppression is per connection (SC-003).
+        mallory.ws.send(awarenessFrame([[Ca, 500, userState('MALLORY 2')]]));
+        await tick(150);
+
+        const fromMallory = blocks().filter((e) => e.userId === 'user-mallory');
+        expect(fromMallory).toHaveLength(1);
+        expect(fromMallory[0]).toMatchObject({ foreignIds: [Ca], dropped: 1 });
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+      } finally {
+        alice.ws.close(); bob.ws.close(); mallory.ws.close();
+      }
+    });
+  });
 });
