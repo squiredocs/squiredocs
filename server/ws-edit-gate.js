@@ -254,8 +254,27 @@ function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
       if (kind === null && getConns) {
         const conns = getConns();
         if (conns instanceof Map) {
-          // Disposition lands in T012; parsing only, no drops yet.
-          awarenessGuard().parseAwarenessFrame(buffer);
+          const guard = awarenessGuard();
+          const { isAwareness, clientIds } = guard.parseAwarenessFrame(buffer);
+          if (isAwareness && clientIds.length > 0) {
+            const { allowed, foreignIds } = guard.evaluateAwarenessFrame({
+              conns, conn: ws, clientIds, principalOf,
+            });
+            if (!allowed) {
+              // Dropped whole: no listener runs, so nothing is applied, nothing
+              // is broadcast to other connections, and — because the Redis
+              // awareness publisher is driven by the doc's own awareness
+              // 'update' event — nothing is relayed cross-instance either.
+              // The socket stays OPEN and is NOT notified.
+              if (onBlocked) {
+                onBlocked(awarenessGuard().AWARENESS_BLOCKED_EVENT, {
+                  kind: 'awareness',
+                  foreignIds,
+                });
+              }
+              return false;
+            }
+          }
         }
       }
 
