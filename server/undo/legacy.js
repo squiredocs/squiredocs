@@ -8,15 +8,14 @@
  * a guessed inverse is the one forbidden outcome (SC-011, Constitution IV).
  *
  * Rules (RBD-2 elaborated by RBD-10):
- *  - With a baseline clock b: the edit is the contiguous run of the acting
- *    identity's rows starting at the FIRST row after b. Refuse if that first
- *    row is foreign (the start cannot be pinned) or no identity rows follow.
- *  - Without a baseline (bare MCP undo, undo-status fallback): the edit is
- *    the TRAILING contiguous identity run. Refuse if the log tail is foreign.
- *  - Either way, the run is segmented at created_at gaps > 10 s (rows within
- *    one modify call land sub-second apart; separate calls are seconds to
- *    minutes apart), taking the segment nearest the anchor: the first
- *    segment when anchored at a baseline, the trailing segment otherwise.
+ *  - The edit is the TRAILING contiguous run of the acting identity's rows.
+ *    Refuse if the log tail is foreign. (RBD-10 also described a
+ *    baseline-anchored variant taking the run after a given clock; no caller
+ *    ever passed an anchor, so feature 042 removed that branch rather than
+ *    carry a second, production-dead derivation.)
+ *  - The run is segmented at created_at gaps > 10 s (rows within one modify
+ *    call land sub-second apart; separate calls are seconds to minutes
+ *    apart), taking the trailing segment.
  *  - Truncated-window guard (review L3): the input is a BOUNDED window (the
  *    last ~100 rows). A run that begins at the window's first row may extend
  *    into rows the window cut off — its true start is unprovable — unless
@@ -94,18 +93,14 @@ function segment(run, gapMs) {
  *   `viaSync === true` marks a row as sync-sourced (run-breaking, see header).
  * @param {{userId: string, agentName: string|null}} identity - Acting identity.
  * @param {object} [opts]
- * @param {number|null} [opts.baselineClock] - The chat part's persisted
- *   pre-edit clock, when available; omit for anchorless (trailing) lookup.
  * @param {number} [opts.gapMs=LEGACY_GAP_MS]
  * @param {number} [opts.freshnessMs=LEGACY_FRESHNESS_MS]
  * @param {number} [opts.now=Date.now()]
  * @returns {{clockStart: number, clockEnd: number} | null} null = honest
- *   refusal (ambiguous, foreign-anchored, empty, window-truncated, or too
- *   fresh).
+ *   refusal (ambiguous, empty, window-truncated, or too fresh).
  */
 function deriveLegacyRange(rows, identity, opts = {}) {
   const {
-    baselineClock = null,
     gapMs = LEGACY_GAP_MS,
     freshnessMs = LEGACY_FRESHNESS_MS,
     now = Date.now(),
@@ -113,33 +108,18 @@ function deriveLegacyRange(rows, identity, opts = {}) {
   if (!rows || rows.length === 0) return null;
 
   const sorted = [...rows].sort((a, b) => a.clock - b.clock);
-  let run;
 
-  if (baselineClock != null) {
-    const after = sorted.filter((r) => r.clock > baselineClock);
-    if (after.length === 0) return null;
-    // The start must be pinnable: the first row after the baseline must be
-    // the identity's own (RBD-2).
-    if (!isIdentityRow(after[0], identity)) return null;
-    run = [];
-    for (const row of after) {
-      if (!isIdentityRow(row, identity)) break;
-      run.push(row);
-    }
-    if (run.length === 0) return null;
-    const segments = segment(run, gapMs);
-    run = segments[0]; // the segment nearest the anchor (the baseline)
-  } else {
-    // Anchorless: the trailing contiguous identity run.
-    run = [];
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      if (!isIdentityRow(sorted[i], identity)) break;
-      run.unshift(sorted[i]);
-    }
-    if (run.length === 0) return null;
-    const segments = segment(run, gapMs);
-    run = segments[segments.length - 1]; // the segment nearest the tail
+  // The trailing contiguous identity run. (A baseline-anchored variant existed
+  // here and was never reachable — no caller ever passed an anchor — so it was
+  // removed in feature 042 rather than left as a second, untested derivation.)
+  let run = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (!isIdentityRow(sorted[i], identity)) break;
+    run.unshift(sorted[i]);
   }
+  if (run.length === 0) return null;
+  const segments = segment(run, gapMs);
+  run = segments[segments.length - 1]; // the segment nearest the tail
 
   // Truncated-window guard (L3): a run beginning at the window's first row
   // may continue into rows the bounded window cut off — its start cannot be
@@ -156,7 +136,8 @@ function deriveLegacyRange(rows, identity, opts = {}) {
 }
 
 module.exports = {
-  deriveLegacyRange, LEGACY_GAP_MS, LEGACY_FRESHNESS_MS,
+  // LEGACY_GAP_MS is module-internal (the default for `opts.gapMs`).
+  deriveLegacyRange, LEGACY_FRESHNESS_MS,
   // Exposed for the FR-015/SC-009 test, which must prove that THIS surface
   // and the other two undo surfaces agree on the null-vs-undefined agent-name
   // case — including that 038's viaSync channel guard still wins over an

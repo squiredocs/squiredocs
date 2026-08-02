@@ -177,4 +177,6 @@ function computeInverse(rows, range, identity, liveDoc = null) {
   }
 }
 
-module.exports = { computeInverse, EDIT_ORIGIN, HISTORY_ORIGIN };
+// EDIT_ORIGIN / HISTORY_ORIGIN are module-internal scratch-doc origins used only
+// by the replica-UndoManager rebuild below; nothing outside this file reads them.
+module.exports = { computeInverse };

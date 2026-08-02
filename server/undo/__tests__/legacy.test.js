@@ -3,10 +3,11 @@
  *
  * Pre-016 chat parts persist only the pre-edit baseline clock; pre-016 MCP
  * edits have no record at all. Where the edit's rows are unambiguously
- * identifiable — the contiguous run of the acting identity's rows anchored at
- * the baseline (or the trailing run for anchorless lookup), segmented at
- * >10-second created_at gaps — legacy undo works. Anything ambiguous refuses
- * honestly: a guessed inverse is the one forbidden outcome (SC-011).
+ * identifiable — the TRAILING contiguous run of the acting identity's rows,
+ * segmented at >10-second created_at gaps — legacy undo works. Anything
+ * ambiguous refuses honestly: a guessed inverse is the one forbidden outcome
+ * (SC-011). (The baseline-anchored variant was production-dead and removed in
+ * feature 042, along with the cases that were its only exercise.)
  */
 const { deriveLegacyRange, LEGACY_FRESHNESS_MS } = require('../legacy');
 
@@ -24,48 +25,6 @@ function row(clock, identity, atSeconds) {
 }
 const ME = IDENTITY;
 const FOREIGN = null;
-
-describe('deriveLegacyRange — baseline-anchored', () => {
-  test('derives the contiguous identity run immediately after the baseline', () => {
-    const rows = [
-      row(0, FOREIGN, 0),
-      row(1, ME, 100),
-      row(2, ME, 100.2),
-      row(3, FOREIGN, 200),
-    ];
-    const range = deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW });
-    expect(range).toEqual({ clockStart: 1, clockEnd: 2 });
-  });
-
-  test('refuses when the first row after the baseline is foreign (start cannot be pinned)', () => {
-    const rows = [
-      row(0, FOREIGN, 0),
-      row(1, FOREIGN, 50),
-      row(2, ME, 100),
-    ];
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
-  });
-
-  test('refuses when no identity rows follow the baseline', () => {
-    const rows = [row(0, ME, 0)];
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
-  });
-
-  test('segments a contiguous identity run at >10s gaps, taking the segment nearest the anchor', () => {
-    // Two back-to-back modify calls with no interleaved foreign row: rows
-    // land sub-second apart within a call, 30s apart between calls.
-    const rows = [
-      row(0, FOREIGN, 0),
-      row(1, ME, 100),
-      row(2, ME, 100.3), // call 1
-      row(3, ME, 130),
-      row(4, ME, 130.4), // call 2 (30s later)
-    ];
-    const range = deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW });
-    // Anchored at the baseline: the FIRST segment is the edit.
-    expect(range).toEqual({ clockStart: 1, clockEnd: 2 });
-  });
-});
 
 describe('deriveLegacyRange — anchorless (trailing run)', () => {
   test('derives the trailing contiguous identity run', () => {
@@ -139,27 +98,6 @@ describe('deriveLegacyRange — sync-sourced rows are foreign (feature 038 D2)',
     expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
   });
 
-  test('anchored: refuses when the first row after the baseline is flagged (start unpinnable)', () => {
-    const rows = [
-      row(0, FOREIGN, 0),
-      syncRow(1, 100),
-      row(2, ME, 100.2),
-    ];
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
-  });
-
-  test('anchored: a flagged row mid-run truncates the range at it, never across it', () => {
-    const rows = [
-      row(0, FOREIGN, 0),
-      row(1, ME, 100),
-      row(2, ME, 100.2),
-      syncRow(3, 100.4),
-      row(4, ME, 100.6),
-    ];
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW }))
-      .toEqual({ clockStart: 1, clockEnd: 2 });
-  });
-
   test('a window whose identity rows are ALL flagged yields the honest refusal', () => {
     const rows = [
       row(0, FOREIGN, 0),
@@ -169,7 +107,6 @@ describe('deriveLegacyRange — sync-sourced rows are foreign (feature 038 D2)',
     ];
     // "Nothing to undo" — never a stitched-together range.
     expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toBeNull();
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 0, now: NOW })).toBeNull();
   });
 
   test('viaSync null / false / absent behaves exactly as today (D1/D5 — only true means sync)', () => {
@@ -234,16 +171,6 @@ describe('deriveLegacyRange — truncated-window guard (review L3)', () => {
       row(7, ME, 100.2),
     ];
     expect(deriveLegacyRange(rows, IDENTITY, { now: NOW })).toEqual({ clockStart: 6, clockEnd: 7 });
-  });
-
-  test('baseline-anchored: refuses when the run starts at the head of a truncated window', () => {
-    // baselineClock 2, window starts at clock 5 — rows 3 and 4 are unseen, so
-    // the first row after the baseline cannot be pinned.
-    const rows = [
-      row(5, ME, 100),
-      row(6, ME, 100.2),
-    ];
-    expect(deriveLegacyRange(rows, IDENTITY, { baselineClock: 2, now: NOW })).toBeNull();
   });
 });
 

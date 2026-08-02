@@ -103,7 +103,6 @@ describe('EditorView tools menu', () => {
       versions: [],
       groupedVersions: [],
       selectedVersion: null,
-      versionContent: null,
       totalEdits: 0,
       isLoading: false,
       selectVersion: vi.fn(),
@@ -111,7 +110,6 @@ describe('EditorView tools menu', () => {
       createNamedVersion: vi.fn(),
       renameVersion: vi.fn(),
       deleteNamedVersion: vi.fn(),
-      clearSelection: vi.fn()
     });
 
     vi.mocked(useMobile).mockReturnValue(false);

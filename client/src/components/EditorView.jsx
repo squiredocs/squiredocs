@@ -159,8 +159,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     versions,
     hierarchicalVersions,
     selection, // Unified: version or clock update (with isClock: true)
-    versionContent,
-    previousVersionContent, // For diff visualization (legacy)
     diffData, // { fullDoc, currentSnapshot, previousSnapshot } for proper diff
     totalEdits,
     isLoading: versionHistoryLoading,
@@ -175,7 +173,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     createNamedVersion,
     renameVersion,
     deleteNamedVersion,
-    clearSelection,
     // Hierarchical drill-down
     versionUpdates,
     versionUpdatesMeta,
@@ -408,7 +405,6 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             <VersionPreview
               diffData={diffData}
               diffError={versionDiffError}
-              versionContent={versionContent}
               selection={selection}
               isLoading={versionContentLoading}
               showDiff={showDiffHighlights}

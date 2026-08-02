@@ -2213,33 +2213,7 @@ wss.on('connection', (ws, req) => {
           // Handle document updates from other server instances
           onUpdate: (buffer) => {
             try {
-              const updateData = new Uint8Array(buffer);
-              const xmlFragment = doc.get('default', Y.XmlFragment);
-              const blockCountBefore = xmlFragment.toArray().length;
-
-              // ROOT CAUSE INVESTIGATION: Why isn't Yjs deduplicating this update?
-              // Log state vector and diff info to understand what's happening
-              const localStateVector = Y.encodeStateVector(doc);
-              const missingUpdate = Y.diffUpdate(updateData, localStateVector);
-
-              console.log(`[RedisPubSub:ROOT_CAUSE] docId=${docId}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   blockCountBefore=${blockCountBefore}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   incomingUpdateSize=${buffer.length}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   localStateVectorSize=${localStateVector.length}`);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   missingUpdateSize=${missingUpdate.length}`);
-
-              // Decode the state vector to see client IDs
-              const decodedSV = Y.decodeStateVector(localStateVector);
-              console.log(`[RedisPubSub:ROOT_CAUSE]   localClients=${JSON.stringify(Object.fromEntries(decodedSV))}`);
-
-              Y.applyUpdate(doc, updateData, ORIGIN_REDIS);
-
-              const blockCountAfter = xmlFragment.toArray().length;
-              console.log(`[RedisPubSub:ROOT_CAUSE]   blockCountAfter=${blockCountAfter}`);
-
-              if (blockCountAfter !== blockCountBefore) {
-                console.log(`[RedisPubSub:ROOT_CAUSE]   *** DUPLICATE CREATED: ${blockCountBefore} -> ${blockCountAfter} ***`);
-              }
+              Y.applyUpdate(doc, new Uint8Array(buffer), ORIGIN_REDIS);
             } catch (err) {
               console.error(`[RedisPubSub] Error applying doc update for ${docId}:`, err.message);
             }

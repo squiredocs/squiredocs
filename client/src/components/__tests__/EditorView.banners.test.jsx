@@ -105,7 +105,6 @@ describe('EditorView banner states', () => {
       versions: [],
       groupedVersions: [],
       selectedVersion: null,
-      versionContent: null,
       totalEdits: 0,
       isLoading: false,
       selectVersion: vi.fn(),
@@ -113,7 +112,6 @@ describe('EditorView banner states', () => {
       createNamedVersion: vi.fn(),
       renameVersion: vi.fn(),
       deleteNamedVersion: vi.fn(),
-      clearSelection: vi.fn()
     });
 
     // Mock mobile

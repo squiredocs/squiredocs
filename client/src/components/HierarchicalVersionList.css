@@ -116,16 +116,6 @@
   gap: 8px;
 }
 
-.hierarchy-version-date {
-  font-weight: var(--font-medium);
-  color: var(--text-primary);
-}
-
-.hierarchy-version-edits {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-}
-
 .hierarchy-version-badge {
   display: inline-block;
   font-size: var(--text-xs);
@@ -268,21 +258,6 @@
   padding: 8px 12px;
 }
 
-/* Combined updates item */
-.hierarchy-combined {
-  background: var(--surface-sunken);
-  border-radius: 4px;
-  margin-top: 4px;
-}
-
-.hierarchy-combined:hover {
-  background: var(--surface-hover);
-}
-
-.hierarchy-combined.selected {
-  background: var(--surface-selected);
-}
-
 /* Loading and empty states */
 .hierarchy-loading {
   padding: 20px;
@@ -316,38 +291,6 @@
   font-size: var(--text-base);
   color: var(--text-tertiary);
   margin-top: 8px;
-}
-
-/* Breadcrumbs */
-.hierarchy-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
-}
-
-.hierarchy-breadcrumb {
-  color: var(--text-link);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.hierarchy-breadcrumb:hover {
-  color: var(--accent-active);
-  text-decoration: underline;
-}
-
-.hierarchy-breadcrumb-separator {
-  color: var(--text-tertiary);
-}
-
-.hierarchy-breadcrumb-current {
-  color: var(--text-primary);
-  font-weight: var(--font-medium);
 }
 
 /* On-behalf-of provenance for sync (Repo Sync) pushes — feature 004, D8.

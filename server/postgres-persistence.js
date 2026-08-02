@@ -446,7 +446,7 @@ class PostgresPersistence {
    * Get all updates for a document and reconstruct the Y.Doc.
    *
    * Gap-tolerant via `_fetchRowsWithGapRetry` — the single choke point every
-   * log-rebuild reader (history, diffs, exports, MCP read, getDiff/bindState)
+   * log-rebuild reader (history, diffs, exports, MCP read, bindState)
    * funnels through (023 FR-007). Serving-only path: a read still gapped after
    * the budget is served as-is (the log is append-only; the next read heals),
    * with the warn line the fetcher emits.
@@ -486,17 +486,6 @@ class PostgresPersistence {
     } finally {
       client.release();
     }
-  }
-
-  /**
-   * Get the diff (updates) needed to sync a document from a given state vector
-   * @param {string} docGuid - Document GUID
-   * @param {Uint8Array} stateVector - State vector to diff against
-   * @returns {Promise<Uint8Array>} The encoded update containing the diff
-   */
-  async getDiff(docGuid, stateVector) {
-    const ydoc = await this.getYDoc(docGuid);
-    return Y.encodeStateAsUpdate(ydoc, stateVector);
   }
 
   /**
@@ -540,7 +529,12 @@ class PostgresPersistence {
   }
 
   /**
-   * Get a list of all document GUIDs in the database
+   * Get a list of all document GUIDs in the database.
+   *
+   * CONSUMERS (feature 042, DEC-2 — looks unused from `server/`, is not):
+   * `getAllDocumentsWithMeta` below, and the integration-test harness
+   * (`__tests__/integration/collaboration.test.js`). Do not delete as dead.
+   *
    * @returns {Promise<Array<{docGuid: string, updatedAt: Date}>>}
    */
   async getAllDocuments() {
@@ -565,7 +559,15 @@ class PostgresPersistence {
   }
 
   /**
-   * Get document metadata (title) by extracting it from the Yjs document
+   * Get document metadata (title) by extracting it from the Yjs document.
+   *
+   * CONSUMERS (feature 042, DEC-2 — this is a MIGRATION ABI, not dead code):
+   * the shipped migration `migrations/1766103664104_add-title-to-documents.js`
+   * requires this module and calls this method, and `globalSetup.js` runs
+   * `npm run migrate` before every backend test run — so removing or moving it
+   * breaks the whole suite, not just a replay from scratch. Also
+   * `script/backfill-document-titles.js` and `server/__tests__/document-titles.test.js`.
+   *
    * @param {string} docGuid - Document GUID
    * @returns {Promise<{title: string|null}>}
    */
@@ -601,7 +603,11 @@ class PostgresPersistence {
   }
 
   /**
-   * Get all documents with their metadata (title, updatedAt)
+   * Get all documents with their metadata (title, updatedAt).
+   *
+   * CONSUMERS (feature 042, DEC-2): the integration-test harness only — no
+   * production caller. Kept deliberately; do not delete as dead.
+   *
    * @returns {Promise<Array<{docGuid: string, title: string|null, updatedAt: Date}>>}
    */
   async getAllDocumentsWithMeta() {
