@@ -94,11 +94,27 @@ export function useVersionHistory(docGuid) {
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
   const [versionUpdatesMeta, setVersionUpdatesMeta] = useState({}); // { versionId: { total, hasMore } }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
+  // Per-row drill-down failures (review L1): { versionId: message }. A failed
+  // drill-down is a failure OF ONE ROW, so it belongs to that row and never to
+  // the panel-level `error` channel — putting it there made a 500 from
+  // /history/updates render "Couldn't load version history." + Retry over a
+  // perfectly healthy list, while the expanded row sat on "Loading updates..."
+  // forever. The list renders this inline, with its own retry.
+  const [versionUpdatesError, setVersionUpdatesError] = useState({});
 
   // Monotonic request sequence for diff loads. selectVersion/selectUpdate fire
   // async diff fetches; a slower earlier response must never overwrite a newer
   // selection's preview. Only the response whose seq is still current applies.
   const diffRequestSeqRef = useRef(0);
+
+  // The same guard for the timeline itself (review M3). `fetchHistory` runs from
+  // three places at once — mount, the 10 s background poll, and every CRUD action
+  // that refreshes afterwards — so a slow poll response could land AFTER a
+  // fresher refresh and overwrite the newer list with a pre-rename/pre-restore
+  // one, wiping the drill-down cache a second time and reconciling the selection
+  // against a world that no longer exists. Only the response whose seq is still
+  // current applies.
+  const historyRequestSeqRef = useRef(0);
 
   // Feature 041 (FR-007): the selection must be reconciled against every
   // refreshed list, so `fetchHistory` needs to read the CURRENT selection
@@ -131,8 +147,10 @@ export function useVersionHistory(docGuid) {
       setError(null);
     }
 
+    const seq = ++historyRequestSeqRef.current;
     try {
       const response = await api.get(`/api/docs/${docGuid}/history`);
+      if (seq !== historyRequestSeqRef.current) return; // superseded by a newer fetch
       const fresh = response.data.versions || [];
       setVersions(fresh);
       setTotalEdits(response.data.totalEdits || 0);
@@ -149,9 +167,13 @@ export function useVersionHistory(docGuid) {
         setVersionUpdatesMeta({});
       }
     } catch (err) {
+      if (seq !== historyRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error fetching version history:', err);
       setError(err.response?.data?.error || 'Failed to load version history');
     } finally {
+      // Not seq-guarded: only a foreground fetch ever raises this flag, so the
+      // foreground fetch that raised it must always be able to lower it — a
+      // background tick superseding it must not strand the panel in "Loading".
       if (!background) setIsLoading(false);
     }
   }, [docGuid, api]);
@@ -217,6 +239,12 @@ export function useVersionHistory(docGuid) {
     if (!docGuid) return null;
 
     setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: true }));
+    setVersionUpdatesError(prev => {
+      if (!(versionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[versionId];
+      return next;
+    });
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history/updates`, {
@@ -237,7 +265,11 @@ export function useVersionHistory(docGuid) {
       return updates;
     } catch (err) {
       console.error('Error loading version updates:', err);
-      setError(err.response?.data?.error || 'Failed to load version updates');
+      // Row-level, never panel-level (review L1).
+      setVersionUpdatesError(prev => ({
+        ...prev,
+        [versionId]: err.response?.data?.error || 'Failed to load version updates',
+      }));
       return null;
     } finally {
       setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: false }));
@@ -478,6 +510,7 @@ export function useVersionHistory(docGuid) {
     versionUpdates,
     versionUpdatesMeta,
     loadingVersionUpdates,
+    versionUpdatesError,
 
     // Actions
     fetchHistory,

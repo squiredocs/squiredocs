@@ -35,6 +35,7 @@ const CONTEXT_KEYS = [
   'versionUpdates',
   'versionUpdatesMeta',
   'loadingVersionUpdates',
+  'versionUpdatesError',
   'onCreateNamedVersion',
   'onRenameVersion',
   'onDeleteVersion',

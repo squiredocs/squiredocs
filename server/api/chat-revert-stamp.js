@@ -21,6 +21,14 @@
  * returned `editRangePending` — is a MISMATCH by rule: absence of evidence is
  * not a pass.
  *
+ * The range alone is not an identifier, though (review M2). Clocks are small
+ * per-document integers, so ranges collide freely ACROSS documents — every fresh
+ * document's first chat edit is around {2,2}. A `POST /api/docs/A/undo` naming a
+ * card from document B would find a coinciding range and stamp B's card, whose
+ * edit nothing touched. So the comparison is document-scoped first: the card's
+ * own `part.input.docGuid` must be the document the undo ran against. A card
+ * with no recorded document is, like a card with no range, a mismatch by rule.
+ *
  * Explicit non-goals (design amendment 2026-08-02 / 040 D19): no per-chat undo
  * scoping, no change to LIFO target selection, no offer guards, no restore-undo.
  * This is a read-and-compare at the stamp site only, and the undo/redo result is
@@ -38,10 +46,13 @@
  * @param {{clockStart: number, clockEnd: number}|null} [opts.expectedRange] -
  *   the range of the record actually undone/redone. Omit to skip verification
  *   (no production caller does).
+ * @param {string|null} [opts.docGuid] - the document the undo/redo ran against
+ *   (the route's own `:docId`). Part of verification: a card recorded against a
+ *   different document, or with no document at all, is never stamped.
  * @param {string} [opts.label='undo'] - log tag
  * @returns {Promise<{stamped: boolean, reason: string}>}
  */
-async function setChatPartReverted(deps, chatId, userId, toolCallId, reverted, { expectedRange, label = 'undo' } = {}) {
+async function setChatPartReverted(deps, chatId, userId, toolCallId, reverted, { expectedRange, docGuid, label = 'undo' } = {}) {
   const { chatStore } = deps;
   const messages = await chatStore.loadChat(chatId, userId);
   if (!messages || !messages.length) return { stamped: false, reason: 'chat-not-found' };
@@ -63,6 +74,16 @@ async function setChatPartReverted(deps, chatId, userId, toolCallId, reverted, {
   }
 
   if (expectedRange !== undefined) {
+    // Document identity first: a clock range only means anything within one
+    // document, so comparing ranges across documents is comparing nothing.
+    const cardDocGuid = part.input?.docGuid;
+    if (!cardDocGuid || !docGuid || cardDocGuid !== docGuid) {
+      console.warn(
+        `[${label}] reverted-stamp skipped for ${chatId}/${toolCallId}: card document ${cardDocGuid || 'none'} vs undone document ${docGuid || 'none'}`
+      );
+      return { stamped: false, reason: 'doc-mismatch' };
+    }
+
     const cardRange = part.output?.editRange;
     const cardOk = !!cardRange
       && typeof cardRange.clockStart === 'number'

@@ -13,14 +13,22 @@
  * endpoint-test pattern in this repo); the verification rule itself is the real
  * shared module.
  */
+const fs = require('fs');
+const path = require('path');
 const request = require('supertest');
 const express = require('express');
 const { setChatPartReverted } = require('../api/chat-revert-stamp');
 
 const CHAT_ID = 'chat-1';
 const USER_ID = 'user-1';
+/** The document every request in this suite is made against. */
+const DOC_ID = 'doc-1';
 
-/** An in-memory chat store holding one modify card per toolCallId. */
+/**
+ * An in-memory chat store holding one modify card per toolCallId. A card records
+ * the document it edited on `input.docGuid`, exactly as the modify tool call
+ * does; pass `docGuid: null` for a card that recorded none.
+ */
 function makeChatStore(cards) {
   const chats = {
     [CHAT_ID]: [{
@@ -28,6 +36,9 @@ function makeChatStore(cards) {
       parts: cards.map(c => ({
         type: 'tool-modify',
         toolCallId: c.toolCallId,
+        input: (c.docGuid === undefined ? DOC_ID : c.docGuid) === null
+          ? {}
+          : { docGuid: c.docGuid === undefined ? DOC_ID : c.docGuid },
         output: c.editRange === undefined ? {} : { editRange: c.editRange },
         ...(c.reverted ? { reverted: true } : {}),
       })),
@@ -51,6 +62,7 @@ function makeApp(chatStore, toolResult, toolName = 'undo') {
   const app = express();
   app.use(express.json());
   app.post('/api/docs/:docId/undo', async (req, res) => {
+    const { docId } = req.params;
     const result = toolResult;
     const succeeded = toolName === 'undo' ? result.undone : result.redone;
     if (succeeded && req.body?.chatId && req.body?.toolCallId) {
@@ -58,7 +70,7 @@ function makeApp(chatStore, toolResult, toolName = 'undo') {
         const recordRange = toolName === 'undo' ? result.undoneRecordRange : result.redoneRecordRange;
         await setChatPartReverted(
           { chatStore }, req.body.chatId, USER_ID, req.body.toolCallId, toolName === 'undo',
-          { expectedRange: recordRange, label: toolName }
+          { expectedRange: recordRange, docGuid: docId, label: toolName }
         );
       } catch (e) {
         // best-effort, mirrors the route
@@ -196,6 +208,53 @@ describe('041 FR-015: verified "Reverted" stamp', () => {
     expect(partFor(mismatched, 'call-a').reverted).toBeUndefined();
   });
 
+  // ── Review M2: the comparison is document-scoped ──────────────────────────
+  // Clocks are small per-document integers, so ranges collide freely across
+  // documents — every fresh document's first chat edit is around {2,2}. Without
+  // a document check, a POST to document A naming a card from document B finds a
+  // coinciding range and stamps B's card, whose edit nothing touched.
+  describe('review M2: document identity', () => {
+    test('a coincident range in ANOTHER document is NOT stamped', async () => {
+      // The card belongs to doc-2; the request (and the undone record) is doc-1.
+      const store = makeChatStore([
+        { toolCallId: 'call-other-doc', docGuid: 'doc-2', editRange: { clockStart: 2, clockEnd: 2 } },
+      ]);
+      const app = makeApp(store, undoResult({ clockStart: 2, clockEnd: 2 }));
+
+      const res = await request(app)
+        .post(`/api/docs/${DOC_ID}/undo`)
+        .send({ chatId: CHAT_ID, toolCallId: 'call-other-doc' });
+
+      expect(res.status).toBe(200);
+      expect(partFor(store, 'call-other-doc').reverted).toBeUndefined();
+      expect(store.saveChat).not.toHaveBeenCalled();
+      expect(warnSpy.mock.calls.some(c => String(c[0]).includes('card document doc-2 vs undone document doc-1'))).toBe(true);
+    });
+
+    test('the SAME document with a matching range is stamped', async () => {
+      const store = makeChatStore([
+        { toolCallId: 'call-a', docGuid: DOC_ID, editRange: { clockStart: 2, clockEnd: 2 } },
+      ]);
+      const app = makeApp(store, undoResult({ clockStart: 2, clockEnd: 2 }));
+
+      await request(app).post(`/api/docs/${DOC_ID}/undo`).send({ chatId: CHAT_ID, toolCallId: 'call-a' });
+
+      expect(partFor(store, 'call-a').reverted).toBe(true);
+    });
+
+    test('a card with NO recorded document is a mismatch by rule: not stamped, logged', async () => {
+      const store = makeChatStore([
+        { toolCallId: 'call-a', docGuid: null, editRange: { clockStart: 10, clockEnd: 12 } },
+      ]);
+      const app = makeApp(store, undoResult({ clockStart: 10, clockEnd: 12 }));
+
+      await request(app).post(`/api/docs/${DOC_ID}/undo`).send({ chatId: CHAT_ID, toolCallId: 'call-a' });
+
+      expect(partFor(store, 'call-a').reverted).toBeUndefined();
+      expect(warnSpy.mock.calls.some(c => String(c[0]).includes('card document none'))).toBe(true);
+    });
+  });
+
   test('an honest-empty undo never stamps anything (no range field, no success)', async () => {
     const store = makeChatStore([{ toolCallId: 'call-a', editRange: { clockStart: 10, clockEnd: 12 } }]);
     const app = makeApp(store, { success: true, undone: false, message: 'Nothing to undo.', clock: 5 });
@@ -204,5 +263,19 @@ describe('041 FR-015: verified "Reverted" stamp', () => {
 
     expect(store.loadChat).not.toHaveBeenCalled();
     expect(partFor(store, 'call-a').reverted).toBeUndefined();
+  });
+
+  // ── PIN: the route block this suite mirrors ───────────────────────────────
+  // `makeApp` above is a hand-copy of makeUndoRedoHandler's stamp block, so
+  // without a pin the real route could drift out from under a green suite.
+  // index.js boots a live server on require; source inspection is the seam.
+  describe('PIN: server/index.js makeUndoRedoHandler stamp block', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+
+    test('the route stamps only on success, with the record range AND the route\'s own docId', () => {
+      expect(source).toMatch(
+        /const succeeded = toolName === 'undo' \? result\.undone : result\.redone;[\s\S]{0,200}?const recordRange = toolName === 'undo' \? result\.undoneRecordRange : result\.redoneRecordRange;[\s\S]{0,300}?\{ expectedRange: recordRange, docGuid: docId, label \}/
+      );
+    });
   });
 });

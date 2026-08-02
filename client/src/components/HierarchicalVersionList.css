@@ -273,6 +273,28 @@
   font-size: var(--text-base);
 }
 
+/* Row-level drill-down failure (review L1). Sits inside the expanded row, in
+   place of its sub-versions — the panel-level error belongs to the timeline. */
+.hierarchy-updates-error {
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.hierarchy-updates-error-btn {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  color: var(--danger);
+  font-family: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.hierarchy-updates-error-btn:hover {
+  color: var(--danger-hover);
+}
+
 .hierarchy-updates-more {
   padding: 6px 12px;
   text-align: center;
