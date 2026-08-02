@@ -387,8 +387,10 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
  *
  * @param {Array} autoVersions - Auto-generated versions from time grouping
  * @param {Array} namedVersions - User-created named versions
- * @param {Array} [updates] - The same (meaningful-filtered) update rows the auto
- *   versions were grouped from, ascending by clock. Source of range-scoped meta.
+ * @param {Array} [updates] - The document's update rows, ascending by clock,
+ *   UNFILTERED. `computeRangeMeta` applies the meaningful rule per range, which
+ *   is what lets it distinguish a row-less range (empty authors, FR-003) from a
+ *   noise-only one (credit its real in-range editors, R16).
  * @returns {Array} Merged version list
  */
 function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
@@ -568,11 +570,18 @@ async function getVersionTimeline(persistence, docGuid) {
   // Group updates into auto versions
   const autoVersions = groupUpdatesIntoVersions(updates);
 
-  // Merge with named versions. The filtered `updates` go along so named
-  // versions and split fragments compute their authors/provenance from their
-  // OWN clock ranges (feature 041, FR-001..003) — no extra query, no replay,
-  // so the timeline stays O(rows) (023 FR-016).
-  const versions = mergeNamedVersions(autoVersions, namedVersions, updates);
+  // Merge with named versions. The rows go along so named versions and split
+  // fragments compute their authors/provenance from their OWN clock ranges
+  // (feature 041, FR-001..003) — no extra query, no replay, so the timeline
+  // stays O(rows) (023 FR-016).
+  //
+  // The UNFILTERED set is passed deliberately: `computeRangeMeta` applies the
+  // meaningful rule itself, per range, which is the only way it can tell "this
+  // range has no rows at all" (FR-003 ⇒ empty authors) apart from "this range
+  // is all noise" (R16 ⇒ credit its real, in-range editors). Handing it the
+  // pre-filtered array would collapse those two into one indistinguishable
+  // empty case.
+  const versions = mergeNamedVersions(autoVersions, namedVersions, allUpdates);
 
   // Format versions for API response
   const formattedVersions = versions.map(v => ({

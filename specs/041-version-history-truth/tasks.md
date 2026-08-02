@@ -163,9 +163,9 @@ Stay on `main`; never branch, never commit (the implement/merge stages own commi
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T035 Full serial verification per quickstart.md: backend `npx jest server/__tests__ server/undo/__tests__ __tests__/integration --runInBand` (or the project's standard serial invocation) and client `npx vitest run`; every FR row in the quickstart matrix has a passing test; zero regressions.
-- [ ] T036 Guard-rail audit: confirm NO migration files added under migrations/; confirm nothing revived from the 040 D19 cut (no `agent_edits` write for `agentName === null` restores — the `if (agentName)` gate in server/version-history.js untouched; no offer-guard machinery); confirm `design/collaboration-core.md` 2026-08-02 amendment still holds against the diff.
-- [ ] T037 Record implement-stage deviations/decisions (if any) in specs/041-version-history-truth/clarifications-needed.md; assemble the merge-queue handoff notes from plan.md (README drift check; `.version-history-error` CSS now LIVE — flag to 042; manual-check list from quickstart.md for Sam).
+- [x] T035 Full serial verification per quickstart.md: backend `npx jest server/__tests__ server/undo/__tests__ __tests__/integration --runInBand` (or the project's standard serial invocation) and client `npx vitest run`; every FR row in the quickstart matrix has a passing test; zero regressions.
+- [x] T036 Guard-rail audit: confirm NO migration files added under migrations/; confirm nothing revived from the 040 D19 cut (no `agent_edits` write for `agentName === null` restores — the `if (agentName)` gate in server/version-history.js untouched; no offer-guard machinery); confirm `design/collaboration-core.md` 2026-08-02 amendment still holds against the diff.
+- [x] T037 Record implement-stage deviations/decisions (if any) in specs/041-version-history-truth/clarifications-needed.md; assemble the merge-queue handoff notes from plan.md (README drift check; `.version-history-error` CSS now LIVE — flag to 042; manual-check list from quickstart.md for Sam).
 
 ---
 

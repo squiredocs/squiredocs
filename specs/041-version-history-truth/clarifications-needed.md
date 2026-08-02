@@ -184,3 +184,112 @@ Consequences bound into plan/tasks:
 - **Rationale**: Containing-version reselection preserves the user's context
   through renames/resplits (the common case); the default rule is the existing,
   already-shipped behavior for "nothing selected".
+
+---
+
+# Implement-stage decisions (2026-08-02)
+
+All RATIFIED-BY-DEFAULT under Sam's pre-authorization for this feature. None
+changes a shipped product behavior beyond what the FRs already require; each is
+recorded because a reviewer would otherwise have to reverse-engineer the choice.
+
+## IMP-041-1 — Bind refusal lives in its own module (`server/bind-failure.js`)
+
+- **Question**: plan.md's structure note said "no new modules". FR-010's refusal
+  logic sits in `server/index.js`'s `bindState` catch, and `server/index.js`
+  boots a live HTTP + WebSocket server on `require`, so nothing in it is
+  unit-testable.
+- **Decision**: extract `refuseBind(...)` into `server/bind-failure.js` (the
+  option tasks.md T013 explicitly allows: "extract the load-and-bind step into a
+  named function exported for tests"). `server/index.js` calls it from the
+  catch; the wiring itself is pinned by source-inspection assertions in
+  `server/__tests__/bindstate-failure.test.js`.
+- **Rationale**: FR-010 has real behavior (page, evict, close 1013, drop
+  persists) that must be provable. A one-function module with injected
+  `docs`/`notify` is the smallest thing that makes it so.
+
+## IMP-041-2 — The verified stamp lives in `server/api/chat-revert-stamp.js`
+
+- Same reason as IMP-041-1: FR-015's comparison rule is the whole point of the
+  change and could not otherwise be tested. `server/index.js` keeps a
+  three-line wrapper binding `chatStore`, so the route reads the same as before.
+- The route handler is replicated in `server/__tests__/undo-stamp.test.js`,
+  which is this repo's established endpoint-test pattern (cf.
+  `undo-status-api.test.js`).
+
+## IMP-041-3 — Per-document paging throttle on refused binds
+
+- **Question** (analyze MEDIUM finding U2): does the exception notifier already
+  dedupe or rate-limit?
+- **Finding**: yes — `server/exception-notifier.js` rate-limits GLOBALLY to 10
+  emails per 5 minutes.
+- **Decision**: keep a cheap per-document throttle (one page per doc per 5 min)
+  inside the refusal path anyway.
+- **Rationale**: the notifier's budget is shared with every other alert source.
+  A sustained DB outage across many documents would burn the whole budget on one
+  repeated fact and crowd out unrelated pages. The throttle is a `Map` of
+  `docGuid -> lastPagedAt`, pruned opportunistically, and only ever populated by
+  documents that actually failed to load. Honors the spec edge case ("no
+  unbounded notification spam") without weakening the signal.
+
+## IMP-041-4 — `mergeNamedVersions` receives the UNFILTERED rows
+
+- **Question**: research R1 says to pass `getVersionTimeline`'s
+  meaningful-filtered array; research R16 requires distinguishing "range has no
+  rows" (FR-003 ⇒ empty authors) from "range is all noise" (⇒ credit its real
+  in-range editors). Those are indistinguishable in a pre-filtered array.
+- **Decision**: pass the unfiltered rows; `computeRangeMeta` applies the
+  meaningful rule itself, per range.
+- **Rationale**: satisfies both FR-003 and R16 with no extra query and no
+  replay — it is the same array `getVersionTimeline` already holds, so the
+  O(rows) invariant (023 FR-016) is untouched. Auto-version grouping still
+  consumes the filtered set, unchanged.
+
+## IMP-041-5 — Split fragments scope authors/provenance, NOT timestamps
+
+- FR-002 scopes "the authors and on-behalf-of provenance" of a fragment; FR-003
+  scopes a NAMED version's timestamp. Fragments therefore keep their parent auto
+  version's timestamp.
+- **Rationale**: a fragment is a slice of one activity burst (all its rows are
+  within the grouping threshold of one another), so the displayed time is off by
+  at most that threshold, and rewriting fragment timestamps would change the
+  rendered history of every existing document for no attribution gain. Recorded
+  as a deliberate residual, not an oversight.
+
+## IMP-041-6 — The drill-down cache is invalidated by STRUCTURE, not by every refresh
+
+- **Question**: FR-008's 10 s poll flows through the same refresh path that
+  wipes `versionUpdates`. Wiping on every tick would make every expanded row
+  re-fetch every 10 s and blank its contents in between — the opposite of the
+  scroll/expansion-preservation edge case (analyze MEDIUM finding C1).
+- **Decision**: compute a structural fingerprint (`id:clockStart-clockEnd:name:isCurrent`
+  per version) and invalidate only when it changes.
+- **Rationale**: a drill-down's contents depend only on the rows in its range,
+  and any change to those rows moves the fingerprint (a new edit extends the
+  current version's `clockEnd`; noise rows are excluded from both surfaces by
+  FR-004). Structure-unchanged therefore implies drill-down-unchanged. Two
+  existing hook tests asserted the wipe using `versions: []` on both fetches —
+  an artificial payload where the structure genuinely never changes — and were
+  updated to realistic before/after lists.
+
+## IMP-041-7 — The panel keeps its list mounted across refreshes
+
+- **Question** (analyze MEDIUM finding C1): scroll preservation on live refresh
+  is manual-check-only, so the implementation must avoid remount patterns.
+- **Decision**: (a) background poll ticks never set `isLoading`; (b) the panel's
+  loading placeholder only stands in for an EMPTY list, so
+  `HierarchicalVersionList` stays mounted through every refresh; (c) rows keep
+  their existing `key={version.id}` / `key={month.label}` identity.
+- **Rationale**: with the old gating (`!isLoading && versions.length > 0`) every
+  refresh unmounted the list, discarding scroll position, month expansion and
+  row expansion — and would have made FR-009's re-fetch effect meaningless.
+  Actual pixel behavior still needs Sam's two-browser manual check (quickstart
+  manual check #2).
+
+## IMP-041-8 — A fourth documentation surface corrected in the SC-011 sweep
+
+- `server/api/chat.js:92` also carried the pre-cut claim ("the identity a web-UI
+  restore is RECORDED under"). FR-018 names two surfaces and FR-019 a third, but
+  SC-011's sweep is "zero pre-cut claims", so it was corrected too and is
+  covered by the grep-level guard in
+  `server/__tests__/restore-doc-truth.test.js`.

@@ -835,10 +835,9 @@ describe('version-history module', () => {
       const meaningful = all.filter(u => u.meaningful !== false);
       const autoVersions = groupUpdatesIntoVersions(meaningful);
 
-      // mergeNamedVersions is fed the meaningful set (what getVersionTimeline
-      // holds), so a noise-only range must fall back to the raw rows it is
-      // given for that range — which here is empty. Feed the unfiltered set to
-      // exercise the R16 fallback the way getVersionContent-style callers can.
+      // mergeNamedVersions receives the UNFILTERED rows (exactly what
+      // getVersionTimeline passes) so it can tell "no rows at all" apart from
+      // "all noise" — the latter still has real editors to credit.
       const result = mergeNamedVersions(autoVersions, [{
         id: 'noise-only',
         name: 'All noise',
@@ -852,6 +851,31 @@ describe('version-history module', () => {
       const named = result.find(v => v.id === 'noise-only');
       expect(named.authors.map(a => a.id)).toEqual(['user-b']);
       expect(named.authors.map(a => a.id)).not.toContain('user-a');
+    });
+
+    test('end-to-end: getVersionTimeline credits a noise-only named range from its own rows, not an empty list', async () => {
+      const all = [
+        mk(1, { meaningful: false, userId: 'user-b', userName: 'Bob', userEmail: 'bob@example.com' }),
+        mk(2, { meaningful: false, userId: 'user-b', userName: 'Bob', userEmail: 'bob@example.com' }),
+        mk(3),
+        mk(4),
+      ];
+      const persistence = {
+        getUpdatesWithUsers: async () => all,
+        getNamedVersions: async () => ([{
+          id: 'noise-only',
+          name: 'All noise',
+          clock_start: 1,
+          clock_end: 2,
+          created_at: '2024-05-02T09:00:00Z',
+          created_by: 'user-a',
+          creator_name: 'Alice',
+        }]),
+      };
+
+      const { versions } = await getVersionTimeline(persistence, 'doc');
+      const named = versions.find(v => v.isNamed);
+      expect(named.authors.map(a => a.id)).toEqual(['user-b']);
     });
 
     test('a genuinely row-less named range yields an empty author list', () => {
