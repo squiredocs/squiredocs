@@ -226,6 +226,69 @@ describe('computeInverse', () => {
     expect(applyInverse(log, res.inverseUpdate)).toBe('<paragraph>Doc. theirs</paragraph>');
   });
 
+  // ── Feature 041 (FR-016, RBD-041-5) ──────────────────────────────────────
+  // The spanning-range fallback (no recorded clock set — legacy/pre-016 rows)
+  // is the only branch that can sweep in rows the recorder never named. A
+  // via_sync row records the CHANNEL content arrived on, never authorship, so
+  // inverting one would revert somebody else's work under this identity. The
+  // legacy path has always excluded them; this branch was correct only by
+  // timing, which is not an invariant.
+  describe('041 FR-016: the spanning-range fallback excludes sync-channel rows', () => {
+    test('a same-identity via_sync row inside a legacy spanning range is NOT inverted', () => {
+      const log = new LogBuilder();
+      log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+      const r1 = log.edit(AGENT, (d, f) => f.get(0).get(0).insert(5, ' A1'));
+      // A reconnect catch-up re-supplies content under the same identity.
+      const r2 = log.edit(AGENT, (d, f) => f.insert(1, [para('Re-supplied on reconnect.')]));
+      for (let c = r2.clockStart; c <= r2.clockEnd; c++) log.rows[c].viaSync = true;
+
+      // Spanning range (no clocks[]) — the legacy shape.
+      const res = computeInverse(log.rows, { clockStart: r1.clockStart, clockEnd: r2.clockEnd }, AGENT);
+
+      expect(res).not.toBeNull();
+      // A1 is reverted; the re-supplied paragraph survives untouched.
+      expect(applyInverse(log, res.inverseUpdate)).toBe(
+        '<paragraph>Base.</paragraph><paragraph>Re-supplied on reconnect.</paragraph>'
+      );
+    });
+
+    test('legacy behavior with non-sync rows is unchanged (viaSync null/false/absent)', () => {
+      const build = (flag) => {
+        const log = new LogBuilder();
+        log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+        const r1 = log.edit(AGENT, (d, f) => f.get(0).get(0).insert(5, ' A1'));
+        const r2 = log.edit(AGENT, (d, f) => f.insert(1, [para('Second.')]));
+        if (flag !== undefined) {
+          for (let c = r1.clockStart; c <= r2.clockEnd; c++) log.rows[c].viaSync = flag;
+        }
+        return { log, range: { clockStart: r1.clockStart, clockEnd: r2.clockEnd } };
+      };
+
+      for (const flag of [undefined, null, false]) {
+        const { log, range } = build(flag);
+        const res = computeInverse(log.rows, range, AGENT);
+        expect(res).not.toBeNull();
+        expect(applyInverse(log, res.inverseUpdate)).toBe('<paragraph>Base.</paragraph>');
+      }
+    });
+
+    test('the clockSet path is untouched — recorded clock sets never contain sync rows', () => {
+      const log = new LogBuilder();
+      log.edit(HUMAN, (d, f) => f.insert(0, [para('Base.')]));
+      const r1 = log.edit(AGENT, (d, f) => f.get(0).get(0).insert(5, ' A1'));
+      // Even if a row in the recorded set were somehow flagged, the exact set
+      // from the recorder is authoritative and the guard does not apply there.
+      for (let c = r1.clockStart; c <= r1.clockEnd; c++) log.rows[c].viaSync = true;
+
+      const clocks = [];
+      for (let c = r1.clockStart; c <= r1.clockEnd; c++) clocks.push(c);
+      const res = computeInverse(log.rows, { ...r1, clocks }, AGENT);
+
+      expect(res).not.toBeNull();
+      expect(applyInverse(log, res.inverseUpdate)).toBe('<paragraph>Base.</paragraph>');
+    });
+  });
+
   test('returns null (honest empty) when the edit is fully superseded', () => {
     const log = new LogBuilder();
     log.edit(HUMAN, (d, f) => f.insert(0, [para('Stable.')]));

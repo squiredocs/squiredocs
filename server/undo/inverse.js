@@ -102,9 +102,19 @@ function computeInverse(rows, range, identity, liveDoc = null) {
         });
       }
 
+      // The SPANNING-RANGE fallback (no recorded clock set — a legacy/pre-016
+      // row) is the only branch that can sweep in rows the recorder never
+      // named. Feature 041 (FR-016, RBD-041-5): exclude sync-channel rows there,
+      // mirroring the rule legacy.js already applies. A `via_sync` row proves
+      // only that content reached the server THROUGH a client's reconnect
+      // catch-up — never that the client authored it in this edit — so
+      // inverting one would revert somebody else's work under this identity.
+      // Until now that was safe only by timing, which is not an invariant. The
+      // clockSet path needs no guard: exact clock sets come from the recorder,
+      // which never records sync rows.
       const inTarget = clockSet
         ? clockSet.has(row.clock)
-        : (row.clock >= clockStart && row.clock <= clockEnd);
+        : (row.clock >= clockStart && row.clock <= clockEnd && row.viaSync !== true);
       if (inTarget && isIdentityRow(row)) {
         Y.applyUpdate(scratch, data, EDIT_ORIGIN);
         trackedAny = true;

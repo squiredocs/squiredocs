@@ -26,10 +26,14 @@ function init(persistence) {
 const name = 'restore_document_version';
 
 const description = `Restore a document to a previous version (non-destructive). Creates a new
-edit that replaces the current content with the historical content; the
-restore itself becomes a new version in the history, so you can undo it by
-restoring to a version from before the restore. Changes broadcast immediately
-to all connected clients.
+edit that replaces the current content with the historical content, and the
+restore itself becomes a new version in the history. Changes broadcast
+immediately to all connected clients.
+
+REVERTING A RESTORE: your restore is recorded as YOUR edit, so your own undo
+tool inverts it directly (undo({ docGuid })) — the ordinary way. You can also
+counter-restore to a version from before the restore. Undo is surgical: it
+reverts your restore while preserving edits others made afterwards.
 
 Requires editor or owner role. Viewers cannot restore versions.
 

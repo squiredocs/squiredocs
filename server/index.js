@@ -341,10 +341,17 @@ setPersistence({
       // every browser. We deliberately continue to persist: an unattributed row
       // is recoverable, a lost one is not. The drop path must be unreachable
       // from origin parsing (SC-006).
-      if (parsed.malformedOrigin === 'non-uuid-string') {
+      //
+      // Feature 041 (FR-017) extends the page to the null/primitive class. That
+      // fallback used to return a marker-less, log-less unattributed result, so
+      // a server-side caller that stopped passing an origin down the attribution
+      // path would quietly accumulate anonymous rows — a silent degradation in
+      // the attribution system. It is the same caller-bug class as a non-UUID
+      // string, so it gets the same page. 'unrecognized-object' stays warn-only.
+      if (parsed.malformedOrigin === 'non-uuid-string' || parsed.malformedOrigin === 'null-or-primitive') {
         notifyException(
-          new Error('Malformed string transaction origin (persisting unattributed)'),
-          { source: 'origin-parsing', extra: { docGuid, rejectedOrigin: String(origin).slice(0, 200) } }
+          new Error(`Malformed transaction origin (${parsed.malformedOrigin}) — persisting unattributed`),
+          { source: 'origin-parsing', extra: { docGuid, malformedOrigin: parsed.malformedOrigin, rejectedOrigin: String(origin).slice(0, 200) } }
         );
       }
 

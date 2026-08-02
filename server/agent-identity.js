@@ -18,12 +18,22 @@
 /**
  * The single authoritative display name of the in-app chat assistant.
  *
- * A web-UI restore is recorded under this identity acting for the requesting
- * user (FR-001), which is precisely what makes the restore reachable by the
- * chat-assistant identity's undo/redo endpoints. Because the restore route and
- * the undo-status route both resolve to this one constant, the identity a
- * restore is *recorded* under and the identity the undo surface *queries* can
- * never drift apart.
+ * WHAT IS RECORDED UNDER THIS IDENTITY: the assistant's OWN edits — the `modify`
+ * calls it makes on the user's behalf from the chat panel. Nothing else.
+ *
+ * A human web-UI restore is NOT recorded here. It briefly was, so that the chat
+ * undo endpoint could invert it; that was cut on 2026-08-02 (see
+ * design/collaboration-core.md and specs/040-restore-undo-attribution/, US1/US6
+ * CUT) because it put a human's restore into the assistant's undo queue under
+ * the assistant's name. A web-UI restore is attributed to the human in
+ * `yjs_updates` and is simply not an undo target; you revert one by restoring
+ * again. An agent/MCP restore is recorded under that agent's own name, not this
+ * one.
+ *
+ * WHO READS IT: the chat surface's undo/redo and undo-status endpoints resolve
+ * the acting identity through this same constant, so the identity the
+ * assistant's edits are recorded under and the identity those endpoints query
+ * can never drift apart.
  *
  * @type {string}
  */
