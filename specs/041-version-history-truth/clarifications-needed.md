@@ -120,6 +120,57 @@ re-opening the corresponding FR.
   spec level would be implementation detail (speckit guidance) with no product
   consequence.
 
+## RBD-041-9 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — FR-017 "malformed-origin marker" is the in-memory classification, not a DB column (added at plan stage)
+
+- **Question**: FR-017 says a null/primitive origin must "persist unattributed
+  WITH a distinct malformed-origin marker". `yjs_updates` has no marker column;
+  the existing malformed classes (`'non-uuid-string'`, `'unrecognized-object'`)
+  carry their marker on the in-memory `parseOrigin` result only (the row itself
+  is a plain unattributed row) plus log/notification. Does FR-017 require a
+  persisted column?
+- **Why it matters**: A persisted column means a schema migration — the feature
+  scope, the pipeline sequencing note, and the spec's own assumptions all
+  expect ZERO migrations, and migration slots are globally serialized across
+  the 041-044 train.
+- **Decision**: **The marker is the in-memory `malformedOrigin` classification
+  field (new distinct value `'null-or-primitive'`), at exact parity with how
+  the existing malformed classes carry theirs** — plus the error log and
+  notifyException page (treated like `'non-uuid-string'`, since a null origin
+  is the same caller-bug class). No schema change, no migration.
+  `'unrecognized-object'`'s warn-only treatment is unchanged (outside FR-017's
+  scope).
+- **Rationale**: The spec's operative requirement is "never a marker-less,
+  log-less unattributed row" measured against "the same notification treatment
+  as the existing malformed-origin classes" — and the existing classes'
+  loudness lives in the classification + log + page, not in a column no
+  consumer reads. A migration would buy an unread field at real sequencing
+  cost. If Sam wants a persisted marker, it is an additive follow-on column,
+  not a blocker for this feature.
+
+---
+
+## N-041-1 — Verification note (Sam-relayed, 2026-08-02, mid-planning): A1 reproduced BIDIRECTIONALLY
+
+Relayed from an independent investigation during planning: the A1
+named-version author bug was reproduced **in both directions** — when a named
+version splits an editing session, Bob's range shows Alice as an author AND
+Alice's range shows Bob. The durable log is fully correct; the defect is purely
+the presenter copying the parent auto-version's author/onBehalfOf metadata onto
+ranges it doesn't describe (`server/version-history.js` — named-version objects
+AND both split-fragment spread sites). Sam flags this as the single most direct
+violation of the attribution promise, firing the moment anyone names a version.
+
+Consequences bound into plan/tasks:
+1. The A1/A7 fix (FR-001..003) is the **top-priority task cluster**.
+2. tasks.md pins a **bidirectional regression test**: two users, distinct
+   sub-ranges across a named-version split; each fragment credits only its own
+   range's authors, and the named range likewise — asserted in BOTH directions.
+3. Fix strategy: recompute authors/onBehalfOf from the rows within each range
+   (`computeRangeMeta`, research R1) — never inherit from the containing
+   auto-version (as FR-002 already requires).
+
+---
+
 ## RBD-041-8 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Stale-selection resolution rule (FR-007)
 
 - **Question**: When a refresh removes the selected version (delete,
