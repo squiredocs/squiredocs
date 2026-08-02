@@ -78,6 +78,8 @@ const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
 const undoService = require('./undo/undo-service');
+// Feature 040 (FR-019): the honesty rule for the chat "Reverted" marker.
+const { applyRevertedFlag } = require('./undo/reverted-flag');
 const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
@@ -1634,53 +1636,17 @@ function makeUndoRedoHandler(toolName, label) {
 // Set/clear the `reverted` flag on a tool part (by toolCallId) within a stored
 // chat, so the chat UI can show the edit as reverted after a reload.
 //
-// Feature 040 (FR-019, D17): `actedEditClockStart` is the `edit_clock_start`
-// of the record the endpoint ACTUALLY inverted. The flag is written only when
-// the matched part is that record. The part's own `output.editRange.clockStart`
-// is the same number by construction — `modify.js` writes the tool response's
-// editRange and the agent_edits row from one durability result.
-//
-// Fail directions are deliberate and asymmetric:
-//
-//  - FAIL CLOSED when the part has no `editRange.clockStart`. That is the
-//    `editRangePending` case (the modify's durability wait timed out, so the
-//    tool returned no editRange). The acted record is known but the part is
-//    unidentifiable, so any stamp would be a guess. Not stamping costs a
-//    missing marker on a rare card; stamping risks the exact lie FR-018
-//    forbids. This is also what closes the residual window the client guard
-//    leaves open, since that guard fails open on this same missing value.
-//
-//  - FAIL OPEN when `actedEditClockStart` is undefined. That happens only on
-//    the legacy-derivation undo path, and it is safe BY CONSTRUCTION rather
-//    than by optimism: that path runs only when the identity has NO
-//    agent_edits rows at all in the document (undo-service checks
-//    `latestEdit` first), so there is no competing record — in particular no
-//    restore — that the flag could be misattributed away from. Refusing here
-//    would regress a working pre-016 path for no honesty gain.
+// Feature 040 (FR-019, D17): the rule that keeps this marker HONEST lives in
+// server/undo/reverted-flag.js — the flag is written only when the named part
+// is the record the endpoint actually inverted. It is a separate module purely
+// so it is testable (SC-013 must prove the mislabel is impossible even with
+// the client guard bypassed, and this file cannot be required from a test
+// without starting the HTTP server). See that module for the deliberate
+// fail-closed / fail-open asymmetry.
 async function setChatPartReverted(chatId, userId, toolCallId, reverted, actedEditClockStart) {
-  const messages = await chatStore.loadChat(chatId, userId);
-  if (!messages || !messages.length) return;
-  let changed = false;
-  for (const m of messages) {
-    for (const p of (m.parts || [])) {
-      if (p.toolCallId === toolCallId && typeof p.type === 'string' && p.type.startsWith('tool-')) {
-        if (actedEditClockStart !== undefined) {
-          const partClock = p.output?.editRange?.clockStart;
-          if (partClock !== actedEditClockStart) {
-            console.warn(
-              `[undo] refusing to mark tool part ${toolCallId} as ${reverted ? 'reverted' : 'not reverted'}: `
-              + `it is not the record that was acted on (part editRange.clockStart=${partClock}, `
-              + `acted edit_clock_start=${actedEditClockStart}). The ${reverted ? 'undo' : 'redo'} itself stands.`
-            );
-            continue;
-          }
-        }
-        if (reverted && p.reverted !== true) { p.reverted = true; changed = true; }
-        else if (!reverted && p.reverted) { delete p.reverted; changed = true; }
-      }
-    }
-  }
-  if (changed) await chatStore.saveChat(chatId, userId, messages);
+  await applyRevertedFlag(chatStore, {
+    chatId, userId, toolCallId, reverted, actedEditClockStart,
+  });
 }
 
 app.post('/api/docs/:docId/undo', requireAuth, makeUndoRedoHandler('undo', 'undo'));
