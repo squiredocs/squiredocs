@@ -2060,6 +2060,18 @@ server.on('upgrade', async (request, socket, head) => {
 // per-connection CONTROLLED-IDS set it maintains — exactly the ids each
 // connection actually announced. (The Redis pub/sub cleanup that shared the close
 // handler is preserved; see the close handler below.)
+//
+// AWARENESS FRAMES ARE PARSED AGAIN (feature 044) — and this is NOT that bug
+// coming back. The deleted code asked "which id does the SENDER own?", which a
+// broadcast-about-a-set frame simply cannot answer. The 044 guard, in
+// server/ws-awareness-guard.js, asks the opposite and answerable question:
+// "WHICH IDS DOES THIS FRAME ASSERT?" — exactly what such a frame does tell you
+// — and refuses the frame when a connection asserts an id another user's
+// connection owns. Two things stay true regardless: eviction still comes solely
+// from `closeConn` plus y-websocket's controlled-ids set, and that set is READ
+// by the guard and never written, so y-websocket remains its sole maintainer.
+// No parsing happens in this file; see the C1 structural guards in
+// server/__tests__/ws-edit-gate.test.js, which fail if any reappears.
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {

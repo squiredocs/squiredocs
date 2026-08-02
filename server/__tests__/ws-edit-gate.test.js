@@ -446,6 +446,174 @@ describe('ws-edit-gate: installGate', () => {
 });
 
 /**
+ * The awareness ownership check inside the same interceptor (feature 044).
+ *
+ * These run against the real `installGate` with a hand-built `conns` map shaped
+ * exactly like `WSSharedDoc.conns`. The ownership rule itself is unit-tested in
+ * ws-awareness-guard.test.js; what is pinned HERE is the interceptor's
+ * disposition — that a refused frame never reaches a listener, and that a gate
+ * installed the 038 way behaves exactly as it did before this feature existed.
+ */
+describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
+  const encoding = require('lib0/encoding');
+
+  function awarenessFrame(entries) {
+    const inner = encoding.createEncoder();
+    encoding.writeVarUint(inner, entries.length);
+    for (const [clientId, clock, state] of entries) {
+      encoding.writeVarUint(inner, clientId);
+      encoding.writeVarUint(inner, clock);
+      encoding.writeVarString(inner, JSON.stringify(state));
+    }
+    const outer = encoding.createEncoder();
+    encoding.writeVarUint(outer, MESSAGE_AWARENESS);
+    encoding.writeVarUint8Array(outer, encoding.toUint8Array(inner));
+    return Buffer.from(encoding.toUint8Array(outer));
+  }
+
+  const presence = (name) => ({ user: { name } });
+
+  /** A fake ws that records everything the wrapped emit delegates through. */
+  function makeGatedWs({ userId = 'u-self', conns, principalOf } = {}) {
+    const seen = [];
+    const blocked = [];
+    const ws = {
+      userId,
+      emit: (event, ...args) => { seen.push([event, ...args]); return true; },
+    };
+    installGate(ws, {
+      canEdit: () => true,
+      getConns: conns === undefined ? undefined : () => conns,
+      principalOf,
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+    return { ws, seen, blocked };
+  }
+
+  const other = { userId: 'u-other' };
+
+  test('a foreign-id awareness frame is dropped: emit returns false, no listener ran', () => {
+    const conns = new Map([[other, new Set([42])]]);
+    const { ws, seen, blocked } = makeGatedWs({ conns });
+
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]))).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0][0]).toBe('WS_AWARENESS_BLOCKED');
+    expect(blocked[0][1]).toMatchObject({ kind: 'awareness', foreignIds: [42] });
+  });
+
+  test('the blocked payload carries the suppression counts', () => {
+    const conns = new Map([[other, new Set([42])]]);
+    const { ws, blocked } = makeGatedWs({ conns });
+
+    for (let i = 0; i < 5; i++) ws.emit('message', awarenessFrame([[42, i, presence('M')]]));
+
+    // Five refusals, one line — and the line says so.
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0][1]).toMatchObject({ dropped: 1, sinceLastLog: 1 });
+    expect(typeof blocked[0][1].windowMs).toBe('number');
+  });
+
+  test('own-id and unclaimed-id frames pass straight through', () => {
+    const self = { userId: 'u-self' };
+    const conns = new Map([[self, new Set([7])], [other, new Set([42])]]);
+    const seen = [];
+    const blocked = [];
+    self.emit = (event, ...args) => { seen.push([event, ...args]); return true; };
+    installGate(self, {
+      canEdit: () => true,
+      getConns: () => conns,
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+
+    self.emit('message', awarenessFrame([[7, 2, presence('Self')]]));    // own
+    self.emit('message', awarenessFrame([[99, 1, presence('Self')]]));   // unclaimed
+    expect(seen).toHaveLength(2);
+    expect(blocked).toHaveLength(0);
+  });
+
+  test('getConns() returning null passes through — no doc bound yet', () => {
+    // Before setupWSConnection there is no message listener at all, so the
+    // frame cannot reach any applier and there is nothing to guard.
+    const { ws, seen, blocked } = makeGatedWs({ conns: null });
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]))).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(blocked).toHaveLength(0);
+  });
+
+  test('getConns() returning a non-Map passes through', () => {
+    const { ws, seen } = makeGatedWs({ conns: { 42: ['nope'] } });
+    ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]));
+    expect(seen).toHaveLength(1);
+  });
+
+  test('omitting getConns leaves 038 behavior byte-for-byte — awareness untouched', () => {
+    // This is what keeps every pre-044 caller, harness and test valid.
+    const { ws, seen, blocked } = makeGatedWs({ conns: undefined });
+    ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]));
+    ws.emit('message', Buffer.from([MESSAGE_AWARENESS, 0, 1]));
+    expect(seen).toHaveLength(2);
+    expect(blocked).toHaveLength(0);
+  });
+
+  test('the same-user tie-break is reachable through the interceptor', () => {
+    const mine = { userId: 'u-self' };
+    const conns = new Map([[mine, new Set([42])]]);
+    const { ws, seen, blocked } = makeGatedWs({ userId: 'u-self', conns });
+
+    // A reconnect of the same user: allowed.
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('Self')]]))).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(blocked).toHaveLength(0);
+  });
+
+  test('an injected principalOf is used instead of ws.userId', () => {
+    const owner = { tenant: 't-1' };
+    const conns = new Map([[owner, new Set([42])]]);
+    const { ws, seen } = makeGatedWs({
+      userId: null,
+      conns,
+      principalOf: (c) => (c && c.tenant != null ? c.tenant : null),
+    });
+    ws.tenant = 't-1';
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('Self')]]))).toBe(true);
+    expect(seen).toHaveLength(1);
+  });
+
+  test('edit classification is untouched by the awareness wiring (FR-005)', () => {
+    const conns = new Map([[other, new Set([42])]]);
+    const seen = [];
+    const blocked = [];
+    const ws = { userId: 'u-self', emit: (e, ...a) => { seen.push([e, ...a]); return true; } };
+    installGate(ws, {
+      canEdit: () => false,
+      getConns: () => conns,
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+
+    // A viewer's edit frames still block with the 038 events and shapes...
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_STEP2, 1]))).toBe(false);
+    expect(blocked.map(([e]) => e)).toEqual(['WS_EDIT_BLOCKED', 'WS_STEP2_BLOCKED']);
+    expect(blocked.map(([, info]) => info)).toEqual([{ kind: 'update' }, { kind: 'step2' }]);
+
+    // ...and step1 still passes, awareness ownership notwithstanding.
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_STEP1, 1]))).toBe(true);
+    expect(seen).toHaveLength(1);
+  });
+
+  test('non-message events are never parsed as awareness', () => {
+    const conns = new Map([[other, new Set([42])]]);
+    const { ws, seen, blocked } = makeGatedWs({ conns });
+    ws.emit('close');
+    ws.emit('ping', awarenessFrame([[42, 9, presence('MALLORY')]]));
+    expect(seen).toHaveLength(2);
+    expect(blocked).toHaveLength(0);
+  });
+});
+
+/**
  * Structural drift guard (feature 038, analyze finding C1).
  *
  * The FR-008 e2e wires the real gate into a mini-server, but a passing e2e still
@@ -456,6 +624,16 @@ describe('ws-edit-gate: installGate', () => {
  */
 describe('ws-edit-gate: server/index.js has no mirrored classification (C1)', () => {
   const indexSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+
+  /**
+   * `indexSrc` with comments removed, for assertions that must not trip over
+   * prose. Stripping is approximate (it does not model strings containing
+   * comment markers), which can only ever remove MORE than intended — and a
+   * "this must not appear" assertion over less text never gains a false alarm.
+   */
+  const indexCode = indexSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
 
   test('index.js imports the gate module', () => {
     expect(indexSrc).toMatch(/require\(['"]\.\/ws-edit-gate['"]\)/);
@@ -483,6 +661,62 @@ describe('ws-edit-gate: server/index.js has no mirrored classification (C1)', ()
 
   test('index.js installs the gate exactly once', () => {
     expect(indexSrc.match(/installGate\s*\(/g)).toHaveLength(1);
+  });
+
+  // ── extended for the awareness guard (feature 044) ────────────────────────
+
+  test('index.js passes getConns to the gate', () => {
+    // Without it the awareness guard silently stands down in production while
+    // every test still passes against its own wiring.
+    expect(indexSrc).toMatch(/getConns\s*:/);
+  });
+
+  test('index.js resolves the doc handle lazily, not at install time', () => {
+    // The gate is installed BEFORE setupWSConnection and must stay there; the
+    // handle is assigned after getYDoc. A getConns that closed over a
+    // not-yet-existing doc would be permanently null — a guard that never runs.
+    expect(indexSrc).toMatch(/let\s+sharedDoc\s*=\s*null/);
+    expect(indexSrc).toMatch(/sharedDoc\s*=\s*doc\s*;/);
+    expect(indexSrc).toMatch(/getConns\s*:\s*\(\)\s*=>\s*\(?\s*sharedDoc/);
+  });
+
+  test('index.js defines NO awareness parser of its own', () => {
+    // 038 US5 deleted `parseAwarenessClientIds`, which guessed the SENDER'S id
+    // from a broadcast about others and evicted the wrong participant. The 044
+    // parser asks a different question (which ids does this frame ASSERT?) and
+    // lives in server/ws-awareness-guard.js. If a parser reappears here, the
+    // deleted bug has been resurrected — see contracts §6.
+    //
+    // Matched against CODE only: the deleted name is deliberately still spoken
+    // in the presence-cleanup comment block, which is where a future reader is
+    // told why parsing awareness frames again is not that bug coming back.
+    expect(indexCode).not.toMatch(/parseAwarenessClientIds/);
+    expect(indexCode).not.toMatch(/function\s+parseAwareness\w*\s*\(/);
+    expect(indexCode).not.toMatch(/(const|let|var)\s+parseAwareness\w*\s*=\s*(\(|function)/);
+  });
+
+  test('the presence-cleanup comment block explains why the parser is back (contract §6)', () => {
+    // Leaving the 038 US5 note untouched would tell the next reader the
+    // deleted bug was resurrected. It must name the module that parses now and
+    // restate that eviction is still closeConn's job alone.
+    const block = indexSrc.slice(indexSrc.indexOf('// Presence cleanup note (feature 038 US5)'));
+    expect(block.indexOf('// Presence cleanup note (feature 038 US5)')).toBe(0);
+    const note = block.slice(0, 3000);
+    expect(note).toMatch(/ws-awareness-guard/);
+    expect(note).toMatch(/closeConn/);
+  });
+
+  test('index.js decodes no frame payloads of its own', () => {
+    // Any lib0 decoding here would be a second, unpinned model of the wire
+    // format — the drift 038 hit three times.
+    expect(indexSrc).not.toMatch(/require\(['"]lib0\/decoding['"]\)/);
+    expect(indexSrc).not.toMatch(/readVarUint\s*\(/);
+  });
+
+  test('index.js routes the awareness event through logPerf', () => {
+    expect(indexSrc).toMatch(/WS_AWARENESS_BLOCKED/);
+    const branch = indexSrc.slice(indexSrc.indexOf("event === 'WS_AWARENESS_BLOCKED'"));
+    expect(branch.slice(0, 400)).toMatch(/logPerf\s*\(\s*event/);
   });
 });
 
