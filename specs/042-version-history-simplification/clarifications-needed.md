@@ -368,3 +368,87 @@ rather than the whole constant. That is a small, well-understood change; it is s
 one FR-001 permits this feature to make on its own authority.
 
 **Status**: ⚠️ **OPEN — FR-014 descoped, SC-006 unmet.**
+
+---
+
+## DEC-14 — reconciling with 041's post-merge review fixes
+
+**Added at implement time (2026-08-02),** after `main` advanced past the branch point
+(544573c0) with five 041 review-fix commits (4221846d, e7dcccb4, 0bf6238c, 4254d56d,
+f53284a9). All five were merged into this branch and their behavior preserved; three
+touched code 042 was refactoring and needed a call.
+
+**1. `versionUpdatesError` + the inline drill-down retry (4254d56d) — moved into the
+context, unchanged.** The fix added a per-row failure map and a retry affordance,
+threaded panel → list as another forwarded prop. Since FR-012 was removing exactly that
+forwarding, the new prop joined `VersionHistoryContext` instead of the drill. The list
+consumes it identically, `HierarchicalVersionList.test.jsx` still mounts with plain props
+(props win over context), and the fix's own tests pass unmodified.
+
+**2. The source-regex pins (bindstate-failure.test.js, undo-stamp.test.js) — untouched.**
+Both read `server/index.js` and assert regexes against it. 042's index.js edits are the
+Redis `onUpdate` handler, the removed retry closure and one added `require`; none of them
+is in a pinned region, so both suites pass with no pattern adjustment.
+
+**3. `loadContentAtClock` — DELETED, taking its new test with it.** f53284a9's review-L1
+fix removed the `setError` calls from `loadContentAtClock` (a single-clock content failure
+must not blank the timeline) and added
+`'a clock-content failure never touches the timeline error either'` to cover it. FR-004
+deletes that function. Re-verified against merged `main`: it still has **zero** consumers
+anywhere in `client/src` — nothing outside the hook has ever called it.
+
+**Decision**: delete it, per FR-004, and delete the test whose sole subject it is (a
+permitted edit under FR-001's Edge Cases and tasks.md's Notes). The property the fix
+established is preserved *a fortiori* — a function that does not exist cannot write to the
+timeline error channel — and the sibling half of the same fix, the `loadUpdatesForVersion`
+error handling, is live code and is untouched.
+
+**Flagged for the merge queue**: this is the one place where 042 removes a test a reviewer
+wrote the same day. If the intent was to keep `loadContentAtClock` as a supported hook API
+rather than as dead code, reverting this single deletion is a two-line change and costs
+~25 lines against SC-002, which has margin.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**
+
+---
+
+## DEC-15 — SC-002 (≥600 net lines removed) is NOT met: +87 — ESCALATED
+
+**Added at implement time (2026-08-02).**
+
+Measured on contract C11's basis (`git diff --shortstat` merge-base → HEAD, all tracked
+files **including tests**, excluding `specs/**`):
+
+```
+36 files changed, 1666 insertions(+), 1579 deletions(-)   →  net +87
+```
+
+**Why.** Two costs the plan under-counted, neither of them padding:
+
+1. **~599 lines of NEW tests that this feature's own plan mandated.** T034 is required by
+   FR-010 (the extracted Yjs surgery had zero direct coverage); T037/T038 are required by
+   tasks.md because research R17 found `VersionHistoryPanel` and `VersionPreview` had no
+   dedicated tests at all, making US3 "the weakest test net in the feature". C11 counts
+   those additions against the deletion target, so the plan simultaneously required the
+   tests and set a target that assumed they would not exist. Excluding just those three
+   new files: **net −512**.
+2. **The refactors are net-positive in lines.** Collapsing `performUndo`/`performRedo`,
+   introducing the context, the restore flow and the shared helpers replaces terse
+   duplication with fewer mechanisms carrying more explanation — this codebase's house
+   style is that every non-obvious decision states its reason. Production code alone
+   (excluding every test file) is **net −56**: 1062 in, 1118 out.
+
+**Also**: DEC-13 descoped FR-014, but US4 only ADDED lines, so it is not a factor.
+
+**Assessment**: the honest reading is that SC-002 measured the wrong thing. Roughly 900
+lines of genuinely dead code are gone (470 module + test, ~292 CSS, the legacy hook path,
+the diagnostics, the dead exports and branch) — the outcome SC-002 was proxying for — and
+the deficit is new coverage plus comments on the code that remains. Padding the number by
+skipping T034/T037/T038 would have made SC-002 pass and the feature worse.
+
+**Recommendation for the merge queue**: accept the deletion inventory as the outcome and
+renegotiate SC-002's basis to exclude *newly added* test files (deleted test files still
+counting), which is what contract C11 was reaching for when it wrote "they are code the
+repo no longer carries". Not a change this agent can make unilaterally.
+
+**Status**: ⚠️ **OPEN — SC-002 unmet as written (+87 vs a ≥600 reduction target).**
