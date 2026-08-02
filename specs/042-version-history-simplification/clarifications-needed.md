@@ -452,3 +452,37 @@ counting), which is what contract C11 was reaching for when it wrote "they are c
 repo no longer carries". Not a change this agent can make unilaterally.
 
 **Status**: ⚠️ **OPEN — SC-002 unmet as written (+87 vs a ≥600 reduction target).**
+
+---
+
+## DEC-16 — T050 keeps `computeMarkdownDiff`'s required arity at three
+
+**Added at implement time (2026-08-02).**
+
+FR-015's "skip the redundant document re-conversion in the diff identical-markdown
+branch" needs `computeDiff`'s already-converted current document to reach
+`computeMarkdownDiff`, which meant a fourth parameter. That tripped a pin from feature
+039:
+
+```js
+// diff-service.test.js:1268 — 'FR-017: computeMarkdownDiff no longer declares a textIdentical parameter'
+expect(src).not.toContain('textIdentical');
+expect(diffService.computeMarkdownDiff.length).toBe(3);
+```
+
+**Decision**: declare the new parameter with a default (`currPmDoc = undefined`).
+`Function.length` counts only parameters before the first defaulted one, so it stays 3 —
+and stays *true*: the function still requires three arguments, and the fourth is genuinely
+optional (a direct call with three converts in place, exactly as before). The pin's own
+stated purpose — stopping a declared-but-never-read parameter from coming back — is
+untouched, because this parameter is read.
+
+Alternatives rejected: threading the conversion through the per-request `report` sink
+(that object is the degradation channel and was deliberately trimmed to one field);
+an instance field on `DiffService` (module/instance state across concurrent `computeDiff`
+calls is the exact hazard the report sink's own comment warns about).
+
+Recorded rather than left silent, because "four parameters but `.length` is 3" reads like
+gaming a test unless the reason is written down.
+
+**RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**

@@ -272,7 +272,12 @@ class DiffService {
    *   `prevMd === currMd` below; the old argument was dead.
    * @returns {object} ProseMirror document JSON with diffInsert/diffDelete marks
    */
-  computeMarkdownDiff(prevDoc, currDoc, report, currPmDoc) {
+  // `currPmDoc` is DEFAULTED on purpose: `Function.length` counts only required
+  // parameters, so this keeps `computeMarkdownDiff.length === 3` — which the 039
+  // FR-017 pin asserts, and which stays true in the plain sense that the
+  // function still requires three arguments. That pin exists to stop a
+  // declared-but-never-read parameter coming back; this one is read.
+  computeMarkdownDiff(prevDoc, currDoc, report, currPmDoc = undefined) {
     const prevFragment = prevDoc.get('default', Y.XmlFragment);
     const currFragment = currDoc.get('default', Y.XmlFragment);
 
