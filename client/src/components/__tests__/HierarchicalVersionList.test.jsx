@@ -687,4 +687,63 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
     });
     expect(onLoadUpdates.mock.calls.some(c => c[2] === 'v1')).toBe(false);
   });
+
+  // ── Review L1: a failed drill-down is said on its own row ─────────────────
+  // It used to land on the panel's error channel, so a 500 from one expanded
+  // row rendered "Couldn't load version history." + Retry over a healthy list
+  // while the row itself sat on "Loading updates..." forever.
+  describe('a failed drill-down renders an inline, retryable row error', () => {
+    it('replaces the row\'s spinner with a retry affordance, not an endless "Loading updates..."', () => {
+      const { container } = render(
+        <HierarchicalVersionList {...listProps({ versionUpdatesError: { v1: 'updates boom' } })} />
+      );
+      expandFirstRow(container);
+
+      expect(screen.getByRole('alert').textContent).toContain("Couldn't load updates");
+      expect(container.querySelector('.hierarchy-loading')).toBeNull();
+      expect(screen.queryByText('No individual updates')).toBeNull();
+    });
+
+    it('re-requests the row on tap, clearing the auto-refetch suppression the failure set', async () => {
+      // One STABLE versions array across rerenders: the suppression is reset by
+      // a genuinely new version list, and this test is about the other path.
+      const months = [{ label: 'January 2024', versions: [mkVersion()] }];
+      const onLoadUpdates = vi.fn(() => Promise.resolve(null)); // null result = failure
+      const at = (over) => listProps({ onLoadUpdates, hierarchicalVersions: months, ...over });
+
+      const { container, rerender } = render(
+        <HierarchicalVersionList {...at({ versionUpdates: { v1: [sub] } })} />
+      );
+      expandFirstRow(container); // already cached — no load yet
+      expect(onLoadUpdates).not.toHaveBeenCalled();
+
+      // A refresh wipes the cache; the auto-refetch fires once and fails.
+      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { v1: 'updates boom' } })} />);
+      await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(1));
+
+      // Suppressed: unrelated rerenders must not hammer a failing endpoint.
+      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { v1: 'updates boom' } })} />);
+      await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(1));
+
+      // The user asking again clears the suppression and re-requests the range.
+      fireEvent.click(screen.getByRole('button', { name: /tap to retry/i }));
+      await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(2));
+      expect(onLoadUpdates.mock.calls[1]).toEqual([1, 5, 'v1']);
+    });
+
+    it('a successful load after the retry shows the sub-versions, not the error', () => {
+      const { container, rerender } = render(
+        <HierarchicalVersionList {...listProps({ versionUpdatesError: { v1: 'updates boom' } })} />
+      );
+      expandFirstRow(container);
+      expect(screen.queryByRole('alert')).toBeTruthy();
+
+      rerender(
+        <HierarchicalVersionList {...listProps({ versionUpdates: { v1: [sub] } })} />
+      );
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(container.querySelectorAll('.hierarchy-update').length).toBe(1);
+    });
+  });
 });

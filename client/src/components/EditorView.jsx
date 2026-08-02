@@ -180,6 +180,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     versionUpdates,
     versionUpdatesMeta,
     loadingVersionUpdates,
+    versionUpdatesError,
     loadUpdatesForVersion,
     selectUpdate,
   } = useVersionHistory(showVersionHistory ? docGuid : null);
@@ -437,6 +438,7 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             versionUpdates={versionUpdates}
             versionUpdatesMeta={versionUpdatesMeta}
             loadingVersionUpdates={loadingVersionUpdates}
+            versionUpdatesError={versionUpdatesError}
             // Diff highlighting toggle
             showDiffHighlights={showDiffHighlights}
             onToggleDiffHighlights={setShowDiffHighlights}

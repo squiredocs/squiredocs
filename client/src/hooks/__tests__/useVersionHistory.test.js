@@ -730,6 +730,67 @@ describe('useVersionHistory', () => {
     });
   });
 
+  // ── Review L1: drill-down failures stay off the panel's error channel ─────
+  // They used to call setError, so one failed expanded row rendered "Couldn't
+  // load version history." + Retry over a perfectly healthy timeline.
+  describe('review L1: per-row drill-down failures', () => {
+    it('records the failure against the version, and leaves the timeline error alone', async () => {
+      const versions = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'updates boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      let updates;
+      await act(async () => {
+        updates = await result.current.loadUpdatesForVersion(1, 5, 'auto-1');
+      });
+
+      expect(updates).toBeNull();
+      expect(result.current.versionUpdatesError['auto-1']).toBe('updates boom');
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toEqual(versions); // timeline untouched
+    });
+
+    it('clears the row failure when the row is requested again', async () => {
+      const versions = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const updates = [{ id: '5', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z' }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'updates boom' } } })
+        .mockResolvedValueOnce({ data: { updates } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'auto-1'); });
+      expect(result.current.versionUpdatesError['auto-1']).toBe('updates boom');
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'auto-1'); });
+      expect(result.current.versionUpdatesError['auto-1']).toBeUndefined();
+      expect(result.current.versionUpdates['auto-1']).toEqual(updates);
+    });
+
+    it('a clock-content failure never touches the timeline error either', async () => {
+      const versions = [{ id: 'auto-1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'clock boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      let content;
+      await act(async () => { content = await result.current.loadContentAtClock(3); });
+
+      expect(content).toBeNull();
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toEqual(versions);
+    });
+  });
+
   describe('041 FR-007: selection reconciliation after every refresh', () => {
     const diffOk = { data: { document: 'doc', meta: {} } };
 

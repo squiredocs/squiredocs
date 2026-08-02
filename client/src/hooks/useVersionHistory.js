@@ -91,6 +91,13 @@ export function useVersionHistory(docGuid) {
   const [versionUpdates, setVersionUpdates] = useState({}); // { versionId: [updates] }
   const [versionUpdatesMeta, setVersionUpdatesMeta] = useState({}); // { versionId: { total, hasMore } }
   const [loadingVersionUpdates, setLoadingVersionUpdates] = useState({}); // { versionId: boolean }
+  // Per-row drill-down failures (review L1): { versionId: message }. A failed
+  // drill-down is a failure OF ONE ROW, so it belongs to that row and never to
+  // the panel-level `error` channel — putting it there made a 500 from
+  // /history/updates render "Couldn't load version history." + Retry over a
+  // perfectly healthy list, while the expanded row sat on "Loading updates..."
+  // forever. The list renders this inline, with its own retry.
+  const [versionUpdatesError, setVersionUpdatesError] = useState({});
 
   // Monotonic request sequence for diff loads. selectVersion/selectUpdate fire
   // async diff fetches; a slower earlier response must never overwrite a newer
@@ -279,6 +286,12 @@ export function useVersionHistory(docGuid) {
     if (!docGuid) return null;
 
     setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: true }));
+    setVersionUpdatesError(prev => {
+      if (!(versionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[versionId];
+      return next;
+    });
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history/updates`, {
@@ -299,7 +312,11 @@ export function useVersionHistory(docGuid) {
       return updates;
     } catch (err) {
       console.error('Error loading version updates:', err);
-      setError(err.response?.data?.error || 'Failed to load version updates');
+      // Row-level, never panel-level (review L1).
+      setVersionUpdatesError(prev => ({
+        ...prev,
+        [versionId]: err.response?.data?.error || 'Failed to load version updates',
+      }));
       return null;
     } finally {
       setLoadingVersionUpdates(prev => ({ ...prev, [versionId]: false }));
@@ -313,7 +330,6 @@ export function useVersionHistory(docGuid) {
     if (!docGuid) return null;
 
     setIsLoadingContent(true);
-    setError(null);
 
     try {
       const response = await api.get(`/api/docs/${docGuid}/history/clock/${clock}`);
@@ -327,8 +343,11 @@ export function useVersionHistory(docGuid) {
       setVersionContent(content);
       return content;
     } catch (err) {
+      // Also off the panel-level channel (review L1): a single-clock content
+      // load failing says nothing about the timeline, and blanking the timeline
+      // behind "Couldn't load version history." would be a lie about it. The
+      // null return is the caller's signal.
       console.error('Error loading content at clock:', err);
-      setError(err.response?.data?.error || 'Failed to load content at clock');
       return null;
     } finally {
       setIsLoadingContent(false);
@@ -587,6 +606,7 @@ export function useVersionHistory(docGuid) {
     versionUpdates,
     versionUpdatesMeta,
     loadingVersionUpdates,
+    versionUpdatesError,
 
     // Actions
     fetchHistory,

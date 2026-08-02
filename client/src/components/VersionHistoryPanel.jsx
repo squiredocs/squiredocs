@@ -28,6 +28,9 @@ function VersionHistoryPanel({
   versionUpdates = {},
   versionUpdatesMeta = {},
   loadingVersionUpdates = {},
+  // Per-row drill-down failures (review L1). Deliberately NOT merged into
+  // `error` above: a failed drill-down must never blank or alarm the timeline.
+  versionUpdatesError = {},
   // Diff highlighting toggle
   showDiffHighlights = true,
   onToggleDiffHighlights,
@@ -125,6 +128,7 @@ function VersionHistoryPanel({
           versionUpdates={versionUpdates}
           versionUpdatesMeta={versionUpdatesMeta}
           loadingVersionUpdates={loadingVersionUpdates}
+          versionUpdatesError={versionUpdatesError}
           onCreateNamedVersion={onCreateNamedVersion}
           onRenameVersion={onRenameVersion}
           onDeleteVersion={onDeleteVersion}

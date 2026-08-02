@@ -82,4 +82,32 @@ describe('VersionHistoryPanel error state (041 FR-005)', () => {
     expect(screen.getByText('Draft')).toBeTruthy();
     expect(screen.queryByText(/No version history yet/i)).toBeNull();
   });
+
+  // Review L1: the two channels do not bleed. A drill-down that failed says so
+  // on its own row; the panel-level "Couldn't load version history." is about
+  // the timeline, and rendering it over a healthy list would be a lie.
+  it('never renders the panel error when only a drill-down failed', () => {
+    const version = {
+      id: 'v1',
+      name: 'Draft',
+      clockStart: 1,
+      clockEnd: 5,
+      timestamp: '2024-01-05T16:30:00Z',
+      authors: [],
+      isNamed: true,
+      isCurrent: false,
+      onBehalfOf: [],
+      onBehalfOfMore: 0,
+    };
+
+    renderPanel({
+      error: null,
+      hierarchicalVersions: [{ label: 'January 2024', versions: [version] }],
+      versionUpdatesError: { v1: 'updates boom' },
+    });
+
+    expect(screen.queryByText(/Couldn't load version history/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    expect(screen.getByText('Draft')).toBeTruthy();
+  });
 });

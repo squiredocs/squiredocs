@@ -258,6 +258,10 @@ function subVersionToItem(subVersion) {
   };
 }
 
+/** Identity of one drill-down request: the version AND the range asked for, so a
+ *  re-split (which moves the range under a stable id) is a different request. */
+const updatesKey = (version) => `${version.id}:${version.clockStart}-${version.clockEnd}`;
+
 /**
  * Unified history item component - renders both versions and clock updates
  */
@@ -341,6 +345,9 @@ function HierarchicalVersionList({
   versionUpdates = {},
   versionUpdatesMeta = {},
   loadingVersionUpdates = {},
+  // Per-row drill-down failures (review L1): { versionId: message }. Rendered
+  // inline on the row that failed — never on the panel's own error channel.
+  versionUpdatesError = {},
   onCreateNamedVersion,
   onRenameVersion,
   onDeleteVersion,
@@ -436,7 +443,7 @@ function HierarchicalVersionList({
       if (versionUpdates[id] || loadingVersionUpdates[id]) continue;
 
       // Always re-request with the FRESH range — a re-split moves it.
-      const key = `${id}:${version.clockStart}-${version.clockEnd}`;
+      const key = updatesKey(version);
       if (failedLoadsRef.current.has(key)) continue;
 
       Promise.resolve(onLoadUpdates(version.clockStart, version.clockEnd, id))
@@ -460,6 +467,15 @@ function HierarchicalVersionList({
     if (willExpand && !versionUpdates[versionId] && onLoadUpdates) {
       onLoadUpdates(version.clockStart, version.clockEnd, versionId);
     }
+  };
+
+  // Manual retry of a failed drill-down. The auto-refetch suppression above is
+  // there to stop a failing row from re-requesting on every state change; an
+  // explicit tap is the user asking again, so it clears the suppression first.
+  const retryUpdates = (version) => {
+    if (!onLoadUpdates) return;
+    failedLoadsRef.current.delete(updatesKey(version));
+    onLoadUpdates(version.clockStart, version.clockEnd, version.id);
   };
 
   // In-app dialog state replacing the native prompt/confirm calls (024/US2).
@@ -625,7 +641,22 @@ function HierarchicalVersionList({
                             successful, genuinely empty response. An absent
                             cache entry (wiped by a refresh, re-fetch pending)
                             is a loading state, not an empty one. */}
-                        {loadingVersionUpdates[version.id] || updates === undefined ? (
+                        {loadingVersionUpdates[version.id] ? (
+                          <div className="hierarchy-loading">Loading updates...</div>
+                        ) : versionUpdatesError[version.id] ? (
+                          /* Review L1: a failed drill-down is a failure of THIS
+                             row. It is said here, on the row, and retried here —
+                             the panel-level error is for the timeline itself. */
+                          <div className="hierarchy-updates-error" role="alert">
+                            <button
+                              type="button"
+                              className="hierarchy-updates-error-btn"
+                              onClick={() => retryUpdates(version)}
+                            >
+                              Couldn't load updates — tap to retry
+                            </button>
+                          </div>
+                        ) : updates === undefined ? (
                           <div className="hierarchy-loading">Loading updates...</div>
                         ) : updates.length > 0 ? (
                           <>
