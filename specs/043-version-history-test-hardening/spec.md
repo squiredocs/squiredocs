@@ -10,7 +10,7 @@
 
 **Source findings**: `tmp/version-history-deep-dive-2026-08-02.md`, section E (test-coverage audit). All coverage claims were re-verified against the actual test files on 2026-08-02 before this spec was written; every claim held (see Verification Notes).
 
-**Sequencing**: This feature merges **last**, after 041 (truth fixes) and 042 (refactors), so its tests target the settled code. Tests whose subject depends on 041/042 landing are flagged inline with `[depends: 041]` / `[interacts: 042]`.
+**Sequencing**: This feature merges **last**, after 041 (truth fixes), 042 (refactors), 044 (presence guard), and 045 (resupply attribution), so its tests target the settled code. The 045 interlock is load-bearing: US2/FR-003's reconnect E2E asserts the via_sync-aware timeline that 045 delivers — merging this feature before 045 would run that suite RED against a known-corrupted display path (added 2026-08-02 per RBD-045-7). Tests whose subject depends on earlier features are flagged inline with `[depends: 041]` / `[interacts: 042]`.
 
 ## Purpose
 
