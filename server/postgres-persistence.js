@@ -710,6 +710,15 @@ class PostgresPersistence {
       // refusal is preferred over stitching across a re-supply (D2); the collab
       // guardrail ANNOTATES sync-sourced triggers without changing whether a
       // page fires (D3). undefined when the column is unselected ⇒ null.
+      //
+      // Feature 045 added a third consumer class: DISPLAY RESOLUTION. Every
+      // author-displaying surface now refuses to present a flagged row's stamped
+      // identity as the AUTHORSHIP of that row's content — it recovers the true
+      // author from the payload's embedded Yjs client identities via
+      // `server/resupply-resolution.js`, or shows the honest "Synced content"
+      // entry. That resolution is display-only: it never rewrites this row, never
+      // feeds replay/undo/permissions/restore/diff (045 FR-010), and does not
+      // change what the stamp MEANS here — transport attribution, as 038 defined.
       viaSync: row.via_sync ?? null,
     };
     if (includeData && row.update_data) {
@@ -829,6 +838,106 @@ class PostgresPersistence {
       minClock: row.min_clock ?? null,
       maxClock: row.max_clock ?? null,
     };
+  }
+
+  // ── Resupply-resolution readers (feature 045) ─────────────────────────────
+  // Three narrow READ-ONLY queries behind `server/resupply-resolution.js`, the
+  // one place that decides who authored the content in a `via_sync` row. They
+  // exist as first-class methods (rather than the resolver holding a pool)
+  // because the resolver depends on an INTERFACE — tests hand it a fake — and
+  // because none of them wants the users JOIN or the gap-retry budget of
+  // `_queryUpdatesWithUsers`.
+
+  /**
+   * Payloads for the rows being resolved, by primary key.
+   *
+   * Deliberately NOT routed through `_queryUpdatesWithUsers`: no `users` join is
+   * needed, and the gap-retry budget at that shared choke point exists for log
+   * REBUILDS (023 FR-007), where a missing interior row corrupts the result.
+   * Resolution is not a rebuild — a row this query cannot see simply leaves one
+   * target unresolved, which renders as the honest "Synced content" entry. Paying
+   * the retry budget to sharpen a display hint would be the wrong trade.
+   *
+   * @param {string} docGuid - Document GUID
+   * @param {number[]} clocks - Clock values to fetch (the PK's second column)
+   * @returns {Promise<Array<{clock: number, updateData: Uint8Array}>>} ascending;
+   *   empty input returns `[]` WITHOUT querying.
+   */
+  async getUpdatePayloads(docGuid, clocks) {
+    if (!Array.isArray(clocks) || clocks.length === 0) return [];
+    await this._init();
+    const result = await this.pool.query(
+      'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 AND clock = ANY($2::int[]) ORDER BY clock',
+      [docGuid, clocks]
+    );
+    return result.rows.map(row => ({
+      clock: row.clock,
+      updateData: row.update_data ? new Uint8Array(row.update_data) : null,
+    }));
+  }
+
+  /**
+   * The evidence batch reader: a document's DIRECTLY-attributed rows, ascending.
+   *
+   * `via_sync IS NOT TRUE` is the exact 038 read rule restated at a second read
+   * site: ONLY `true` means sync; `NULL` (every pre-038 row, and every non-step2
+   * write) and `false` are identical, "not known to be sync", and are never
+   * treated as suspicious. A relayed row is excluded because it may not serve as
+   * evidence for another relayed row (045 FR-006) — that is what makes a chain of
+   * relays unable to launder a relayer into "evidence". `user_id IS NOT NULL`
+   * because an unattributed row proves nothing about who a client identity is.
+   *
+   * @param {string} docGuid - Document GUID
+   * @param {object} opts
+   * @param {number} opts.afterClock - exclusive lower bound (the fold's high-water mark)
+   * @param {number} opts.beforeClock - exclusive upper bound (evidence is strictly PRIOR)
+   * @param {number} opts.limit - batch size
+   * @returns {Promise<Array<{clock, userId, agentName, updateData}>>} ascending clock
+   */
+  async getDirectAttributedRows(docGuid, { afterClock = -1, beforeClock, limit = 500 } = {}) {
+    await this._init();
+    const result = await this.pool.query(
+      `SELECT clock, user_id, agent_name, update_data
+         FROM yjs_updates
+        WHERE doc_guid = $1
+          AND clock > $2
+          AND clock < $3
+          AND via_sync IS NOT TRUE
+          AND user_id IS NOT NULL
+        ORDER BY clock ASC
+        LIMIT $4`,
+      [docGuid, afterClock, beforeClock, limit]
+    );
+    return result.rows.map(row => ({
+      clock: row.clock,
+      userId: row.user_id,
+      agentName: row.agent_name,
+      updateData: row.update_data ? new Uint8Array(row.update_data) : null,
+    }));
+  }
+
+  /**
+   * Display fields for resolved user ids the caller's own rows do not carry.
+   *
+   * A resolved id ABSENT from the result is the deleted-account signal (045
+   * RBD-045-11): the identity was determined, the account is gone, so the surface
+   * renders `UNKNOWN_AUTHOR` rather than inventing a name.
+   *
+   * @param {string[]} ids - user ids
+   * @returns {Promise<Map<string, {userName, userEmail, userPicture}>>}
+   */
+  async getUserDisplayFields(ids) {
+    const out = new Map();
+    if (!Array.isArray(ids) || ids.length === 0) return out;
+    await this._init();
+    const result = await this.pool.query(
+      'SELECT id, name, email, picture FROM users WHERE id = ANY($1::uuid[])',
+      [ids]
+    );
+    for (const row of result.rows) {
+      out.set(row.id, { userName: row.name, userEmail: row.email, userPicture: row.picture });
+    }
+    return out;
   }
 
   /**
