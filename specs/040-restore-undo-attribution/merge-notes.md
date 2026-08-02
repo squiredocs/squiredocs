@@ -251,7 +251,7 @@ post-rebase run (against current `main` — this is the one that matters).
 
 | | Baseline (before any change) | Pre-rebase | **Post-rebase (authoritative)** |
 |---|---|---|---|
-| Backend (`npm run test:server`) | 230 suites / 3971 passed | 232 / 4013 | **see final report** |
+| Backend (`npm run test:server`) | 230 suites / 3971 passed | 232 / 4013 | **236 suites / 4113 passed, 0 failures (212.7s)** |
 | Client (`npm run test:client`) | 65 suites / 805 passed | 66 / 817 | **66 suites / 818 passed** |
 | `npm run build` | — | green | **green** |
 
