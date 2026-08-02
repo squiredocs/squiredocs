@@ -677,6 +677,299 @@ describe('version-history module', () => {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Feature 041 US1 (FR-001..004): a version's authors/provenance come from the
+  // rows in its OWN clock range — never inherited from the containing auto
+  // version. T002 is the PINNED bidirectional regression (ledger N-041-1): when
+  // a named version splits one editing burst between two people, neither side
+  // may credit the other.
+  // ───────────────────────────────────────────────────────────────────────────
+  describe('041 T002 (PINNED, N-041-1): range-scoped authors across a named-version split', () => {
+    const base = new Date('2024-05-01T10:00:00Z').getTime();
+    // One burst: every row 1s apart, far inside DEFAULT_INACTIVITY_THRESHOLD,
+    // so grouping produces exactly ONE auto version spanning clocks 1-10.
+    const row = (clock, who, extra = {}) => ({
+      clock,
+      createdAt: new Date(base + clock * 1000).toISOString(),
+      userId: who === 'A' ? 'user-a' : 'user-b',
+      userName: who === 'A' ? 'Alice' : 'Bob',
+      userEmail: who === 'A' ? 'alice@example.com' : 'bob@example.com',
+      userPicture: null,
+      agentName: null,
+      meaningful: true,
+      ...extra,
+    });
+
+    // A owns clocks 1-5, B owns clocks 6-10.
+    const burst = [
+      row(1, 'A'), row(2, 'A'), row(3, 'A'), row(4, 'A'), row(5, 'A'),
+      row(6, 'B'), row(7, 'B'), row(8, 'B'), row(9, 'B'), row(10, 'B'),
+    ];
+
+    const namedOver = (clockStart, clockEnd) => ([{
+      id: `named-${clockStart}-${clockEnd}`,
+      name: `Named ${clockStart}-${clockEnd}`,
+      clock_start: clockStart,
+      clock_end: clockEnd,
+      created_at: new Date(base + clockEnd * 1000).toISOString(),
+      created_by: 'user-a',
+      creator_name: 'Alice',
+    }]);
+
+    const idsOf = (v) => (v.authors || []).map(a => a.id).sort();
+
+    test('(a) naming A\'s sub-range credits only A on it, and only B on the surviving fragment', () => {
+      const autoVersions = groupUpdatesIntoVersions(burst);
+      expect(autoVersions).toHaveLength(1); // single burst — the A1 precondition
+
+      const result = mergeNamedVersions(autoVersions, namedOver(1, 5), burst);
+
+      const named = result.find(v => v.id === 'named-1-5');
+      expect(named).toBeDefined();
+      expect(idsOf(named)).toEqual(['user-a']);
+      // The creator badge is separate from authorship and is unaffected.
+      expect(named.createdBy.id).toBe('user-a');
+
+      const fragment = result.find(v => !v.isNamed);
+      expect(fragment.clockStart).toBe(6);
+      expect(fragment.clockEnd).toBe(10);
+      expect(idsOf(fragment)).toEqual(['user-b']);
+    });
+
+    test('(b) MIRRORED: naming B\'s sub-range credits only B on it, and only A on the fragment', () => {
+      const autoVersions = groupUpdatesIntoVersions(burst);
+      const result = mergeNamedVersions(autoVersions, namedOver(6, 10), burst);
+
+      const named = result.find(v => v.id === 'named-6-10');
+      expect(idsOf(named)).toEqual(['user-b']);
+
+      const fragment = result.find(v => !v.isNamed);
+      expect(fragment.clockStart).toBe(1);
+      expect(fragment.clockEnd).toBe(5);
+      expect(idsOf(fragment)).toEqual(['user-a']);
+    });
+
+    test('(c) onBehalfOf provenance is scoped per range — a sync push in one sub-range never leaks into the other', () => {
+      const push = { name: 'CI Bot', email: 'ci@example.com', commit: 'abc1234' };
+      const burstWithPush = burst.map(u => (u.clock === 3 ? { ...u, onBehalfOf: push } : u));
+
+      const autoVersions = groupUpdatesIntoVersions(burstWithPush);
+      // Sanity: the parent auto version DOES carry the push — that is exactly
+      // the metadata the fragments used to inherit.
+      expect(autoVersions[0].onBehalfOf).toHaveLength(1);
+
+      const result = mergeNamedVersions(autoVersions, namedOver(1, 5), burstWithPush);
+
+      const named = result.find(v => v.id === 'named-1-5');
+      expect(named.onBehalfOf).toHaveLength(1);
+      expect(named.onBehalfOf[0].name).toBe('CI Bot');
+      expect(named.onBehalfOfMore).toBe(0);
+
+      const fragment = result.find(v => !v.isNamed);
+      expect(fragment.clockStart).toBe(6);
+      expect(fragment.onBehalfOf).toEqual([]);
+      expect(fragment.onBehalfOfMore).toBe(0);
+    });
+
+    test('(d) end-to-end through getVersionTimeline: neither side of the split credits the other', async () => {
+      const mockPersistence = {
+        getUpdatesWithUsers: async () => burst,
+        getNamedVersions: async () => namedOver(1, 5),
+      };
+
+      const { versions } = await getVersionTimeline(mockPersistence, 'doc-041');
+
+      const named = versions.find(v => v.isNamed);
+      expect(named.authors.map(a => a.id)).toEqual(['user-a']);
+
+      const fragment = versions.find(v => !v.isNamed);
+      expect(fragment.authors.map(a => a.id)).toEqual(['user-b']);
+    });
+  });
+
+  describe('041 T003: named-version metadata resolves from its own range (FR-003, A7 / R16)', () => {
+    const base = new Date('2024-05-02T10:00:00Z').getTime();
+    const mk = (clock, over = {}) => ({
+      clock,
+      createdAt: new Date(base + clock * 1000).toISOString(),
+      userId: 'user-a',
+      userName: 'Alice',
+      userEmail: 'alice@example.com',
+      userPicture: null,
+      agentName: null,
+      meaningful: true,
+      ...over,
+    });
+
+    test('a named version whose boundary row is noise still gets authors + timestamp from its own range', () => {
+      // Clock 5 is classified noise, so the meaningful-filtered timeline has NO
+      // auto version ending at 5 — the old matching-auto-version lookup missed
+      // and left the named version authorless with a fallback timestamp (A7).
+      const all = [mk(1), mk(2), mk(3), mk(4), mk(5, { meaningful: false }), mk(6), mk(7)];
+      const meaningful = all.filter(u => u.meaningful !== false);
+      const autoVersions = groupUpdatesIntoVersions(meaningful);
+
+      const result = mergeNamedVersions(autoVersions, [{
+        id: 'noise-boundary',
+        name: 'Ends on noise',
+        clock_start: 1,
+        clock_end: 5,
+        created_at: '2030-01-01T00:00:00Z', // deliberately wrong fallback
+        created_by: 'user-a',
+        creator_name: 'Alice',
+      }], meaningful);
+
+      const named = result.find(v => v.id === 'noise-boundary');
+      expect(named.authors.map(a => a.id)).toEqual(['user-a']);
+      // Last MEANINGFUL row in range is clock 4, not the created_at fallback.
+      expect(named.timestamp).toBe(new Date(base + 4 * 1000).toISOString());
+    });
+
+    test('a noise-only named range falls back to the UNFILTERED in-range rows (R16) — real authors, never phantom outside ones', () => {
+      const all = [
+        mk(1, { meaningful: false, userId: 'user-b', userName: 'Bob', userEmail: 'bob@example.com' }),
+        mk(2, { meaningful: false, userId: 'user-b', userName: 'Bob', userEmail: 'bob@example.com' }),
+        mk(3),
+        mk(4),
+      ];
+      const meaningful = all.filter(u => u.meaningful !== false);
+      const autoVersions = groupUpdatesIntoVersions(meaningful);
+
+      // mergeNamedVersions is fed the meaningful set (what getVersionTimeline
+      // holds), so a noise-only range must fall back to the raw rows it is
+      // given for that range — which here is empty. Feed the unfiltered set to
+      // exercise the R16 fallback the way getVersionContent-style callers can.
+      const result = mergeNamedVersions(autoVersions, [{
+        id: 'noise-only',
+        name: 'All noise',
+        clock_start: 1,
+        clock_end: 2,
+        created_at: '2024-05-02T09:00:00Z',
+        created_by: 'user-a',
+        creator_name: 'Alice',
+      }], all);
+
+      const named = result.find(v => v.id === 'noise-only');
+      expect(named.authors.map(a => a.id)).toEqual(['user-b']);
+      expect(named.authors.map(a => a.id)).not.toContain('user-a');
+    });
+
+    test('a genuinely row-less named range yields an empty author list', () => {
+      const rows = [mk(10), mk(11)];
+      const autoVersions = groupUpdatesIntoVersions(rows);
+
+      const result = mergeNamedVersions(autoVersions, [{
+        id: 'rowless',
+        name: 'Nothing here',
+        clock_start: 100,
+        clock_end: 105,
+        created_at: '2024-05-02T09:00:00Z',
+        created_by: 'user-a',
+        creator_name: 'Alice',
+      }], rows);
+
+      const named = result.find(v => v.id === 'rowless');
+      expect(named.authors).toEqual([]);
+      // Timestamp falls back to created_at (no in-range row to date it).
+      expect(named.timestamp).toBe('2024-05-02T09:00:00Z');
+    });
+
+    test('an all-unattributed named range collapses to the single Unknown author (040 FR-008 preserved)', () => {
+      const rows = [
+        mk(1, { userId: null, userName: null, userEmail: null }),
+        mk(2, { userId: null, userName: null, userEmail: null }),
+        mk(3),
+      ];
+      const autoVersions = groupUpdatesIntoVersions(rows);
+
+      const result = mergeNamedVersions(autoVersions, [{
+        id: 'unattributed',
+        name: 'Deleted accounts',
+        clock_start: 1,
+        clock_end: 2,
+        created_at: '2024-05-02T09:00:00Z',
+        created_by: 'user-a',
+        creator_name: 'Alice',
+      }], rows);
+
+      const named = result.find(v => v.id === 'unattributed');
+      expect(named.authors).toHaveLength(1);
+      expect(named.authors[0]).toEqual(UNKNOWN_AUTHOR);
+    });
+  });
+
+  describe('041 T004: drill-down obeys the timeline\'s meaningful rule and counts honestly (FR-004, SC-002)', () => {
+    const base = new Date('2024-05-03T10:00:00Z').getTime();
+    const mk = (clock, offsetMs, over = {}) => ({
+      clock,
+      createdAt: new Date(base + offsetMs).toISOString(),
+      userId: 'user-a',
+      userName: 'Alice',
+      userEmail: 'alice@example.com',
+      userPicture: null,
+      agentName: null,
+      meaningful: true,
+      ...over,
+    });
+
+    test('a noise-only sub-group is never emitted, and unknown-classified rows ARE kept', async () => {
+      // Group A: clocks 1-2 meaningful. Group B (>10s later): clocks 3-4, BOTH
+      // noise — must vanish entirely. Group C (>10s later): clock 5 with
+      // meaningful === null (unknown) — must survive (D-3 fail-visible).
+      const rows = [
+        mk(1, 0), mk(2, 1000),
+        mk(3, 20000, { meaningful: false }), mk(4, 21000, { meaningful: false }),
+        mk(5, 40000, { meaningful: null }),
+      ];
+      const persistence = { getUpdatesInRange: async () => rows };
+
+      const { subversions, total } = await getUpdatesForVersion(persistence, 'doc', 1, 5);
+
+      expect(total).toBe(2);
+      expect(subversions.map(s => s.clockEnd).sort((a, b) => a - b)).toEqual([2, 5]);
+      expect(subversions.find(s => s.clockStart === 3)).toBeUndefined();
+    });
+
+    test('updateCount counts surviving rows, never clock arithmetic', async () => {
+      // One sub-group spanning clocks 1-5 where 2 and 4 are noise: three rows
+      // survive, but clockEnd - clockStart + 1 would claim five.
+      const rows = [
+        mk(1, 0),
+        mk(2, 500, { meaningful: false }),
+        mk(3, 1000),
+        mk(4, 1500, { meaningful: false }),
+        mk(5, 2000),
+      ];
+      const persistence = { getUpdatesInRange: async () => rows };
+
+      const { subversions } = await getUpdatesForVersion(persistence, 'doc', 1, 5);
+
+      expect(subversions).toHaveLength(1);
+      expect(subversions[0].clockStart).toBe(1);
+      expect(subversions[0].clockEnd).toBe(5);
+      expect(subversions[0].updateCount).toBe(3);
+    });
+
+    test('Σ drill-down counts equals the timeline\'s accounting for the same range (SC-002)', async () => {
+      const rows = [
+        mk(1, 0), mk(2, 1000), mk(3, 2000, { meaningful: false }),
+        mk(4, 20000), mk(5, 21000, { meaningful: false }), mk(6, 22000),
+      ];
+      const persistence = {
+        getUpdatesInRange: async () => rows,
+        getUpdatesWithUsers: async () => rows,
+        getNamedVersions: async () => [],
+      };
+
+      const { totalEdits } = await getVersionTimeline(persistence, 'doc');
+      const { subversions } = await getUpdatesForVersion(persistence, 'doc', 1, 6);
+      const drillTotal = subversions.reduce((sum, s) => sum + s.updateCount, 0);
+
+      expect(drillTotal).toBe(totalEdits);
+      expect(drillTotal).toBe(4);
+    });
+  });
+
   describe('formatTimestamp', () => {
     test('formats date string to readable format', () => {
       const formatted = formatTimestamp('2024-12-10T16:44:00Z');

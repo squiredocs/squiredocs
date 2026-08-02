@@ -192,6 +192,116 @@ function dedupeOnBehalfOf(rawPushes) {
 }
 
 /**
+ * The one meaningful-classification predicate every version-history surface
+ * reads (feature 023 US4, D-3): `null`/`undefined` (unknown — pre-023 rows, or
+ * written by an old pod mid-deploy) counts as MEANINGFUL (fail-visible); only an
+ * explicit `false` (classified noise) is dropped. Feature 041 gave the drill-down
+ * this same rule, so the predicate lives in exactly one place.
+ *
+ * @param {Object} update - An update row
+ * @returns {boolean} true when the row participates in version accounting
+ */
+function isMeaningful(update) {
+  return !!update && update.meaningful !== false;
+}
+
+/**
+ * Derive a version's displayed metadata from the update rows that actually fall
+ * inside its own clock range (feature 041, FR-001..003).
+ *
+ * This exists because the presenter used to COPY the containing auto version's
+ * `authors`/`onBehalfOf` onto ranges those lists do not describe: a named
+ * version inherited them wholesale, and both split fragments got them via an
+ * object spread. When a named version splits one editing burst between two
+ * people, that credits each side with the other's work in BOTH directions
+ * (ledger N-041-1) — the most direct violation of the attribution promise the
+ * product makes.
+ *
+ * Rules (contracts/range-scoped-version-meta.md):
+ *  - Author keying, the `createAuthor` shape, the UNKNOWN_AUTHOR collapse (040
+ *    FR-008) and `dedupeOnBehalfOf` are IDENTICAL to `groupUpdatesIntoVersions`
+ *    — this is the same computation over a different row selection, never a
+ *    second, divergent notion of authorship.
+ *  - Primary input is the in-range rows that pass `isMeaningful`.
+ *  - R16 noise-only fallback: if the range HAS rows but all were filtered as
+ *    noise, compute from the unfiltered in-range rows instead. Those are real
+ *    editors of that range; an empty list is reserved for a range with no rows
+ *    at all (FR-003), and the fallback set is still range-scoped, so no author
+ *    from outside the range can ever appear.
+ *  - `timestamp` is the LAST in-range row's `createdAt` (null when row-less);
+ *    callers layer their own fallbacks on top.
+ *
+ * `updates` is expected in ascending clock order (every persistence reader
+ * returns that), which is what makes "last in range" and dedupeOnBehalfOf's
+ * latest-wins aggregation correct.
+ *
+ * @param {Array} updates - Update rows (ascending clock), any range
+ * @param {number|null} clockStart - Inclusive lower bound (null ⇒ unbounded)
+ * @param {number|null} clockEnd - Inclusive upper bound (null ⇒ unbounded)
+ * @returns {{authors: Array, onBehalfOf: Array, onBehalfOfMore: number, timestamp: string|null}}
+ */
+function computeRangeMeta(updates, clockStart, clockEnd) {
+  const lo = (clockStart === null || clockStart === undefined) ? -Infinity : clockStart;
+  const hi = (clockEnd === null || clockEnd === undefined) ? Infinity : clockEnd;
+
+  const inRange = (updates || []).filter(u => u && u.clock >= lo && u.clock <= hi);
+  const meaningful = inRange.filter(isMeaningful);
+  // R16: a noise-only range demonstrably has editors — credit them rather than
+  // rendering an empty list (which reads as "nobody edited this").
+  const rows = meaningful.length > 0 ? meaningful : inRange;
+
+  if (rows.length === 0) {
+    return { authors: [], onBehalfOf: [], onBehalfOfMore: 0, timestamp: null };
+  }
+
+  const authors = new Map();
+  const rawPushes = [];
+
+  for (const update of rows) {
+    const authorKey = getAuthorKey(update.userId, update.agentName);
+    if (update.userId && !authors.has(authorKey)) {
+      authors.set(authorKey, createAuthor(update));
+    } else if (!update.userId && !authors.has(UNKNOWN_AUTHOR_KEY)) {
+      authors.set(UNKNOWN_AUTHOR_KEY, UNKNOWN_AUTHOR);
+    }
+    if (update.onBehalfOf && typeof update.onBehalfOf === 'object') {
+      rawPushes.push(update.onBehalfOf);
+    }
+  }
+
+  const { identities, moreIdentities } = dedupeOnBehalfOf(rawPushes);
+
+  return {
+    authors: Array.from(authors.values()),
+    onBehalfOf: identities,
+    onBehalfOfMore: moreIdentities,
+    timestamp: rows[rows.length - 1].createdAt ?? null,
+  };
+}
+
+/**
+ * The subset of `computeRangeMeta` a split fragment overrides on top of its
+ * parent auto version's spread (feature 041, FR-002): authors and sync-push
+ * provenance only.
+ *
+ * The fragment KEEPS the parent's `timestamp` deliberately — a fragment is a
+ * slice of one activity burst (all its rows are within the grouping threshold of
+ * each other), the spec scopes only authors/provenance for fragments, and
+ * rewriting fragment timestamps would change every existing document's rendered
+ * history for no attribution gain. Named-version timestamps DO come from their
+ * own range (FR-003), where the spec requires it.
+ *
+ * @param {Array} updates - Update rows, ascending clock
+ * @param {number} clockStart - Fragment lower bound (inclusive)
+ * @param {number} clockEnd - Fragment upper bound (inclusive)
+ * @returns {{authors: Array, onBehalfOf: Array, onBehalfOfMore: number}}
+ */
+function computeFragmentMeta(updates, clockStart, clockEnd) {
+  const { authors, onBehalfOf, onBehalfOfMore } = computeRangeMeta(updates, clockStart, clockEnd);
+  return { authors, onBehalfOf, onBehalfOfMore };
+}
+
+/**
  * Group updates into logical versions based on time gaps
  * @param {Array} updates - Array of updates with clock, createdAt, and user info
  * @param {number} inactivityThreshold - Time gap to create new version (ms)
@@ -267,11 +377,21 @@ function groupUpdatesIntoVersions(updates, inactivityThreshold = DEFAULT_INACTIV
 /**
  * Merge named versions with auto-generated versions
  * Named versions take precedence and can split auto versions
+ *
+ * Feature 041 (FR-001..003): every version this returns — the named versions and
+ * BOTH kinds of split fragment — derives its `authors`/`onBehalfOf` from the rows
+ * inside its own clock range via `computeRangeMeta`, never from the containing
+ * auto version. Passing `updates` is therefore how a caller gets truthful
+ * attribution; a caller that omits it (legacy 2-arg call) gets empty author lists
+ * on split output rather than a plausible-looking lie.
+ *
  * @param {Array} autoVersions - Auto-generated versions from time grouping
  * @param {Array} namedVersions - User-created named versions
+ * @param {Array} [updates] - The same (meaningful-filtered) update rows the auto
+ *   versions were grouped from, ascending by clock. Source of range-scoped meta.
  * @returns {Array} Merged version list
  */
-function mergeNamedVersions(autoVersions, namedVersions) {
+function mergeNamedVersions(autoVersions, namedVersions, updates = []) {
   if (!namedVersions || namedVersions.length === 0) {
     return autoVersions.map((v, i) => ({
       ...v,
@@ -283,13 +403,23 @@ function mergeNamedVersions(autoVersions, namedVersions) {
 
   // Create named version objects with metadata
   const namedVersionObjects = namedVersions.map(nv => {
-    // Find the auto version that contains this named version for timestamp/authors
+    // Range-scoped truth first (FR-001/FR-003): authors and provenance come from
+    // the named range's OWN rows, so they no longer depend on a matching auto
+    // version existing at all — which is what left a named version whose
+    // boundary row was noise-classified authorless (report A7).
+    const rangeMeta = computeRangeMeta(updates, nv.clock_start, nv.clock_end);
+
+    // The matching auto version survives ONLY as a timestamp fallback layer.
     const matchingAutoVersion = autoVersions.find(av =>
       av.clockStart <= nv.clock_end && av.clockEnd >= nv.clock_end
     );
 
-    // Prefer original_timestamp (from yjs_updates), then matching auto version, then created_at
-    const timestamp = nv.original_timestamp || matchingAutoVersion?.timestamp || nv.created_at;
+    // Prefer original_timestamp (from yjs_updates), then the range's own last
+    // row, then the matching auto version, then created_at.
+    const timestamp = nv.original_timestamp
+      || rangeMeta.timestamp
+      || matchingAutoVersion?.timestamp
+      || nv.created_at;
 
     return {
       id: nv.id,
@@ -299,7 +429,9 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       timestamp,
       isNamed: true,
       createdBy: createAuthor(nv),
-      authors: matchingAutoVersion?.authors || [],
+      authors: rangeMeta.authors,
+      onBehalfOf: rangeMeta.onBehalfOf,
+      onBehalfOfMore: rangeMeta.onBehalfOfMore,
     };
   });
 
@@ -330,7 +462,9 @@ function mergeNamedVersions(autoVersions, namedVersions) {
       let currentEnd = autoVersion.clockEnd;
 
       for (const nv of overlappingNamed) {
-        // Add auto version fragment after this named version (if any)
+        // Add auto version fragment after this named version (if any).
+        // FR-002: the spread would carry the PARENT's authors/onBehalfOf onto a
+        // range they do not describe — recompute from the fragment's own rows.
         if (nv.clockEnd < currentEnd) {
           result.push({
             ...autoVersion,
@@ -338,6 +472,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
             clockEnd: currentEnd,
             id: String(currentEnd),
             isNamed: false,
+            ...computeFragmentMeta(updates, nv.clockEnd + 1, currentEnd),
           });
         }
 
@@ -345,7 +480,8 @@ function mergeNamedVersions(autoVersions, namedVersions) {
         currentEnd = nv.clockStart - 1;
       }
 
-      // Add any remaining fragment before the first named version
+      // Add any remaining fragment before the first named version (same FR-002
+      // rule — this is the other half of the bidirectional lie, N-041-1).
       if (autoVersion.clockStart <= currentEnd) {
         result.push({
           ...autoVersion,
@@ -353,6 +489,7 @@ function mergeNamedVersions(autoVersions, namedVersions) {
           clockEnd: currentEnd,
           id: String(currentEnd),
           isNamed: false,
+          ...computeFragmentMeta(updates, autoVersion.clockStart, currentEnd),
         });
       }
     }
@@ -416,7 +553,7 @@ async function getVersionTimeline(persistence, docGuid) {
   // (FR-016). NULL (unknown — pre-023 rows, or written by an old pod during a
   // deploy) is KEPT as meaningful (fail-visible, D-3); only an explicit `false`
   // (classified noise) is dropped.
-  const updates = allUpdates.filter(u => u.meaningful !== false);
+  const updates = allUpdates.filter(isMeaningful);
 
   if (updates.length === 0) {
     return {
@@ -431,8 +568,11 @@ async function getVersionTimeline(persistence, docGuid) {
   // Group updates into auto versions
   const autoVersions = groupUpdatesIntoVersions(updates);
 
-  // Merge with named versions
-  const versions = mergeNamedVersions(autoVersions, namedVersions);
+  // Merge with named versions. The filtered `updates` go along so named
+  // versions and split fragments compute their authors/provenance from their
+  // OWN clock ranges (feature 041, FR-001..003) — no extra query, no replay,
+  // so the timeline stays O(rows) (023 FR-016).
+  const versions = mergeNamedVersions(autoVersions, namedVersions, updates);
 
   // Format versions for API response
   const formattedVersions = versions.map(v => ({
@@ -537,7 +677,7 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
     // Group the meaningful-filtered set for parity with getVersionTimeline
     // (feature 023 US4): NULL kept, explicit noise dropped — so a clock that is
     // a version boundary in the timeline resolves to the same auto-version here.
-    const meaningfulUpdates = updates.filter(u => u.meaningful !== false);
+    const meaningfulUpdates = updates.filter(isMeaningful);
     const autoVersions = groupUpdatesIntoVersions(meaningfulUpdates);
     const version = autoVersions.find(v => v.clockEnd === clockEnd);
 
@@ -756,11 +896,17 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
   const updates = await persistence.getUpdatesInRange(docGuid, clockStart, clockEnd);
   const fetchTime = Date.now() - startTime;
 
+  // Feature 041 (FR-004): apply the TIMELINE's meaningful rule before grouping.
+  // The drill-down was the one surface that skipped it, so it emitted sub-groups
+  // built entirely from classified noise — updates the timeline does not count
+  // and the user cannot see — and the two surfaces disagreed on totals (SC-002).
+  const meaningfulUpdates = updates.filter(isMeaningful);
+
   // Group updates into sub-versions using 10-second threshold
   // No document reconstruction needed - just return metadata about update groupings
   const groupStart = Date.now();
   const subVersions = groupUpdatesIntoVersions(
-    updates.map(u => ({
+    meaningfulUpdates.map(u => ({
       clock: u.clock,
       createdAt: u.createdAt,
       userId: u.userId,
@@ -788,7 +934,11 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
     timestamp: sv.timestamp,
     formattedTimestamp: formatTimestamp(sv.timestamp),
     authors: sv.authors || [],
-    updateCount: sv.clockEnd - sv.clockStart + 1,
+    // FR-004: count the rows that actually survived the meaningful filter, not
+    // the clock span. Clock arithmetic counted noise rows (and any clock the
+    // range never contained), inflating the drill-down past what the timeline
+    // accounts for.
+    updateCount: meaningfulUpdates.filter(u => u.clock >= sv.clockStart && u.clock <= sv.clockEnd).length,
   })).reverse();
 
   // Apply limit (most recent first)
@@ -797,7 +947,7 @@ async function getUpdatesForVersion(persistence, docGuid, clockStart, clockEnd, 
   const hasMore = total > limit;
 
   const totalTime = Date.now() - startTime;
-  console.log(`[getUpdatesForVersion] clocks ${clockStart}-${clockEnd}: fetch=${fetchTime}ms, group=${groupTime}ms, total=${totalTime}ms, updates=${updates.length}, subversions=${total}, returned=${limitedSubversions.length}`);
+  console.log(`[getUpdatesForVersion] clocks ${clockStart}-${clockEnd}: fetch=${fetchTime}ms, group=${groupTime}ms, total=${totalTime}ms, updates=${updates.length}, meaningful=${meaningfulUpdates.length}, subversions=${total}, returned=${limitedSubversions.length}`);
 
   return {
     subversions: limitedSubversions,
@@ -867,6 +1017,10 @@ module.exports = {
   createAuthor,
   // Feature 040 (FR-008): the synthetic contributor for unattributed rows.
   UNKNOWN_AUTHOR,
+  // Feature 041 (FR-001..004): the shared meaningful predicate and the
+  // range-scoped metadata computation behind truthful version attribution.
+  isMeaningful,
+  computeRangeMeta,
   groupUpdatesIntoVersions,
   mergeNamedVersions,
   formatTimestamp,
