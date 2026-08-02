@@ -7,7 +7,27 @@ Work this feature deliberately does not deliver, filed so it is not lost. Writte
 
 ## OWED-1 — A user-facing way to undo a restore (document-level undo affordance)
 
-**Status**: not delivered by 040. Deliberate, ratified deferral — **not** an oversight.
+> **MOOT as of 2026-08-02 (Sam's decision, D19).** Restore-undo (US1) and its offer/label guard
+> (US6) have been **CUT** from the product. There is no longer an invertible record behind a
+> web-UI restore, so there is nothing for a document-level affordance to drive: a restore is now
+> reverted the way it was made, by restoring again. This item is **not owed** unless restore-undo
+> is deliberately revived.
+>
+> Everything below is retained as the design record. Two parts of it are now *wrong as written*
+> and would mislead a future implementer:
+> - The "What 040 does and does not deliver" section describes the endpoint contract that has
+>   since been removed. `/undo-status` no longer reports a restore as undoable, and it no longer
+>   carries per-direction `edit_clock_start` target fields (FR-016 is cut).
+> - The 2026-08-02 amendment to point 3 is likewise reversed: the endpoint's `toolCallId` is once
+>   again used **only** to stamp the `reverted` flag, because with restores out of the queue the
+>   record the button sits on and the record `/undo` inverts are the same one — the mislabel is
+>   structurally impossible again rather than guarded against.
+>
+> **If it is revived**: read D19 first. The reason the guard apparatus existed is the reason the
+> capability was cut, so a revival should either give restores their own identity/queue or ship
+> this affordance *first*, rather than defending the chat card's button a second time.
+
+**Status**: **moot** (see above). Was: not delivered by 040 — deliberate, ratified deferral.
 
 ### What 040 does and does not deliver
 
@@ -85,10 +105,13 @@ restores a version and regrets it still has no button.
 
 ## OWED-2 — Manual validation owed to Sam (cannot be run in the pipeline worktree)
 
+> **Revised 2026-08-02 by the D19 cut.** The original browser walk validated US6 and FR-003, both
+> of which are now CUT; it is replaced below. The MCP walk is unchanged and still owed.
+
 - **Browser walk**: restore a version from the version-history panel with an assistant `modify`
-  card visible in the chat; confirm the card's Undo control disappears (US6 scenario 1) and that
-  version history attributes the restore to "Squire Docs Assistant (<name>)" (FR-003/SC-004).
-  Then confirm the control returns once the modify is the next target again (US6 scenario 2).
+  card visible in the chat; confirm version history attributes the restore to **the human**, not
+  to "Squire Docs Assistant (<name>)", and that the modify card's Undo control still behaves
+  exactly as it did before 040 (offered on the latest modify, unaffected by the restore).
 - **MCP walk**: `restore_document_version` then `undo` on the same agent token — the restore
   inverts and is attributed to the agent, not to the assistant (US2/SC-003).
 - **Deploy** stays with the maintainer, as always.

@@ -482,3 +482,57 @@ branched from a commit older than the `main` the task text was written against. 
 that a cited line number, test name, or prior feature's delivery is *stale*, check it against
 `main` — `git show main:<path>` — not only against the worktree. "The citation is wrong" and
 "my base is old" look identical from inside the worktree, and the second is far more likely.
+
+---
+
+## D19 — Restore-undo (US1) and its offer/label guard (US6) are CUT
+
+**Status**: **Sam's explicit decision, 2026-08-02.** Not ratified-by-default — Sam reviewed the
+merged feature and the post-merge review findings and decided to remove the capability. Recorded
+here so a future reader sees a considered reversal rather than an abandoned feature.
+
+**Decision**: cut US1 and US6 from the product. A web-UI restore is no longer recorded as an
+`agent_edits` row, is no longer an undo target on any surface, and is once again attributed in
+version history to the human who performed it. `server/undo/reverted-flag.js`, the `/undo-status`
+`nextUndo`/`nextRedo` fields, the `performUndo`/`performRedo` `actedEditClockStart` plumbing, and
+the client offer guard in `AiChatMessages.jsx` are all deleted. **The MCP path is untouched**: an
+agent restore still passes its own `agentName`, still records an `agent_edits` row, and is still
+undoable by that agent exactly as it was before 040.
+
+**Reasoning**:
+
+1. **The invariant 040 broke was load-bearing.** Before 040, the only edits recorded under the
+   chat-assistant identity were chat `modify` calls. That identity's undo queue therefore held
+   *exactly* the edits the Undo button sat on — the LIFO target and the card were always the same
+   record, so mislabeling was **structurally impossible**. 040 put restores into that queue,
+   creating a divergence, which then required a guard apparatus to contain: `reverted-flag.js`,
+   the `/undo-status` target fields, the client offer guard, and the `actedEditClockStart`
+   plumbing. Roughly **1,000 of 040's 1,895 lines** are downstream of the convenience rather than
+   of the convenience itself.
+2. **The convenience has no UI to invoke it.** D13 already descoped US1 to the endpoint contract
+   because no client control can reach a restore's undo (F1). OWED-1 — the document-level
+   affordance — was never built. The full cost was paid for a capability no user could reach.
+3. **It was paid for with an attribution regression.** FR-003/SC-004 made a human's restore
+   display as "Squire Docs Assistant (Sam Goldstein)" instead of the person who performed it —
+   in a pass whose entire purpose was making history tell the truth.
+4. **The post-merge review's two MEDIUM defects both live inside the apparatus this cut deletes**:
+   a cross-document `edit_clock_start` collision that could mislabel via a direct API call, and a
+   legacy-path stamp that could never be cleared, so "Reverted" stuck forever after a redo.
+   Cutting removes them rather than spending another pass fixing them.
+
+**What this decision explicitly does NOT touch** (each stands on its own merits and is retained):
+FR-004 (MCP restores), FR-005 (the single `CHAT_AGENT_NAME` in `server/agent-identity.js`,
+including the `onboarding.js` de-duplication), FR-006 (the loud `recordEdit` null-agent guard — a
+boundary guard still valuable for any future caller), FR-007 (the sentinel rule documentation),
+FR-008/FR-009 (unknown-author display), FR-010 (stable history colours), FR-011/FR-012
+(documentation closures), and FR-015 (the one identity predicate — three implementations
+genuinely disagreed on `null` vs `undefined`, and that fix stands alone).
+
+**Supersedes**: D7, D13, D14, D15, D16 and D17 are moot for the product — they governed decisions
+inside US1/US6. They are left in place as the record of how the cut capability was designed.
+
+**If restore-undo is ever revived**: the reversal above is the design constraint to start from.
+Putting restores back into the chat-assistant identity's undo queue re-breaks the structural
+invariant, so a revival should either give restores their own identity/queue, or ship the
+document-level affordance (OWED-1) *first* so the capability is reachable and the chat card's
+button is not the only surface that has to be defended.

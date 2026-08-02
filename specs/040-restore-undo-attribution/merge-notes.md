@@ -1,5 +1,14 @@
 # Merge notes — 040-restore-undo-attribution
 
+> **⚠️ SUPERSEDED IN PART (Sam, 2026-08-02) — US1 and US6 were CUT after merge.**
+> Restore-undo and its offer/label guard have been removed from the product. Anything below that
+> describes a web-UI restore as recorded, undoable, or attributed to the chat assistant — and
+> anything about `server/undo/reverted-flag.js`, the `/undo-status` `nextUndo`/`nextRedo` fields,
+> `actedEditClockStart`, or the client offer guard — describes code that no longer exists. This
+> file is kept as the record of what was built. See `spec.md` ("Post-merge cut") and D19 in
+> `clarifications-needed.md` for the reasoning.
+
+
 Handoff for the merge queue. Everything here is either **owed** (an action the queue must take)
 or **analysed** (something a reviewer will notice and should meet as a decision, not a surprise).
 

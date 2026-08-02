@@ -5,6 +5,15 @@ description: "Task list for 040-restore-undo-attribution"
 
 # Tasks: Restore Undo Attribution
 
+> **⚠️ SUPERSEDED IN PART (Sam, 2026-08-02) — US1 and US6 were CUT after merge.**
+> Restore-undo and its offer/label guard have been removed from the product. Anything below that
+> describes a web-UI restore as recorded, undoable, or attributed to the chat assistant — and
+> anything about `server/undo/reverted-flag.js`, the `/undo-status` `nextUndo`/`nextRedo` fields,
+> `actedEditClockStart`, or the client offer guard — describes code that no longer exists. This
+> file is kept as the record of what was built. See `spec.md` ("Post-merge cut") and D19 in
+> `clarifications-needed.md` for the reasoning.
+
+
 **Input**: Design documents from `/specs/040-restore-undo-attribution/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/agent-identity.md, quickstart.md
