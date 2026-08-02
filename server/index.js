@@ -2313,8 +2313,20 @@ wss.on('connection', (ws, req) => {
           // Use setImmediate to allow pending connection handling to complete first
           // This prevents race conditions with rapid disconnect/reconnect cycles
           setImmediate(() => {
-            // Double-check connection count at cleanup time to handle reconnections
-            if (doc.conns.size === 0 && redisPubSub.isEnabled()) {
+            // Double-check connection count at cleanup time to handle reconnections.
+            //
+            // The count alone is not enough. `unsubscribeFromDocument` is keyed by
+            // NAME, not by doc identity, while this closure holds ONE doc instance
+            // forever. A refused bind (refuseBind, FR-010) closes the conns and
+            // CLEARS the map, so a straggler close from an already-dead connection
+            // sees size === 0 on the OLD doc — long after a reconnect built a fresh
+            // doc under the same name and subscribed it. Unsubscribing then kills
+            // the LIVE doc's channels, and nothing re-subscribes (the fresh doc has
+            // `_redisSyncInitialized` set), so it silently stops seeing other
+            // instances' updates. Only tear down when the registry still points at
+            // (or has forgotten) this handler's own doc.
+            const isCurrentDoc = !docs.has(wsDocName) || docs.get(wsDocName) === doc;
+            if (doc.conns.size === 0 && isCurrentDoc && redisPubSub.isEnabled()) {
               console.log(`[RedisPubSub] No more connections for doc ${docId}, cleaning up`);
 
               redisPubSub.unsubscribeFromDocument(docId);
@@ -2331,6 +2343,8 @@ wss.on('connection', (ws, req) => {
               }
             } else if (doc.conns.size > 0) {
               console.log(`[RedisPubSub] Skipping cleanup for doc ${docId}, ${doc.conns.size} connections remaining`);
+            } else if (!isCurrentDoc) {
+              console.log(`[RedisPubSub] Skipping cleanup for doc ${docId}: a newer doc instance owns this name`);
             }
           });
           // ========== END REDIS PUB/SUB CLEANUP ==========
