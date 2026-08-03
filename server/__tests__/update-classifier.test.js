@@ -113,32 +113,47 @@ describe('classificationDisabled size guard (023 F5)', () => {
     doc.destroy();
   });
 
-  test('an oversized doc: the listener skips extractXml entirely and persists meaningful=null', () => {
-    // Mirror of the bindState listener (index.js) restricted to the classify
-    // decision, driving the REAL guard + a spied extractXml to prove no
-    // serialization happens once the guard disables classification.
-    const classifier = require('../update-classifier');
-    const extractSpy = jest.spyOn(classifier, 'extractXml');
+  // Feature 043 (X1/FR-006a): this used to be a `runListener` re-implementation
+  // of the bindState listener. It now drives the REAL listener from
+  // server/collab-bind-state.js. Only the *dependencies* are test doubles
+  // (persistence, the notifier, the indexer, the guardrail); every decision —
+  // the size guard, the origin parse, the classification, what reaches
+  // storeUpdate — is production code. Break the guard in
+  // server/update-classifier.js and this fails.
+  test('an oversized doc: the real listener skips extractXml entirely and persists meaningful=null', async () => {
+    const actualClassifier = jest.requireActual('../update-classifier');
+    // extractXml is destructured at import time inside collab-bind-state, so a
+    // jest.spyOn on the module object would never be seen. Mock the module and
+    // load the listener fresh against it instead.
+    const extractSpy = jest.fn(actualClassifier.extractXml);
 
-    const persisted = [];
-    const runListener = (ydoc, update, parsed) => {
-      const disabled = classifier.classificationDisabled(ydoc, update.byteLength);
-      let prevXml;
-      let nextXml;
-      if (!disabled) {
-        nextXml = classifier.extractXml(ydoc);
-        prevXml = ydoc._lastClassifiedXml;
-        if (nextXml !== undefined) ydoc._lastClassifiedXml = nextXml;
-      }
-      if (!parsed) return; // sentinel origin: baseline (would be) refreshed, no persist
-      let meaningful = null;
-      if (!disabled && typeof prevXml === 'string' && nextXml !== undefined) {
-        meaningful = classifier.classifyByXml(prevXml, nextXml);
-      }
-      persisted.push(meaningful);
+    let createUpdateListener;
+    jest.isolateModules(() => {
+      jest.doMock('../update-classifier', () => ({ ...actualClassifier, extractXml: extractSpy }));
+      ({ createUpdateListener } = require('../collab-bind-state'));
+    });
+
+    const stored = [];
+    const deps = {
+      persistenceProvider: {
+        storeUpdate: (docGuid, update, userId, agentName, _a, _b, opts) => {
+          stored.push({ docGuid, userId, agentName, ...opts });
+          return Promise.resolve();
+        },
+        updateDocumentTitle: () => Promise.resolve(),
+      },
+      pendingWrites: new Set(),
+      notifyException: jest.fn(),
+      searchIndexer: { markDirty: jest.fn() },
+      collabGuardrail: { evaluateUpdate: () => Promise.resolve() },
+      logPerf: () => {},
     };
 
     const ydoc = new Y.Doc();
+    const docGuid = '11111111-2222-3333-4444-555555555555';
+    const userId = '99999999-8888-7777-6666-555555555555';
+    const listener = createUpdateListener(deps, docGuid, ydoc);
+
     const frag = ydoc.getXmlFragment('default');
     let captured;
     ydoc.on('update', (u) => { captured = u; });
@@ -146,12 +161,47 @@ describe('classificationDisabled size guard (023 F5)', () => {
     ydoc.transact(() => frag.insert(0, [para('x'.repeat(MAX_CLASSIFY_DOC_BYTES + 4096))]));
 
     expect(captured.byteLength).toBeGreaterThan(MAX_CLASSIFY_DOC_BYTES);
-    runListener(ydoc, captured, { userId: 'u1', agentName: null });
+    listener(captured, { userId, agentName: null });
+    await Promise.all([...deps.pendingWrites]);
 
-    expect(persisted).toEqual([null]); // persisted unknown ⇒ meaningful
+    expect(stored).toHaveLength(1);
+    expect(stored[0].meaningful).toBeNull(); // persisted unknown ⇒ meaningful
+    expect(stored[0].userId).toBe(userId); // identity still comes from the origin
     expect(extractSpy).not.toHaveBeenCalled(); // no O(doc size) serialization on the hot path
 
-    extractSpy.mockRestore();
+    ydoc.destroy();
+  });
+
+  test('a sentinel origin is never persisted, but still refreshes the baseline', async () => {
+    // The other half of the invariant the mirror could only assert about itself:
+    // baseline refresh happens BEFORE the sentinel early-return (023 T023/U1).
+    const { createUpdateListener } = require('../collab-bind-state');
+    const stored = [];
+    const deps = {
+      persistenceProvider: {
+        storeUpdate: (...args) => { stored.push(args); return Promise.resolve(); },
+        updateDocumentTitle: () => Promise.resolve(),
+      },
+      pendingWrites: new Set(),
+      notifyException: jest.fn(),
+      searchIndexer: { markDirty: jest.fn() },
+      collabGuardrail: { evaluateUpdate: () => Promise.resolve() },
+      logPerf: () => {},
+    };
+
+    const ydoc = new Y.Doc();
+    const listener = createUpdateListener(deps, 'guid', ydoc);
+    const frag = ydoc.getXmlFragment('default');
+    let captured;
+    ydoc.on('update', (u) => { captured = u; });
+    ydoc.transact(() => frag.insert(0, [para('hello')]));
+
+    listener(captured, 'db-load'); // a sentinel
+    await Promise.all([...deps.pendingWrites]);
+
+    expect(stored).toHaveLength(0);
+    expect(typeof ydoc._lastClassifiedXml).toBe('string');
+    expect(ydoc._lastClassifiedXml).toContain('hello');
     ydoc.destroy();
   });
 });
