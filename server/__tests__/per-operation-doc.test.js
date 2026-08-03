@@ -806,6 +806,58 @@ describe('048 G — the shared doc never authors a content operation', () => {
     expect(ydoc.clientID).toBe(own);
   });
 
+  test('N8 (through the write path): a nested updateDocument is DEFERRED, not nested, and never corrupts the identity', async () => {
+    // HONEST SCOPE, because the contract's wording for N8 does not match what
+    // actually happens here. `invariant-guards.md` describes "a reentrant
+    // updateDocument from inside a mutate phase is refused loudly". It is not
+    // refused — it is deferred, and that is safe for a structural reason worth
+    // writing down:
+    //
+    // `updateDocument` is async and its FIRST action is `await acquireReadyDoc`.
+    // A mutate phase is synchronous and cannot await, so a nested call suspends
+    // there and returns a pending promise. The outer transaction then completes
+    // and its `finally` restores the identity and closes the borrow. Only then
+    // does the inner call resume — by which time no borrow is open, so it runs
+    // as an ordinary sequential write under its OWN borrow.
+    //
+    // The reentrancy REFUSAL is therefore genuinely unreachable through
+    // `updateDocument`, and is defense-in-depth for any future synchronous
+    // caller of `acquire` (pinned directly, at module level, in
+    // borrowed-identity.test.js). What matters here is that the nesting cannot
+    // corrupt anything, and that is what this pins.
+    const { ydoc } = makeWarmDoc();
+    const own = ydoc.clientID;
+    const USER_B = '22222222-2222-4222-8222-222222222222';
+    let inner = null;
+
+    const outer = await documentService.updateDocument(
+      DOC_GUID,
+      () => (d) => {
+        d.get('default', Y.XmlFragment).insert(0, [paragraph('outer')]);
+        inner = documentService.updateDocument(
+          DOC_GUID,
+          () => (d2) => d2.get('default', Y.XmlFragment).insert(0, [paragraph('inner')]),
+          { userId: USER_B, agentName: null }
+        );
+      },
+      ATTRIB
+    );
+
+    const innerResult = await inner;
+
+    // Both writes landed, each under its own borrowed id, neither the doc's own.
+    const outerIds = insertClientIds(outer.update);
+    const innerIds = insertClientIds(innerResult.update);
+    expect(outerIds).toHaveLength(1);
+    expect(innerIds).toHaveLength(1);
+    expect(outerIds[0]).not.toBe(innerIds[0]); // different identities
+    expect(outerIds).not.toContain(own);
+    expect(innerIds).not.toContain(own);
+    // And the document is wearing its own identity at the end.
+    expect(ydoc.clientID).toBe(own);
+    expect(fragmentTexts(ydoc)).toHaveLength(2);
+  });
+
   test('N9: the borrowed-identity mechanism fails BY NAME if struct signing or restoration regresses', async () => {
     // THE FR-012 LOUD GUARD. Its job is to be the test that goes red — with a
     // message naming this mechanism — when a yjs upgrade silently changes how

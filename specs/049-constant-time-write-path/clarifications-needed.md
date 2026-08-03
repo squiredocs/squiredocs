@@ -590,3 +590,39 @@ subdocument in a mutate phase.**
 3. **`docs/dev.md`** — the FR-012 upgrade checklist is owed to the merge queue,
    with ready-to-paste text in `promotion-notes.md` §5. Not applied here because
    the implement brief reserves that file to the merge queue.
+
+### F-049-6 — CORRECTION to N8's stated scope — a nested `updateDocument` is DEFERRED, not refused
+
+`contracts/invariant-guards.md` describes pin **N8** as "a reentrant
+`updateDocument` from inside a mutate phase is refused loudly, and the
+document's own id is still restored". **The first clause does not happen**, and
+the reason is structural rather than a defect.
+
+`updateDocument` is `async` and its first action is `await acquireReadyDoc(...)`.
+A mutate phase is synchronous and cannot await, so a nested call **suspends at
+that await** and returns a pending promise. The outer transaction then runs to
+completion and its `finally` restores the document's clientID and closes the
+borrow. Only then does the inner call resume — and by that point no borrow is
+open, so `isBorrowOpen` is false and the inner call proceeds as an ordinary
+sequential write under its own borrow.
+
+Reproduced directly: both writes land, each carries its own borrowed id, neither
+carries the document's own, and the identity is restored at the end.
+
+**Consequences, recorded rather than smoothed over:**
+
+1. The reentrancy **refusal** in `updateDocument` is genuinely **unreachable
+   through `updateDocument`**. It is defense-in-depth for a future synchronous
+   caller of `acquire`, and it is pinned where it can actually be exercised —
+   directly, at module level, in `borrowed-identity.test.js` (N8 there is real
+   and non-vacuous).
+2. The behavior is **safe**, so this is not stop-the-line: nesting cannot
+   produce a nested borrow, cannot restore the wrong id, and cannot share an id
+   between identities.
+3. A new guard pins the ACTUAL behavior in `per-operation-doc.test.js`
+   ("N8 (through the write path)"), with the mechanism written out, so that a
+   future refactor making `updateDocument` synchronous up to the borrow would
+   change behavior here and be noticed.
+
+Reported instead of quietly satisfying the contract's wording, because a guard
+named for a refusal that cannot occur would have been decorative.
