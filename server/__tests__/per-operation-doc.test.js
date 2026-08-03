@@ -23,6 +23,7 @@
  */
 const Y = require('yjs');
 const documentService = require('../document-service');
+const { restoreVersion } = require('../version-history');
 const { BindFailedError } = require('../bind-failure');
 const { parseOrigin } = require('../origin');
 
@@ -346,6 +347,68 @@ describe('048 G — the shared doc never authors a content operation', () => {
     expect(updateListenerCount(ydoc)).toBe(beforeListeners);
   });
 
+  // ── The two converged paths that had no behavioral test of their own ──────
+  // (analyze gate C1). Both are thin updateFn bodies at their call sites, so
+  // what needs pinning is that they still place content correctly when the doc
+  // they are handed is an ephemeral copy rather than the shared doc.
+
+  test('C1: the empty-import anchor seeds a paragraph only into a genuinely empty doc', async () => {
+    // server/api/docs-import.js, chat-tools.js and mcp/tools/create-document.js
+    // all run this exact shape after an EMPTY_IMPORT.
+    const anchor = (doc) => {
+      const frag = doc.get('default', Y.XmlFragment);
+      if (frag.length === 0) frag.insert(0, [paragraph('')]);
+    };
+
+    const empty = makeWarmDoc();
+    const { update } = await documentService.updateDocument(DOC_GUID, anchor, ATTRIB);
+    expect(fragmentTexts(empty.ydoc)).toHaveLength(1);
+    expect(insertClientIds(update)).not.toContain(empty.ydoc.clientID);
+    documentService.init(null, null, null);
+
+    // On a doc that already has content the guard must hold: no second anchor,
+    // and the zero return value (no row).
+    const nonEmpty = makeWarmDoc({ bodies: ['already here'] });
+    const result = await documentService.updateDocument(DOC_GUID, anchor, ATTRIB);
+    expect(result).toEqual({ update: null, hadRedisHandler: false });
+    expect(fragmentTexts(nonEmpty.ydoc)).toHaveLength(1);
+    expect(nonEmpty.rows).toHaveLength(0);
+  });
+
+  test('C1: the chat image insert honours start/end position against the loaded body', async () => {
+    // server/api/chat-tools.js insert_image: position 'start' → index 0, else
+    // the fragment's current length. The index is read from the doc updateFn is
+    // handed, which is why it must be a faithful copy of the loaded state.
+    const imageNode = (src) => {
+      const el = new Y.XmlElement('image');
+      el.setAttribute('src', src);
+      return el;
+    };
+    const insertImage = (atStart, src) => (doc) => {
+      const frag = doc.get('default', Y.XmlFragment);
+      frag.insert(atStart ? 0 : frag.length, [imageNode(src)]);
+    };
+
+    const { ydoc } = makeWarmDoc({ bodies: ['first para', 'second para'] });
+
+    const endResult = await documentService.updateDocument(DOC_GUID, insertImage(false, 'end.png'), ATTRIB);
+    let texts = fragmentTexts(ydoc);
+    expect(texts).toHaveLength(3);
+    expect(texts[2]).toContain('end.png');
+
+    const startResult = await documentService.updateDocument(DOC_GUID, insertImage(true, 'start.png'), ATTRIB);
+    texts = fragmentTexts(ydoc);
+    expect(texts).toHaveLength(4);
+    expect(texts[0]).toContain('start.png');
+
+    // Each insert authored under its own one-shot identity.
+    const a = insertClientIds(endResult.update);
+    const b = insertClientIds(startResult.update);
+    expect(a[0]).not.toBe(b[0]);
+    expect(a).not.toContain(ydoc.clientID);
+    expect(b).not.toContain(ydoc.clientID);
+  });
+
   test('G6: a no-change updateFn returns the zero value, writes no row, leaks no listener', async () => {
     const { ydoc, rows } = makeWarmDoc({ bodies: ['existing'] });
     const beforeListeners = updateListenerCount(ydoc);
@@ -355,5 +418,145 @@ describe('048 G — the shared doc never authors a content operation', () => {
     expect(result).toEqual({ update: null, hadRedisHandler: false });
     expect(rows).toHaveLength(0);
     expect(updateListenerCount(ydoc)).toBe(beforeListeners);
+  });
+});
+
+// ── RESTORE AUTHORS ON AN EPHEMERAL DOC TOO (FR-004/FR-007a, G2) ────────────
+
+describe('048 G2 — restoreVersion never authors under the shared doc clientID', () => {
+  /** Two stored versions plus the in-memory persistence the restore reads. */
+  function makeRestoreFixture() {
+    const stored = [];
+    let clock = 0;
+
+    const setText = (doc, text) => {
+      const fragment = doc.getXmlFragment('default');
+      doc.transact(() => {
+        while (fragment.length > 0) fragment.delete(0, fragment.length);
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        p.insert(0, [t]);
+        fragment.insert(0, [p]);
+      });
+    };
+
+    const persistence = {
+      storeUpdate: jest.fn(async (docGuid, update, userId, agentName) => {
+        clock += 1;
+        stored.push({ clock, update: new Uint8Array(update), userId, agentName });
+        return clock;
+      }),
+      getYDoc: jest.fn(async () => {
+        const doc = new Y.Doc();
+        for (const { update } of stored) Y.applyUpdate(doc, update);
+        return doc;
+      }),
+      getUpdatesWithUsers: jest.fn(async () => stored.map((u) => ({
+        clock: u.clock, createdAt: new Date().toISOString(), userId: u.userId, userName: 'Test User',
+      }))),
+      getVersionById: jest.fn(async () => null),
+      getYDocAtClock: jest.fn(async (docGuid, targetClock) => {
+        const doc = new Y.Doc();
+        for (const { update, clock: c } of stored) if (c <= targetClock) Y.applyUpdate(doc, update);
+        return doc;
+      }),
+    };
+
+    return { persistence, stored, setText };
+  }
+
+  async function seedTwoVersions(fx) {
+    const doc1 = new Y.Doc();
+    fx.setText(doc1, 'Original content');
+    await fx.persistence.storeUpdate('restore-doc', Y.encodeStateAsUpdate(doc1), 'user-1', null);
+
+    const doc2 = new Y.Doc();
+    Y.applyUpdate(doc2, fx.stored[0].update);
+    fx.setText(doc2, 'Modified content');
+    await fx.persistence.storeUpdate(
+      'restore-doc', Y.encodeStateAsUpdate(doc2, Y.encodeStateVector(doc1)), 'user-1', null
+    );
+  }
+
+  /** A doc the trust predicate accepts: bind complete AND ≥1 live connection. */
+  function makeTrustedLiveDoc(stored) {
+    const liveDoc = new Y.Doc();
+    for (const { update } of stored) Y.applyUpdate(liveDoc, update);
+    liveDoc._bindComplete = true;
+    liveDoc.conns = new Map([['fake-conn', new Set()]]);
+    return liveDoc;
+  }
+
+  test('G2: the DURABLE-log seed emits a fresh one-shot clientID', async () => {
+    const fx = makeRestoreFixture();
+    await seedTwoVersions(fx);
+    const before = fx.stored.length;
+
+    await restoreVersion(fx.persistence, 'restore-doc', '1', 'user-1', { getSharedDoc: () => null });
+
+    expect(fx.stored).toHaveLength(before + 1);
+    const ids = insertClientIds(fx.stored[fx.stored.length - 1].update);
+    expect(ids.length).toBeGreaterThan(0);
+    // Never a clientID that already authored content in this document.
+    const priorIds = new Set(fx.stored.slice(0, before).flatMap((r) => insertClientIds(r.update)));
+    for (const id of ids) expect(priorIds.has(id)).toBe(false);
+  });
+
+  test("G2: the TRUSTED-LIVE seed emits a fresh clientID, never the live doc's", async () => {
+    const fx = makeRestoreFixture();
+    await seedTwoVersions(fx);
+    const before = fx.stored.length;
+    const liveDoc = makeTrustedLiveDoc(fx.stored);
+
+    await restoreVersion(fx.persistence, 'restore-doc', '1', 'user-1', {
+      getSharedDoc: (g) => (g === 'restore-doc' ? liveDoc : null),
+    });
+
+    expect(fx.stored).toHaveLength(before + 1);
+    const ids = insertClientIds(fx.stored[fx.stored.length - 1].update);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids).not.toContain(liveDoc.clientID);
+
+    // The live doc still received the restore. It did NOT run the transaction,
+    // so applyLiveUpdate is what put it there.
+    expect(liveDoc.getXmlFragment('default').toString()).toContain('Original content');
+  });
+
+  test('G2: the stored bytes ARE the broadcast bytes (041 invariant)', async () => {
+    const fx = makeRestoreFixture();
+    await seedTwoVersions(fx);
+    const liveDoc = makeTrustedLiveDoc(fx.stored);
+
+    const published = [];
+    const redisPubSub = { isEnabled: () => true, publishUpdate: (g, u) => published.push(u) };
+
+    await restoreVersion(fx.persistence, 'restore-doc', '1', 'user-1', {
+      getSharedDoc: (g) => (g === 'restore-doc' ? liveDoc : null),
+      redisPubSub,
+    });
+
+    expect(published).toHaveLength(1);
+    expect(new Uint8Array(published[0])).toEqual(fx.stored[fx.stored.length - 1].update);
+  });
+
+  test('G2: store happens BEFORE the broadcast (RBD-048-2 ordering)', async () => {
+    const fx = makeRestoreFixture();
+    await seedTwoVersions(fx);
+
+    const order = [];
+    const originalStore = fx.persistence.storeUpdate;
+    fx.persistence.storeUpdate = jest.fn(async (...args) => {
+      order.push('store');
+      return originalStore(...args);
+    });
+    const redisPubSub = { isEnabled: () => true, publishUpdate: () => order.push('broadcast') };
+
+    await restoreVersion(fx.persistence, 'restore-doc', '1', 'user-1', {
+      getSharedDoc: () => null,
+      redisPubSub,
+    });
+
+    expect(order).toEqual(['store', 'broadcast']);
   });
 });

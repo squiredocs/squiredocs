@@ -46,6 +46,9 @@ describe('create_document with markdown', () => {
         } catch (e) {
           /* fresh doc */
         }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistenceProvider,

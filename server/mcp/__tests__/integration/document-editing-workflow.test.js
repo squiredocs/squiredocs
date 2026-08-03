@@ -52,6 +52,9 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
         const docGuid = extractDocGuid(docName);
         const persistedYdoc = await persistence.getYDoc(docGuid);
         Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async (docName, ydoc) => {
         const docGuid = extractDocGuid(docName);

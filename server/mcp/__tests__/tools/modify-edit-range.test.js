@@ -46,6 +46,9 @@ describe('modify editRange recording', () => {
             .catch((e) => console.error('[test bindState] persist failed:', e.message));
         });
         Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(await persistence.getYDoc(g)), ORIGIN_DB_LOAD);
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
     });

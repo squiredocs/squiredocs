@@ -57,6 +57,9 @@ describe('modify echoContent (opt-in content echo)', () => {
           const persisted = await persistence.getYDoc(docGuid);
           Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persisted), ORIGIN_DB_LOAD);
         } catch (_) { /* new doc */ }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistence,

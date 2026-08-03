@@ -7,7 +7,7 @@ const Y = require('yjs');
 const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml, replaceFragmentContents } = require('./yjs-utils');
 const editRecords = require('./undo/edit-records');
-const { applyLiveUpdate, publishIfUnhandled } = require('./live-apply');
+const { applyLiveUpdate } = require('./live-apply');
 const { isTrustedLiveDoc, untrustedReason } = require('./live-doc-trust');
 const { resolveForRows, EMPTY_RESOLUTION } = require('./resupply-resolution');
 
@@ -933,27 +933,37 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
  * Creates the restore as a single new update, records an undo-invertible edit
  * record for it, and broadcasts it live on every instance (no silent skip).
  *
- * ── WHERE THE STORED DELTA COMES FROM (feature 041, FR-011) ──────────────────
- * When the document is loaded in memory on THIS instance, the restore runs as a
- * transaction ON that live document and the stored row is that transaction's own
- * bytes. Previously the delta was computed from a separate Postgres read, so any
- * edit landing between that read and the store interleaved invisibly: the row
- * labelled "restore to version X" encoded a different transition than the one
- * users saw applied. Nothing was lost (Yjs merges), but the record lied. The
- * transaction closes that window because the stored bytes ARE the applied bytes.
+ * ── WHERE THE STORED DELTA COMES FROM (features 041 + 048, FR-011) ───────────
+ * The restore always runs on a fresh EPHEMERAL Y.Doc, never on the live one.
+ * Only the seed differs: a trusted live copy on this instance (bind complete and
+ * at least one live connection) is the most current state available, and the
+ * persisted state is the honest fallback for everything else. The stored row is
+ * that ephemeral transaction's own bytes.
  *
- * When the document is NOT loaded here, the durable-log path is used unchanged.
+ * The 041 invariant still holds, and now trivially: the stored bytes ARE the
+ * bytes handed to applyLiveUpdate — literally the same reference. What 041 fixed
+ * was a delta computed from a separate Postgres read, where an edit landing
+ * between the read and the store interleaved invisibly and the row labelled
+ * "restore to version X" encoded a different transition than the one users saw.
+ *
+ * Feature 048 moved WHERE the transaction runs, for attribution: the shared
+ * server doc has one Yjs clientID for the whole process, so a restore authored
+ * on it could not be told apart from anyone else's server-side write. On an
+ * ephemeral doc the restore carries its own one-shot identity.
  *
  * ── DOCUMENTED RESIDUALS ─────────────────────────────────────────────────────
  * 1. CROSS-POD (RBD-041-2): a document loaded only on ANOTHER instance takes the
  *    not-loaded path, so restore is not serialized against writes happening
  *    there. Full cross-pod serialization needs a distributed doc-level lock and
  *    is deliberately out of scope.
- * 2. ORDERING: the live path is broadcast-then-store — the transaction fans out
- *    to connected clients and Redis synchronously, and the durable write follows.
- *    That is the same publish-before-commit shape EVERY normal edit already has
- *    (feature 038 FR-018, accepted posture; report B1 stays closed). It is not a
- *    new window, and reordering it belongs to that decision, not this one.
+ * 2. ORDERING (RBD-048-2): store-then-apply, for both cases. The durable row is
+ *    committed first and the broadcast follows, which flips the crash window to
+ *    its safer half: a crash between the two leaves a durable row that replays
+ *    on the next load, rather than a fan-out with nothing behind it. The other
+ *    accepted consequence is that an edit landing during the store await MERGES
+ *    with the restore instead of being replaced — which is what the durable path
+ *    and every cross-pod restore already did. Both are uniform now rather than
+ *    depending on whether the document happened to be loaded here.
  *
  * @param {Object} persistence - PostgresPersistence instance
  * @param {string} docGuid - Document GUID
@@ -1033,54 +1043,28 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     liveDoc = null;
   }
 
+  // ── ONE COMPUTE PATH (feature 048, FR-004) ─────────────────────────────────
+  // The restore runs on a fresh ephemeral doc, never on the live one. Only the
+  // SEED differs between the two cases: a trusted live copy is the most current
+  // state available on this instance, and the persisted state is the honest
+  // fallback for everything else. This is the durable path generalized, so both
+  // cases share one shape — and the restore, like every other server-side
+  // write, is authored under a one-shot clientID rather than the shared doc's.
+  const seed = liveDoc
+    ? Y.encodeStateAsUpdate(liveDoc)
+    : Y.encodeStateAsUpdate(currentYdoc);
+
   let restoreUpdate;
-  let liveCapture = null; // { update, hadRedisHandler } on the live path
-
-  if (liveDoc) {
-    // ── LIVE PATH (FR-011) ───────────────────────────────────────────────────
-    // Run the restore ON the live document inside one transaction and store the
-    // bytes that transaction produced. Nothing can interleave: Yjs fires the
-    // update event synchronously at transaction end, and the capture is scoped
-    // to ORIGIN_RESTORE so a foreign update is ignored without being consumed.
-    let captured = null;
-    let hadRedisHandler = false;
-    const captureHandler = (update, origin) => {
-      if (origin !== ORIGIN_RESTORE) return; // not ours — never capture it
-      captured = update;
-      // Sampled at EMIT time: the Redis handler is a peer 'update' listener, so
-      // "was it attached when the event fired" is exactly "did it publish".
-      hadRedisHandler = !!liveDoc._redisUpdateHandler;
-    };
-
-    const stateVectorBeforeRestore = Y.encodeStateVector(liveDoc);
-    liveDoc.on('update', captureHandler);
-    try {
-      // ORIGIN_RESTORE is a sentinel: the bindState persistence listener skips
-      // it, so this transaction does NOT produce a second row (storeUpdate
-      // below is the only write). It is deliberately NOT on the Redis publish
-      // skip-list, so an attached handler fans it out cross-instance.
-      liveDoc.transact(() => applyRestoreTo(liveDoc), ORIGIN_RESTORE);
-    } finally {
-      liveDoc.off('update', captureHandler);
-    }
-
-    // A no-change restore fires no update event; the state-vector delta is then
-    // the (empty) transition, keeping the stored row and `newClock` semantics
-    // identical to the durable path.
-    restoreUpdate = captured || Y.encodeStateAsUpdate(liveDoc, stateVectorBeforeRestore);
-    liveCapture = { update: captured, hadRedisHandler };
-  } else {
-    // ── DURABLE-LOG PATH (unchanged) ─────────────────────────────────────────
-    // The document is not loaded here, so there is no live state to transact
-    // against: build the delta against the persisted current state exactly as
-    // before, and fan out through applyLiveUpdate below.
-    const tempDoc = new Y.Doc();
-    Y.applyUpdate(tempDoc, Y.encodeStateAsUpdate(currentYdoc));
-    const stateVectorBeforeRestore = Y.encodeStateVector(tempDoc);
-
-    tempDoc.transact(() => applyRestoreTo(tempDoc));
-
-    restoreUpdate = Y.encodeStateAsUpdate(tempDoc, stateVectorBeforeRestore);
+  const eph = new Y.Doc();
+  try {
+    Y.applyUpdate(eph, seed);
+    const stateVectorBeforeRestore = Y.encodeStateVector(eph);
+    eph.transact(() => applyRestoreTo(eph));
+    // A no-change restore produces the (empty) transition, keeping the stored
+    // row and `newClock` semantics identical in both cases.
+    restoreUpdate = Y.encodeStateAsUpdate(eph, stateVectorBeforeRestore);
+  } finally {
+    eph.destroy();
   }
 
   // Store as a single new update (the restore operation). Classified meaningful
@@ -1125,20 +1109,19 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     }
   }
 
-  if (liveCapture) {
-    // LIVE PATH: the transaction already applied to the live doc and already
-    // broadcast to its WebSocket clients (and, when a Redis handler was
-    // attached, cross-instance). Re-applying via applyLiveUpdate would apply an
-    // update the doc already has. Publish only if nothing else did.
-    publishIfUnhandled({ redisPubSub }, docGuid, liveCapture.update, liveCapture.hadRedisHandler, 'Restore');
-  } else {
-    // NOT-LOADED PATH: broadcast the restore live on every instance without a
-    // silent skip (feature 023 FR-023, D-5). ORIGIN_RESTORE makes the bindState
-    // persistence listener skip re-storing (storeUpdate allocates a fresh clock
-    // per call and never dedupes by content, so a parseable origin here would
-    // double-persist).
-    applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
-  }
+  // ── ONE BROADCAST CALL (feature 048, FR-004) ───────────────────────────────
+  // The transaction ran on the ephemeral doc, so the live copy — if there is one
+  // here — does NOT have this update yet and must be applied to like any other
+  // instance. That makes applyLiveUpdate correct for both cases: loaded here →
+  // apply + fan out (its H1 guard publishes only when no attached handler
+  // already did); not loaded → publish to Redis; neither → the never-silent
+  // warn (feature 023 FR-023, D-5).
+  //
+  // ORIGIN_RESTORE makes the bindState persistence listener skip re-storing
+  // (storeUpdate allocates a fresh clock per call and never dedupes by content,
+  // so a parseable origin here would double-persist). Non-fatal throughout: the
+  // row is already durable.
+  applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, restoreUpdate, ORIGIN_RESTORE, 'Restore');
 
   return {
     success: true,

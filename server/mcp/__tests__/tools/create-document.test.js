@@ -51,6 +51,9 @@ describe('create_document tool', () => {
         } catch (error) {
           // Document doesn't exist yet, that's okay
         }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {}, // No-op for tests
       provider: persistenceProvider,

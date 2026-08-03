@@ -49,6 +49,9 @@ describe('import_markdown chat tool', () => {
         } catch (error) {
           /* doc doesn't exist yet — fine */
         }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistenceProvider,
