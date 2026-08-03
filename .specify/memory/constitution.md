@@ -1,24 +1,32 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.1.1 (PATCH: skill renamed /design-pipeline → /the-pipeline;
-references updated, no semantic change)
-Modified principles: none renamed; Development Workflow gained a pipeline-skill reference
-Added sections (in 1.1.0):
-  - Principle VI: Design Docs Are Ground Truth (adopting the pipeline
-    operating model: design/ exports from Squire, sync via design/sync.mjs,
-    decisions ledger, converge-code-to-design)
-Prior adoption (1.0.0, 2026-07-13):
-  - Core Principles I-V; Technology & Architecture Constraints;
-    Development Workflow & Quality Gates; Governance
+Version change: 1.1.1 → 1.2.0 (MINOR: new Principle VII — Horizontally Scalable App Pods;
+directed by Sam 2026-08-03)
+Modified principles: none renamed
+Added sections:
+  - Principle VII: Horizontally Scalable App Pods (app-tier correctness MUST NOT
+    depend on replica count; process-local memory is cache only; single-replica
+    preconditions are deploy-gating violations, not accepted residuals)
+Consequences recorded elsewhere:
+  - RBD-045-12 (specs/045-resupply-attribution/clarifications-needed.md) OVERTURNED
+    by this principle: "per-identity server docs" is promoted from scale-out
+    precondition to required follow-on work; single-replica operation is no longer
+    an acceptable standing posture.
+Prior history: 1.1.1 (PATCH, skill rename /design-pipeline → /the-pipeline);
+  1.1.0 added Principle VI (Design Docs Are Ground Truth); 1.0.0 (2026-07-13)
+  adopted Core Principles I-V, Technology & Architecture Constraints,
+  Development Workflow & Quality Gates, Governance.
 Removed sections: none
 Templates requiring updates:
   ✅ .specify/templates/plan-template.md — Constitution Check gate is generic
      ("[Gates determined based on constitution file]"); derives from this file at plan time.
   ✅ .specify/templates/spec-template.md — no constitution-specific references; no change needed.
   ✅ .specify/templates/tasks-template.md — no constitution-specific references; no change needed.
-  ✅ .specify/templates/commands/ — directory does not exist; nothing to update.
-Follow-up TODOs: none.
+Follow-up TODOs: promote per-identity Y.Docs for server-side write paths to its own
+  feature (closes RBD-045-12 residuals 1 and 2); until it lands, deploys of the
+  041-047 train MUST NOT scale the app tier past one replica without flagging the
+  known confident-wrong-author path.
 -->
 
 # Squire Docs Constitution
@@ -102,6 +110,24 @@ Rationale: the design docs are collaboratively authored in Squire (dogfooding th
 they only function as shared ground truth for humans and agents if divergence is impossible
 to do quietly.
 
+### VII. Horizontally Scalable App Pods
+
+The app tier MUST be horizontally scalable: correctness MUST NOT depend on running a single
+replica, and no feature may make single-replica operation a precondition for its guarantees.
+Process-local memory MAY be used only as a cache whose loss or absence degrades honestly
+(slower answers or an honest refusal) — never as the sole carrier of correctness-bearing
+knowledge, and never in a way that lets two live pods give conflicting confident answers
+about the same durable state. Knowledge that correctness depends on MUST live in shared
+infrastructure (PostgreSQL, Redis) or be made structurally unnecessary (e.g. per-identity
+server docs instead of a shared doc whose identity only its own pod can recognize). A
+feature that cannot yet meet this bar MUST be recorded in its ledger as a deploy-gating
+violation with the work that closes it — not filed as an accepted residual.
+
+Rationale: the deployment baseline is multiple app pods behind an ingress, and even a
+"single-replica" deployment briefly runs two pods during every rolling update. A 1-pod-only
+correctness precondition silently converts every deploy and every scale-out into a
+correctness incident.
+
 ## Technology & Architecture Constraints
 
 - Stack: Node.js 22+ / Express / y-websocket backend; React 18 + TipTap + Yjs frontend;
@@ -142,4 +168,4 @@ gates or required sections change. Compliance is reviewed at spec-kit plan time 
 Check gate) and whenever an agent session begins work that touches a governed area. Runtime
 agent guidance lives in `CLAUDE.md`; where they conflict, this constitution wins.
 
-**Version**: 1.1.1 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-07-13
+**Version**: 1.2.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-08-03

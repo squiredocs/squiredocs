@@ -338,7 +338,7 @@ the same document) and strictly better than today's unconditional relayer
 credit. No fix in this feature; recorded so nobody re-derives it as a surprise.
 
 
-## RBD-045-12 (was N-045-2) — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02) — FLAGGED FOR SAM'S RATIFICATION** — The shared server doc never binds an identity, and what that still leaves open
+## RBD-045-12 (was N-045-2) — **OVERTURNED by Sam, 2026-08-03 (constitution v1.2.0)** — The shared server doc never binds an identity, and what that still leaves open
 
 Added by the 045 post-merge adversarial review (HIGH-1), 2026-08-03. **Re-filed
 2026-08-03 by the 047 convergence audit (NF-4, NF-5, NF-6):** this was recorded
@@ -457,6 +457,15 @@ this status, because scaling out is the trigger and nobody should discover it th
 - **Recommended follow-on**: promote "per-identity Y.Docs for server-side write
   paths" to its own feature, and treat it as a PRECONDITION for running more than
   one replica.
-- **Sam ratifies**: [ ] confirmed / [ ] overturned (overturning means either
-  accepting cross-instance propagation despite the instability it introduces, or
-  promoting the per-identity-docs fix immediately rather than at scale-out).
+- **Sam ratifies**: [ ] confirmed / [x] **overturned** — 2026-08-03. Sam directed
+  that horizontally scalable app pods are a MUST-HAVE, adopted as constitution
+  Principle VII (v1.2.0). Consequences: single-replica operation is NOT an
+  acceptable standing posture, so this entry cannot stand as an accepted
+  residual; "per-identity Y.Docs for server-side write paths" is promoted to
+  required follow-on work rather than a scale-out-gated precondition.
+  Cross-instance propagation stays rejected — the audit's reasons above hold,
+  and Principle VII's cache-only rule for process-local knowledge points the
+  same direction. INTERIM DEPLOY CONSTRAINT until that feature lands: the
+  041-047 train MUST NOT run with more than one app replica without flagging
+  the Residual 2 confident-wrong-author path (rolling-update surge windows
+  included, same shape as the D-10 drain window).
