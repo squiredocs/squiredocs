@@ -891,7 +891,19 @@ async function getVersionContent(persistence, docGuid, versionId, { withGap = fa
     // (feature 023 US4): NULL kept, explicit noise dropped — so a clock that is
     // a version boundary in the timeline resolves to the same auto-version here.
     const meaningfulUpdates = updates.filter(isMeaningful);
-    const autoVersions = groupUpdatesIntoVersions(meaningfulUpdates);
+    // Feature 047 (NF-2): resolve relayed rows BEFORE grouping. This grouping is
+    // the only author-producing path in the module that used to run without a
+    // resolution context, so a `via_sync` row's stamped RELAYER was emitted as an
+    // author — the exact lie 045 closed everywhere else. It is not a web-only
+    // corner: `versionMeta.authors` is returned verbatim to MCP
+    // `read_document({versionId})` and `compare_document_versions`, and to REST
+    // `GET /api/docs/:docId/versions/:versionId`. Resolved over the FULL row set
+    // (as `getContentAtClock` does) rather than the meaningful-filtered one, so
+    // the display directory is built from every row the read already fetched.
+    const resolution = await resolveForRows(persistence, docGuid, updates);
+    const autoVersions = groupUpdatesIntoVersions(
+      meaningfulUpdates, DEFAULT_INACTIVITY_THRESHOLD, { resolution }
+    );
     const version = autoVersions.find(v => v.clockEnd === clockEnd);
 
     if (version) {

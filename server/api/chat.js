@@ -18,6 +18,7 @@ const chatModels = require('./chat-models');
 const { getProviderConfig } = require('./ai-providers');
 const { deduplicateReadResults } = require('./chat-dedup');
 const { getObservedClocks, getRevertedDocs, foreignEditsSince, buildStalenessNote } = require('./chat-staleness');
+const { resolveForRows } = require('../resupply-resolution');
 const { loadByokSettings, isByokActive } = require('./byok-settings');
 const appSettings = require('./app-settings');
 const { getDocument, hasAccess } = require('../documents');
@@ -1014,10 +1015,14 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       for (const [staleDocGuid, baseClock] of observedClockHolder.byDoc) {
         try {
           const updates = await persistence.getRecentUpdatesWithUsers(staleDocGuid, 100);
+          // Feature 047 (NF-3): recover the real authors of any sync-relayed
+          // rows before naming anyone. Free when nothing was relayed (the
+          // resolver short-circuits to EMPTY_RESOLUTION with zero queries).
+          const resolution = await resolveForRows(persistence, staleDocGuid, updates);
           const editors = foreignEditsSince(updates, baseClock, {
             userId: req.user.userId,
             agentName: CHAT_AGENT_NAME,
-          });
+          }, { resolution });
           const reverted = revertedDocs.has(staleDocGuid);
           if (editors.length === 0 && !reverted) continue;
           let title = staleDocGuid === docGuid ? docTitle : null;

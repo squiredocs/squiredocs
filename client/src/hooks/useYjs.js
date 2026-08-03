@@ -25,6 +25,71 @@ if (typeof global !== 'undefined' && global.__TEST_RESET_YJS_SINGLETONS__) {
   delete global.__TEST_RESET_YJS_SINGLETONS__;
 }
 
+// ============================================================================
+// LOCAL-STATE GATE (feature 047, NF-1)
+// ============================================================================
+/**
+ * How long we wait for IndexedDB to finish loading before connecting anyway.
+ *
+ * The gate must never be able to hold the socket shut: `whenSynced` is created
+ * by y-indexeddb as a bare `promise.create(resolve => this.on('synced', ...))`,
+ * so if `openDB` rejects or hangs — private browsing, exhausted quota, another
+ * tab blocking a version change — it NEVER settles. Racing it against a timer
+ * is what makes the gate fail OPEN rather than deadlock the editor.
+ */
+const LOCAL_LOAD_TIMEOUT_MS = 3000;
+
+/**
+ * Resolve once the cached IndexedDB state has been applied to the Y.Doc — or
+ * once we have waited long enough that we would rather connect without it.
+ *
+ * ── WHY THE SOCKET WAITS ON INDEXEDDB (NF-1) ────────────────────────────────
+ * `IndexeddbPersistence` and `WebsocketProvider` were started independently,
+ * with NO ordering between them. That is fine while the two agree, and wrong in
+ * exactly the case the update log has to survive: a pod dies in the
+ * publish-before-commit window, so user U's browser holds content authored by V
+ * that the server never committed. U reopens the doc. If WS sync completes
+ * FIRST, y-indexeddb then applies the cached state into an already-synced doc,
+ * those server-missing structs are newly integrated, and they fire a normal
+ * `update` whose origin is the IDB provider. y-websocket relays any update whose
+ * origin is not itself (`origin !== this`), so V's content reaches the server as
+ * an ordinary SYNC_UPDATE frame — not a SYNC_STEP2 frame. The durable row is
+ * stamped (U, null) with `via_sync` NULL, so every surface confidently credits U
+ * for V's words, and worse, that row is admissible evidence: it binds V's client
+ * identity to U, so later legitimate resolutions go confidently wrong too.
+ *
+ * Waiting means the cached content is instead part of the state vector U sends
+ * in the handshake, so it comes back through the SYNC_STEP2 channel, which is
+ * marked `via_sync` and resolved forensically (feature 045) instead of believed.
+ *
+ * First paint is not the cost it looks like: for a returning user the content
+ * being waited on IS the paint, and for a new document the store is empty and
+ * resolves in a few milliseconds.
+ *
+ * RESIDUAL: when the timeout fires open, the original race is back for that
+ * load. Connecting late is strictly worse than mis-attributing rarely — an
+ * editor that will not open is a total failure — so the gate yields.
+ *
+ * @param {object|null} idbProvider
+ * @returns {Promise<void>}
+ */
+function whenLocalStateLoaded(idbProvider) {
+  const pending = idbProvider?.whenSynced;
+  // No IndexedDB at all, a constructor that threw, or a provider without the
+  // promise: there is no cached state that could arrive late, so nothing to wait
+  // for. Resolving synchronously here also keeps the gate free for these cases
+  // rather than charging them the timeout.
+  if (!pending || typeof pending.then !== 'function') return Promise.resolve();
+
+  let timer = null;
+  return Promise.race([
+    // y-indexeddb never rejects this, but a swallowed rejection must not become
+    // an unhandled rejection that fails the load.
+    Promise.resolve(pending).catch(() => {}),
+    new Promise((resolve) => { timer = setTimeout(resolve, LOCAL_LOAD_TIMEOUT_MS); }),
+  ]).then(() => { if (timer) clearTimeout(timer); });
+}
+
 function getOrCreateDoc(docGuid) {
   if (docCache.has(docGuid)) return docCache.get(docGuid);
 
@@ -34,7 +99,7 @@ function getOrCreateDoc(docGuid) {
   // keys off the separate `docGuid` string argument below, not ydoc.guid, so this
   // has no persistence/cache side effect.
   const ydoc = new Y.Doc({ guid: docGuid });
-  const cached = { ydoc, indexeddbProvider: null };
+  const cached = { ydoc, indexeddbProvider: null, localLoaded: null };
   docCache.set(docGuid, cached);
 
   // Initialize IndexedDB asynchronously (best-effort)
@@ -45,6 +110,11 @@ function getOrCreateDoc(docGuid) {
       console.warn('[useYjs] IndexedDB init failed:', e.message);
     }
   }
+
+  // Started ONCE per document, here rather than in the effect: the timeout must
+  // run from when the store was opened, and a remount must not restart the wait
+  // (by then the state is already loaded and this promise is already resolved).
+  cached.localLoaded = whenLocalStateLoaded(cached.indexeddbProvider);
 
   return cached;
 }
@@ -72,7 +142,7 @@ export function useYjs(docGuid, accessToken, user = null) {
   const accessTokenRef = useRef(accessToken);
   accessTokenRef.current = accessToken;
 
-  const { ydoc, indexeddbProvider } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
+  const { ydoc, indexeddbProvider, localLoaded } = useMemo(() => getOrCreateDoc(docGuid), [docGuid]);
 
   // ============================================================================
   // PROVIDER LIFECYCLE - stable per docGuid, doesn't recreate on token refresh
@@ -162,7 +232,14 @@ export function useYjs(docGuid, accessToken, user = null) {
       if (!isMounted) return;
       // Only connect if we have a valid token
       if (accessTokenRef.current && !isTokenExpired(accessTokenRef.current)) {
-        newProvider.connect();
+        // NF-1: never open the socket before the cached IndexedDB state has been
+        // applied, so anything the server is missing goes out through the
+        // handshake (flagged `via_sync`) instead of as an unflagged relay
+        // attributed to whoever happened to open the tab. See
+        // whenLocalStateLoaded.
+        localLoaded.then(() => {
+          if (isMounted) newProvider.connect();
+        });
       } else {
         setConnectionState('disconnected');
         setAuthError(true);
@@ -180,7 +257,7 @@ export function useYjs(docGuid, accessToken, user = null) {
       newProvider.destroy();
       setProvider(null);
     };
-  }, [docGuid, ydoc]);
+  }, [docGuid, ydoc, localLoaded]);
 
   // Handle token changes - server validates token on each message and closes with 4401 if expired
   // Client just needs to: disconnect if token invalid, reconnect if token valid and disconnected
@@ -200,9 +277,16 @@ export function useYjs(docGuid, accessToken, user = null) {
       setAuthError(false);
       setReconnectCount(0);
       provider.shouldConnect = true;
-      provider.connect();
+      // Gated for the SAME reason as the initial connect (NF-1), and not only
+      // as belt-and-braces: while the initial connect is still waiting on
+      // IndexedDB the provider is not connected and `shouldConnect` is false, so
+      // this branch is live and would otherwise open the socket first and
+      // reintroduce the race it was gated to prevent. On a genuine mid-session
+      // token refresh the promise is long since resolved, so this costs a
+      // microtask.
+      localLoaded.then(() => provider.connect());
     }
-  }, [accessToken, provider]);
+  }, [accessToken, provider, localLoaded]);
 
   // Update awareness when user changes (without recreating provider)
   useEffect(() => {
@@ -278,8 +362,11 @@ export function useYjs(docGuid, accessToken, user = null) {
     provider.shouldConnect = true;
     setReconnectCount(c => c + 1);
     provider.disconnect();
-    setTimeout(() => provider.connect(), 100);
-  }, [provider, accessToken]);
+    // Gated like every other connect (NF-1). In practice this fires long after
+    // the local state loaded, so it is a microtask; gating it anyway means NO
+    // path in this hook can open the socket ahead of IndexedDB.
+    setTimeout(() => localLoaded.then(() => provider.connect()), 100);
+  }, [provider, accessToken, localLoaded]);
 
   return {
     ydoc,

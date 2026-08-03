@@ -7,6 +7,13 @@ rationale. Sam may overturn any entry; overturning RBD-045-1 reopens the
 feature's design contract, and overturning RBD-045-5 reopens the durability
 posture.
 
+Two entries are FLAGGED FOR SAM'S RATIFICATION because they record a product-risk
+posture rather than a mechanical choice: **RBD-045-5** (the publish-before-commit
+durability window) and **RBD-045-12** (the shared server doc, re-filed from
+N-045-2 by the 047 audit — it is a residual confident-wrong-author path, which
+Sam's attribution-first ordering treats as near-non-negotiable, so it needs an
+explicit yes rather than silence).
+
 ---
 
 ## RBD-045-1 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — The design amendment is the umbrella decision
@@ -331,19 +338,27 @@ the same document) and strictly better than today's unconditional relayer
 credit. No fix in this feature; recorded so nobody re-derives it as a surprise.
 
 
-## N-045-2 — NOTE (no decision required) — The shared server doc never binds an identity
+## RBD-045-12 (was N-045-2) — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02) — FLAGGED FOR SAM'S RATIFICATION** — The shared server doc never binds an identity, and what that still leaves open
 
-Added by the 045 post-merge adversarial review (HIGH-1), 2026-08-03.
+Added by the 045 post-merge adversarial review (HIGH-1), 2026-08-03. **Re-filed
+2026-08-03 by the 047 convergence audit (NF-4, NF-5, NF-6):** this was recorded
+as a NOTE ("no decision required"), but what it documents is a residual
+CONFIDENT-WRONG-AUTHOR path — the only one left in the resolver. Under Sam's
+attribution-first ordering (a confident wrong author is worse than an honest
+refusal) that is a product-risk posture, exactly like RBD-045-5, so it gets the
+same flagged status and the same confirm/overturn box rather than being filed as
+a fact nobody has to agree with.
 
 **The claim that was wrong.** Research R12 concluded that content created on the
 server's shared `WSSharedDoc` "typically maps to several users and is AMBIGUOUS",
 so it would refuse itself with no code. It only refuses once a SECOND identity has
 committed a direct row for that client identity BEFORE the relayed row. Until
 then the shared identity has exactly one binding and resolution credits it with
-full confidence: doc loaded, user X's assistant edit commits and binds the shared
-identity, user Y's assistant edit is broadcast and lost in a crash, any browser
-resupplies it — and every surface names X as the author of Y's words. Systematic,
-not a birthday accident, and the exact failure this feature exists to prevent.
+full confidence: doc loaded, a server-side edit by user X commits and binds the
+shared identity, a server-side edit by user Y is broadcast and lost in a crash,
+any browser resupplies it — and every surface names X as the author of Y's words.
+Systematic, not a birthday accident, and the exact failure this feature exists to
+prevent.
 
 **The rule now implemented.** A client identity KNOWN to be a shared server doc's
 is poisoned: it never binds an author, never resolves, and always renders the
@@ -353,18 +368,95 @@ so no write path imports a display-only module:
 1. the live shared doc, when this instance has the document loaded
    (`resupplyResolution.init({ peekSharedDoc })`, wired in `server/index.js`);
 2. any evidence row stamped with an identity that ONLY ever writes through the
-   shared doc — today the chat assistant (`CHAT_AGENT_NAME`), which has no Y.Doc
-   of its own. This is the RETROACTIVE source: the stamp is durable, so rows
-   written long before this rule existed are covered by their own recorded
-   identity, with no migration and no backfill;
+   shared doc — today the chat assistant (`CHAT_AGENT_NAME`). This is the
+   RETROACTIVE source: the stamp is durable, so rows written long before this
+   rule existed are covered by their own recorded identity, with no migration and
+   no backfill;
 3. the pre-existing 2+ identity ambiguity, unchanged.
 
-**Residual.** A server-side write under a PLAIN user identity (title set, document
-seed, restore, REST/MCP import) made by a pod that has since died leaves a
-single-identity binding that the durable log cannot distinguish from the
-legitimate case: a genuine offline edit whose author's own prior rows bind their
-own client identity has a byte-identical shape. Over-refusing everything of that
-shape would delete the feature. The real fix is to give server-side write paths
-per-identity docs the way MCP agent sessions already have them (research R12) —
-a feature of its own, not a review fix. Recorded so nobody re-derives it as a
-surprise.
+**CORRECTION (047 NF-4) — why source 2 is right for a reason this entry got
+wrong.** The original text justified source 2 with "the chat assistant has no
+Y.Doc of its own: every edit it makes runs through `documentService.updateDocument`".
+That premise is FALSE. The assistant's document edits dispatch through
+`toolRegistry.executeTool('modify', …)` (`server/api/chat-tools.js`), and the
+`modify` tool writes through an agent-presence session that opens its OWN
+`new Y.Doc()` over a real WebsocketProvider (`server/mcp/agent-presence.js`) —
+its own client identity, exactly like an MCP agent. What DOES write on the shared
+doc under `CHAT_AGENT_NAME` is the rest of the chat surface: the image insert and
+the empty-import anchor paragraph, both plain `documentService.updateDocument`
+calls in `chat-tools.js`. So the HIGH-1 scenario the rule fixes is real and the
+rule still covers it — but through those calls, not through `modify`.
+
+Two consequences, both recorded rather than fixed:
+
+- **Over-refusal, accepted.** Because both chat write paths stamp the identical
+  `(user_id, 'Squire Docs Assistant')` pair, a durable row cannot say which of the
+  two produced it. The poisoning therefore also marks chat SESSION-doc client
+  identities as `SERVER_DOC`, so assistant-authored content returning via resupply
+  can never resolve to the assistant. That costs accuracy, never correctness: the
+  outcome is "Synced content", never a wrong person. Narrowing it would require
+  distinguishing the two paths from the stamp alone, which is not possible today.
+- The 047 audit checked for a stamp-level discriminator and found none; no
+  narrowing was attempted.
+
+**RESIDUAL 1 — a since-dead pod (unchanged).** A server-side write under a PLAIN
+user identity (title set, document seed, restore, REST/MCP import) made by a pod
+that has since died leaves a single-identity binding that the durable log cannot
+distinguish from the legitimate case: a genuine offline edit whose author's own
+prior rows bind their own client identity has a byte-identical shape. Over-refusing
+everything of that shape would delete the feature.
+
+**RESIDUAL 2 — TWO LIVE PODS DISAGREEING (new, 047 NF-5).** The original text
+framed Residual 1 as needing "a pod that has since died". That framing is too
+narrow, and the correction matters because it turns a crash-only residual into an
+everyday one. `serverDocClients` has three sources and ALL of them are
+process-local: the live peek only ever sees THIS instance's shared doc, and every
+pod that touches a document server-side has its own shared-doc client identity
+that only it knows. So with EVERY POD ALIVE:
+
+> Pod A holds document D. User X restores a version there (the live restore path,
+> so the row carries pod A's shared-doc client identity C and is stamped
+> `(X, null)`). User Y's REST import through that same doc-load is lost in a crash.
+> A browser resupplies it. **Pod A refuses** — it knows C is its own shared doc via
+> the live peek. **Pod B binds C → (X, null)** from the restore evidence row and
+> confidently credits X for Y's content — then memoizes that answer.
+
+Two surfaces, two pods, two different confident answers, one of them wrong. It
+needs no pod to die; it only needs the reader not to be the writer's pod.
+
+**Why this is not being fixed with cross-instance propagation.** The obvious
+mitigation is to publish learned shared-doc client identities over the existing
+Redis pub/sub. The 047 audit considered and rejected it:
+
+1. **It does not close the hole.** Propagation only helps while the learning pod
+   is alive and only for identities it has already learned. The dangerous cases —
+   Residual 1 outright, and Residual 2 whenever pod B reads before pod A has
+   published — are exactly the ones a best-effort broadcast misses.
+2. **It would trade a bounded wrong answer for an unbounded unstable one.**
+   Learning a new shared-doc identity calls `forgetDerived`, dropping memoized
+   outcomes. Today that only ever happens on this pod's own document load, which
+   is why guarantee 2 can say outcomes are immutable with respect to the log.
+   Make that invalidation arrive asynchronously from any pod at any moment and the
+   same row can render as a named author on one read and "Synced content" on the
+   next, with no user-visible cause and no way to retract an author already shown.
+3. **It reintroduces a consistency story the module deliberately refused.** The
+   resolver is per-process and in-memory by design ("no Redis — 042 removed the
+   dormant Redis doc cache, and a rare-row lookup does not justify a second
+   consistency story").
+4. **The real fix is already named and strictly better.** Giving server-side write
+   paths per-identity Y.Docs the way MCP agent sessions already have them
+   (research R12) closes Residual 1 AND Residual 2 completely and permanently,
+   with no cross-instance messaging and no cache-invalidation semantics. Redis
+   propagation would be a partial mitigation that has to be ripped out when the
+   real fix lands.
+
+**Current exposure.** Production runs a SINGLE REPLICA today, so Residual 2 is
+latent — it cannot occur until the deployment scales out. It is recorded now, with
+this status, because scaling out is the trigger and nobody should discover it then.
+
+- **Recommended follow-on**: promote "per-identity Y.Docs for server-side write
+  paths" to its own feature, and treat it as a PRECONDITION for running more than
+  one replica.
+- **Sam ratifies**: [ ] confirmed / [ ] overturned (overturning means either
+  accepting cross-instance propagation despite the instability it introduces, or
+  promoting the per-identity-docs fix immediately rather than at scale-out).
