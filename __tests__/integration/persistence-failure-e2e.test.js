@@ -204,6 +204,90 @@ describe('US3: a live edit whose durable write fails (characterization)', () => 
     }
   }, 30000);
 
+  /**
+   * NEW-4 — one terminal write failure pages ONCE (feature 046).
+   *
+   * `writePromise.finally(() => pendingWrites.delete(writePromise))` created a
+   * derived promise that rejects with the same reason and had no handler, so
+   * every terminal persistence failure ALSO raised a process-level
+   * `unhandledRejection`. Production's handler logs and notifies (it does not
+   * exit — only `uncaughtException` does), so this was never a durability event:
+   * it was an ops-signal defect. Each failure burned 2 of the 10-per-5-minute
+   * notification budget and printed the stack twice, at exactly the moment the
+   * budget matters most — a database outage fails many writes at once, so the
+   * doubling halves how many distinct failures can be reported.
+   *
+   * This is also why the harness no longer needs its `SelfHandledRejection`
+   * Promise subclass: the injection above hands the listener an ORDINARY
+   * rejected promise now, which is what production's persistence produces.
+   */
+  test('NEW-4: a terminal write failure raises no unhandledRejection', async () => {
+    const docGuid = await makeDoc();
+    const editorClient = await harness.connect(docGuid, editor.token);
+
+    const editorDoc = new Y.Doc();
+    const doomedUpdate = appendParagraph(editorDoc, 'DOUBLE-PAGE probe');
+    const injection = rejectUpdateMatching(harness.persistence, (u) => sameBytes(u, doomedUpdate));
+    harness.notifications.length = 0;
+
+    // Listening on the process the way production's notifier does
+    // (server/exception-notifier.js `setupProcessHandlers`), so this measures
+    // what would actually have paged.
+    const unhandled = [];
+    const onUnhandled = (reason) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      editorClient.sendUpdate(doomedUpdate);
+      await waitFor(() => harness.notifications.length >= 1, {
+        label: 'the persistence failure was reported',
+      });
+
+      // Node emits `unhandledRejection` only after the microtask queue drains,
+      // so give it several macrotask turns before concluding it did not fire.
+      // Awaiting an ABSENCE — there is no observable condition to poll (H9).
+      for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(unhandled).toHaveLength(0);
+
+      // Exactly ONE page for the one failure, and it is the real one — from the
+      // listener's own terminal `.catch`, tagged `persistence`. Suppressing the
+      // derived branch must not have suppressed the report.
+      const failures = harness.notifications.filter((n) => n.ctx && n.ctx.source === 'persistence');
+      expect(failures).toHaveLength(1);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      injection.restore();
+      await editorClient.close();
+    }
+  }, 30000);
+
+  test('NEW-4: the drain still covers the failed write (pendingWrites is emptied)', async () => {
+    // The deletion now hangs off a handled chain rather than a bare `.finally`.
+    // `pendingWrites` holds the ORIGINAL promise and the deletion fires on the
+    // same settle, so the graceful-shutdown flush sees exactly what it saw
+    // before (FR-006) — including for a write that FAILED.
+    const docGuid = await makeDoc();
+    const editorClient = await harness.connect(docGuid, editor.token);
+
+    const editorDoc = new Y.Doc();
+    const doomedUpdate = appendParagraph(editorDoc, 'DRAIN probe');
+    const injection = rejectUpdateMatching(harness.persistence, (u) => sameBytes(u, doomedUpdate));
+    harness.notifications.length = 0;
+
+    try {
+      editorClient.sendUpdate(doomedUpdate);
+      await waitFor(() => harness.notifications.length >= 1, { label: 'failure reported' });
+      await waitFor(() => harness.pendingWrites.size === 0, {
+        label: 'the failed write to be removed from pendingWrites',
+      });
+    } finally {
+      injection.restore();
+      await editorClient.close();
+    }
+  }, 30000);
+
   test('the injection tears down cleanly — the next edit on the same connection persists', async () => {
     // T041: proves the rig is scoped and reversible, so a following suite in
     // the same serial run cannot inherit a poisoned persistence.

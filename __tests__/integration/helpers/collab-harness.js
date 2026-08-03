@@ -198,50 +198,22 @@ function rejectUpdateMatching(persistence, predicate) {
       // Rejecting here models persistence that has already exhausted its
       // transient retries: the listener's terminal `.catch` sees exactly the
       // rejected promise it would see in production.
-      return SelfHandledRejection.reject(new Error('injected persistence failure (US3)'));
+      //
+      // A PLAIN rejected promise (feature 046, NEW-4). This used to be a
+      // Promise subclass whose `.finally()` swallowed its own derived
+      // rejection, because the listener's `writePromise.finally(...)` left that
+      // branch unhandled and every terminal failure raised a process-level
+      // `unhandledRejection` on top of its own page. The listener handles it
+      // now, so the workaround is gone and this suite exercises the real
+      // promise shape production sees. If an `unhandledRejection` ever
+      // reappears here, the listener regressed.
+      return Promise.reject(new Error('injected persistence failure (US3)'));
     }
     return original(docGuid, update, ...rest);
   };
 
   handle.restore = () => { persistence.storeUpdate = original; };
   return handle;
-}
-
-/**
- * A Promise whose `.finally()` branch handles its own rejection.
- *
- * ── WHY THIS EXISTS (a real defect, found by US3) ───────────────────────────
- * `server/collab-bind-state.js:186-189` does:
- *
- *     const writePromise = persistenceProvider.storeUpdate(...);
- *     pendingWrites.add(writePromise);
- *     writePromise.finally(() => pendingWrites.delete(writePromise));  // <-- 188
- *     writePromise.then(...).catch(...);                              // handled
- *
- * `.finally()` returns a NEW promise that rejects with the same reason, and
- * nothing ever handles THAT one. So every terminal persistence failure emits a
- * process-level `unhandledRejection` in addition to the listener's own
- * `notifyException({source:'persistence'})`.
- *
- * VERIFIED, not assumed: production installs a NON-EXITING handler
- * (`setupProcessHandlers`, server/exception-notifier.js:150-154 — it logs and
- * notifies, and only `uncaughtException` calls `process.exit`). So this does
- * NOT kill the pod and is NOT a durability event. It is an ops-signal defect:
- * every terminal write failure pages TWICE, once as `persistence` and once as
- * `unhandledRejection`, which dilutes alerting exactly when it matters.
- *
- * This feature may not fix it — production changes here are limited to X1
- * (move-only), and the line is byte-for-byte what index.js already ran. The
- * finding is recorded in promotion-notes.md for the convergence round. Until
- * then, the injected rejection handles the derived branch itself, so the US3
- * suite characterizes the LOSS path rather than dying on this side effect.
- */
-class SelfHandledRejection extends Promise {
-  finally(onFinally) {
-    const derived = super.finally(onFinally);
-    derived.catch(() => {});
-    return derived;
-  }
 }
 
 /** Do two byte arrays match exactly? The identity test for a specific update. */
@@ -279,6 +251,15 @@ async function startCollabServer(opts = {}) {
   const perfEvents = [];
 
   const notifyException = (err, ctx) => { notifications.push({ err, ctx }); };
+
+  /**
+   * Per-connection edit-capability controls (feature 046), keyed by the opaque
+   * label `connect()` puts on the query string. A label rather than "the most
+   * recent connection" so a test with several sockets open cannot address the
+   * wrong one, and so the mapping survives out-of-order upgrades.
+   */
+  const serverConnControls = new Map();
+  let nextConnLabel = 0;
 
   // H1: the REAL bindState from X1. No hand-written update listener exists in
   // this file; the only occurrences of that call anywhere in this harness are
@@ -334,6 +315,9 @@ async function startCollabServer(opts = {}) {
           request.docId = docId;
           // H3: the SECOND authorization axis, same predicate as production.
           request.tokenMayWrite = !Array.isArray(user.scopes) || user.scopes.includes('documents:write');
+          // Test-only correlation handle (046) — never read by any production
+          // module, only by the harness's own connection handler below.
+          request.connLabel = url.searchParams.get('connLabel');
 
           wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
@@ -353,7 +337,29 @@ async function startCollabServer(opts = {}) {
         // server/__tests__/collab-extraction-guard.test.js, so a change to
         // either predicate fails there rather than drifting silently here.
         const tokenMayWrite = req.tokenMayWrite !== false;
-        const currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
+        let currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
+
+        // Feature 046 (NEW-1). Production's 60 s role re-check lives in
+        // index.js and cannot be reached from here, so the harness models the
+        // TWO STATES it can leave a connection in — and nothing else:
+        //   failRoleRecheck()     → error-induced fail-closed (degraded)
+        //   downgradeToViewer()   → a genuine verdict that the role changed
+        // Both write the same two variables the real re-check writes, and both
+        // are read through the SAME `installGate` handlers production passes,
+        // so the behavior under test is the shipped gate's, not a model of it.
+        let editCapabilityDegraded = false;
+        const control = {
+          failRoleRecheck: () => {
+            const believedCapable = currentCanEdit || editCapabilityDegraded;
+            currentCanEdit = false;
+            editCapabilityDegraded = believedCapable;
+          },
+          downgradeToViewer: () => {
+            currentCanEdit = false;
+            editCapabilityDegraded = false;
+          },
+        };
+        serverConnControls.set(req.connLabel, control);
 
         // H4: connection identity from X2. Never a literal.
         const wsIdentity = identityFromPrincipal(req.user);
@@ -363,6 +369,7 @@ async function startCollabServer(opts = {}) {
         // H5: the REAL gate, installed the real way, BEFORE setupWSConnection.
         installGate(ws, {
           canEdit: () => currentCanEdit,
+          editCapabilityDegraded: () => editCapabilityDegraded,
           onBlocked: (event, info = {}) => {
             blockedEvents.push({ event, userId: ws.userId, docId, role: userRole, ...info });
           },
@@ -384,10 +391,19 @@ async function startCollabServer(opts = {}) {
    * @param {string} token - a real session JWT or sk_sqd_ token
    */
   async function connect(docGuid, token) {
-    const ws = new WebSocket(`ws://localhost:${port}/s/${docGuid}?token=${encodeURIComponent(token)}`);
+    const connLabel = `c${nextConnLabel += 1}`;
+    const ws = new WebSocket(
+      `ws://localhost:${port}/s/${docGuid}`
+      + `?token=${encodeURIComponent(token)}&connLabel=${connLabel}`
+    );
     const received = [];
     /** A client-side doc fed by whatever the server sends (read path). */
     const clientDoc = new Y.Doc();
+    /** Close code/reason the SERVER sent, or null while still open (046). */
+    let closedWith = null;
+    ws.on('close', (code, reason) => {
+      closedWith = { code, reason: reason ? reason.toString() : '' };
+    });
 
     ws.on('message', (data) => {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -416,6 +432,15 @@ async function startCollabServer(opts = {}) {
       ws,
       clientDoc,
       received,
+      /** null while open; `{ code, reason }` once the socket has closed (046). */
+      closedWith: () => closedWith,
+      /** Is this socket still usable for sending? (046) */
+      isOpen: () => ws.readyState === WebSocket.OPEN,
+      /**
+       * Drive THIS connection's server-side edit capability (046). See the
+       * `control` object in the connection handler for what each does.
+       */
+      serverControl: () => serverConnControls.get(connLabel),
       sendUpdate: (update) => ws.send(updateFrame(update)),
       sendStep2: (doc) => ws.send(step2FrameFrom(doc)),
       sendStep1: (doc) => ws.send(step1FrameFrom(doc)),

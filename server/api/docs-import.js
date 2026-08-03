@@ -136,7 +136,22 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
       agentName: SYNC_AGENT_NAME,
       onBehalfOf: parseOnBehalfOf(req),
       imageMap: squire && squire.images ? squire.images : null,
-      getSharedDoc: documentService.getSharedDoc,
+      // Feature 046 (NEW-3): the PEEK, never the creating lookup — the same
+      // correction feature 041 made at the restore/undo call sites, which this
+      // one was missed by. `applySyncPush` only ever ASKS whether the document
+      // is live on this instance (to detect overlaps against it and to fan the
+      // committed push out to it). Asked through `getSharedDoc`, the question
+      // answered itself: every sync push to a document nobody had open
+      // allocated an in-memory doc plus a spurious full DB load, and nothing
+      // ever evicted it — eviction is y-websocket's `closeConn`, and these docs
+      // never had a connection. Those leaked docs also get no Redis
+      // subscription (that is wired only in the WS connection handler), so they
+      // sit frozen forever, which is precisely the precondition that made a
+      // later restore or undo compute against stale state (see
+      // server/live-doc-trust.js). `applyLiveUpdate` already handles null by
+      // publishing over Redis instead, so the not-loaded branch is now genuinely
+      // reachable rather than dead code.
+      getSharedDoc: documentService.peekSharedDoc,
     });
   } finally {
     if (observed) observed.stop();
@@ -146,8 +161,15 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
   // changed range. Only on the success path — a failed push leaves any open
   // session to expire on its own TTL (ledger RBD-2).
   if (presence) {
+    // Feature 046 (NEW-3): peek here too, or this line re-creates the very doc
+    // the call above stopped leaking. The fragment exists only to place the
+    // agent's presence cursor over the changed range; with no live doc on this
+    // instance there is no cursor to place and nothing to place it on, so
+    // `settle` degrades to refreshing the session TTL without a selection —
+    // which is what it already does for any range it cannot compute.
+    const liveDoc = documentService.peekSharedDoc(docId);
     importPresence.settle(presence, {
-      fragment: documentService.getSharedDoc(docId).get('default', Y.XmlFragment),
+      fragment: liveDoc ? liveDoc.get('default', Y.XmlFragment) : null,
       mode: 'sync',
       observed,
     });

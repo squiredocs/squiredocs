@@ -20,7 +20,7 @@ const documents = require('../../server/documents');
 const documentService = require('../../server/document-service');
 const apiTokens = require('../../server/mcp/auth/api-tokens');
 const { generateAccessToken } = require('../../server/auth/jwt');
-const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
+const { getYDoc, setPersistence, docs } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown, buildFrontmatter } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter, setCanReconstruct } = require('../../server/api/docs-import');
@@ -78,7 +78,12 @@ describe('sync-push route (mode=sync)', () => {
       writeState: async () => {},
       provider: persistence,
     });
-    documentService.init(getYDoc, (docName) => (docName.startsWith('s/') ? docName.slice(2) : docName));
+    // The registry is passed as the THIRD argument exactly as server boot does
+    // (server/index.js), so `peekSharedDoc` can answer "is this loaded?" here
+    // the way it answers in production. Without it the peek always says "not
+    // loaded" and the live-apply branches this suite exercises go unreached
+    // (feature 046, NEW-3).
+    documentService.init(getYDoc, (docName) => (docName.startsWith('s/') ? docName.slice(2) : docName), docs);
     documents.init(pool);
     apiTokens.init(pool);
 
@@ -383,6 +388,85 @@ describe('sync-push route (mode=sync)', () => {
     } finally {
       setCanReconstruct(null); // restore default (always true)
     }
+  });
+
+  /**
+   * Feature 046 (NEW-3): a sync push to a document nobody has open must not
+   * bring it into memory.
+   *
+   * The route asked "is this document live here?" through the CREATING
+   * getSharedDoc, so the answer was always yes: every such push allocated an
+   * in-memory doc plus a spurious full DB load, and nothing ever evicted it
+   * (eviction is y-websocket's closeConn, and these docs never had a
+   * connection). Feature 041 fixed the same defect at the restore/undo call
+   * sites and missed this one.
+   *
+   * It is not only a memory leak. A leaked doc gets no Redis subscription
+   * either — that is wired solely in the WS connection handler — so it sits
+   * frozen at the instant the push created it while the real document moves on
+   * elsewhere. That frozen doc is exactly what made a later restore or undo
+   * compute against stale state; see server/live-doc-trust.js.
+   *
+   * `seedDoc` above cannot be used here: it goes through createSeededDocument,
+   * whose write path legitimately creates the shared doc. This seeds the durable
+   * log directly, so the document has genuinely never been opened.
+   */
+  test('046 NEW-3: a sync push to an UNOPENED document leaves the docs registry untouched', async () => {
+    const docId = require('crypto').randomUUID();
+    createdDocIds.push(docId);
+    await documents.createDocument(docId, ownerId, 'Never opened');
+
+    // Durable content, written without ever touching the document service.
+    const seed = new Y.Doc();
+    const sv = Y.encodeStateVector(seed);
+    seed.transact(() => {
+      const p = new Y.XmlElement('paragraph');
+      p.insert(0, [new Y.XmlText('Retries use exponential backoff here.')]);
+      seed.get('default', Y.XmlFragment).insert(0, [p]);
+    });
+    await persistence.storeUpdate(docId, Y.encodeStateAsUpdate(seed, sv), ownerId, null);
+    seed.destroy();
+
+    const wsName = `s/${docId}`;
+    expect(docs.has(wsName)).toBe(false);
+    expect(documentService.peekSharedDoc(docId)).toBeNull();
+
+    const clock = await maxClock(docId);
+    const body = await currentBody(docId);
+    const rowsBefore = (await pool.query(
+      'SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid=$1', [docId]
+    )).rows[0].n;
+
+    const res = await put(docId, fileFor(docId, clock, body.replace('exponential backoff', 'fixed 5s intervals')));
+    await drain();
+
+    expect(res.status).toBe(200);
+    expect(res.body.noop).toBe(false);
+
+    // The push is durable — refusing to CREATE the doc never means refusing the
+    // write. The row is what every later reader replays.
+    const rowsAfter = (await pool.query(
+      'SELECT count(*)::int AS n FROM yjs_updates WHERE doc_guid=$1', [docId]
+    )).rows[0].n;
+    expect(rowsAfter).toBe(rowsBefore + 1);
+    expect(await currentBody(docId)).toContain('fixed 5s intervals');
+
+    // ...and nothing was left behind in memory.
+    expect(docs.has(wsName)).toBe(false);
+    expect(documentService.peekSharedDoc(docId)).toBeNull();
+  });
+
+  test('046 NEW-3: a sync push to an OPEN document still applies to the live doc', async () => {
+    // The complement, so the peek cannot be "fixed" by simply never finding
+    // anything: when the document IS live here, the push must still reach it.
+    const { docId, clock, body } = await seedDoc('# Notes\n\nRetries use exponential backoff here.\n');
+    const shared = documentService.getSharedDoc(docId);
+    expect(documentService.peekSharedDoc(docId)).toBe(shared);
+
+    await put(docId, fileFor(docId, clock, body.replace('exponential backoff', 'fixed 5s intervals')));
+    await drain();
+
+    expect(toMarkdown(shared.get('default', Y.XmlFragment))).toContain('fixed 5s intervals');
   });
 
   test('rejections never whole-document-replace as a fallback', async () => {

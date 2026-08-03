@@ -347,7 +347,14 @@ function observeSyncRange(docId, pushOrigin = null) {
   const observed = { indices, deleteIndices, stop: () => {} };
 
   try {
-    const sharedDoc = deps.documentService.getSharedDoc(docId);
+    // Feature 046 (NEW-3): the PEEK. This is a pure OBSERVATION — it attaches a
+    // read-only observer to watch where a push lands — so it must never be the
+    // thing that brings a document into memory. Through the creating lookup it
+    // leaked a doc (and a spurious full DB load) for every presence-bearing sync
+    // push to an unopened document, and made the `!sharedDoc` branch below dead
+    // code. With nothing live here there is nothing to observe and no cursor to
+    // place, which is exactly what returning the empty observation means.
+    const sharedDoc = deps.documentService.peekSharedDoc(docId);
     if (!sharedDoc) return observed;
     const fragment = sharedDoc.get('default', Y.XmlFragment);
 

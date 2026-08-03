@@ -24,7 +24,7 @@ const apiTokens = require('../mcp/auth/api-tokens');
 const importPresence = require('../import-presence');
 const cursorOps = require('../mcp/yjs/cursor-operations');
 const { generateAccessToken } = require('../auth/jwt');
-const { getYDoc, setPersistence } = require('y-websocket/bin/utils');
+const { getYDoc, setPersistence, docs } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, createSyncPushOrigin, parseOrigin } = require('../origin');
 const { buildFrontmatter } = require('../mcp/yjs/serialization');
 const { createImportRouter } = require('../api/docs-import');
@@ -72,7 +72,11 @@ describe('037 import presence', () => {
       writeState: async () => {},
       provider: persistence,
     });
-    documentService.init(getYDoc, (n) => (n.startsWith('s/') ? n.slice(2) : n));
+    // The registry as the THIRD argument, exactly as server boot does
+    // (server/index.js), so `peekSharedDoc` answers "is this loaded?" here the
+    // way it does in production. Without it the peek always says "not loaded"
+    // and the observation path this suite drives goes unreached (046 NEW-3).
+    documentService.init(getYDoc, (n) => (n.startsWith('s/') ? n.slice(2) : n), docs);
     documents.init(pool);
     apiTokens.init(pool);
 

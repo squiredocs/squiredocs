@@ -185,7 +185,20 @@ function createUpdateListener(deps, docGuid, ydoc) {
     // ordering, retry policy and drain behavior below are byte-identical.
     const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful, viaSync });
     pendingWrites.add(writePromise);
-    writePromise.finally(() => pendingWrites.delete(writePromise));
+    // Feature 046 (NEW-4): `.finally()` returns a NEW promise that rejects with
+    // the same reason, and that derived promise had no handler. So every
+    // terminal persistence failure raised a process-level `unhandledRejection`
+    // ON TOP OF the `.catch` below — two pages for one failure, burning 2 of the
+    // 10-per-5-minute notification budget (exactly when the budget matters most,
+    // since a database outage fails many writes at once) and printing the stack
+    // twice. The trailing `.catch` handles the derived branch and nothing else:
+    // the real reporting stays where it belongs, in the `.catch` at the end of
+    // the chain below.
+    //
+    // Draining is unaffected. `pendingWrites` holds the ORIGINAL promise, and
+    // the deletion still hangs off the same settle, so the graceful-shutdown
+    // flush sees precisely what it saw before (FR-006).
+    writePromise.finally(() => pendingWrites.delete(writePromise)).catch(() => {});
     writePromise
       .then(async () => {
         logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
@@ -276,6 +289,24 @@ function createBindState(deps) {
       if (!ydoc._classifyDisabled) {
         try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
       }
+
+      // Feature 046 (NEW-2a): the doc has ABSORBED its persisted state. Set
+      // LAST, after the applyUpdate above, so the flag can never be true over a
+      // half-loaded document.
+      //
+      // WHY ANY OF THIS IS NEEDED: y-websocket does not await bindState. A doc
+      // created milliseconds ago is in the registry and READABLE while still
+      // EMPTY. Anything that reads the live doc to compute a durable artifact
+      // therefore has to distinguish "loaded and genuinely empty" from "not
+      // loaded yet" — and a state-vector check cannot, because both look
+      // identical. Only the binder knows, so the binder says so.
+      //
+      // Absent on: a doc whose bind is still running, a doc whose bind FAILED
+      // (`_bindFailed` — refuseBind evicts it), and any doc built outside this
+      // binder. Every one of those is a doc no caller should derive durable
+      // state from, so "unset ⇒ do not trust the live copy" is the right
+      // reading in all three cases.
+      ydoc._bindComplete = true;
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });

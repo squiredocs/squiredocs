@@ -18,6 +18,8 @@ const {
   SYNC_STEP2,
   SYNC_UPDATE,
   STEP2_ORIGIN_FLAG,
+  DEGRADED_CLOSE_CODE,
+  DEGRADED_CLOSE_REASON,
   classifyFrame,
   isEditMessage,
   blockedEventFor,
@@ -442,6 +444,134 @@ describe('ws-edit-gate: installGate', () => {
     installGate(ws, { canEdit: () => false });
     expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
     expect(seen).toHaveLength(0);
+  });
+});
+
+/**
+ * Degraded-capability drops close the socket (feature 046, NEW-1).
+ *
+ * The distinction these pin: a drop because the user MAY NOT edit is complete in
+ * itself, but a drop because we could not FIND OUT whether they may edit leaves
+ * an editor's client believing its update was accepted. y-websocket never
+ * re-sends outside a reconnect, so every later frame from that client references
+ * structs the server doc lacks and is parked as pending forever — invisible to
+ * collaborators, absent from `yjs_updates`, and unreported. Closing forces the
+ * reconnect that re-supplies it. The end-to-end proof (real sockets, real rows)
+ * is __tests__/integration/degraded-edit-close.test.js; what is pinned HERE is
+ * the interceptor's disposition.
+ */
+describe('ws-edit-gate: installGate — degraded edit capability (046)', () => {
+  function makeClosableWs() {
+    const seen = [];
+    const closes = [];
+    const ws = {
+      emit: (event, ...args) => { seen.push([event, ...args]); return true; },
+      close: (code, reason) => { closes.push({ code, reason }); },
+    };
+    return { ws, seen, closes };
+  }
+
+  test('a degraded drop closes the connection with 1013', () => {
+    const { ws, seen, closes } = makeClosableWs();
+    const blocked = [];
+    installGate(ws, {
+      canEdit: () => false,
+      editCapabilityDegraded: () => true,
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
+
+    // Still dropped: a degraded connection writes nothing.
+    expect(seen).toHaveLength(0);
+    expect(blocked).toEqual([['WS_EDIT_BLOCKED', { kind: 'update', degraded: true }]]);
+    // ...and now the socket is going, so the client reconnects and re-supplies.
+    expect(closes).toEqual([{ code: DEGRADED_CLOSE_CODE, reason: DEGRADED_CLOSE_REASON }]);
+  });
+
+  test('a degraded step2 drop closes too — both edit kinds carry the loss', () => {
+    const { ws, closes } = makeClosableWs();
+    installGate(ws, { canEdit: () => false, editCapabilityDegraded: () => true });
+    ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_STEP2, 1]));
+    expect(closes).toEqual([{ code: DEGRADED_CLOSE_CODE, reason: DEGRADED_CLOSE_REASON }]);
+  });
+
+  test('a GENUINE refusal drops and stays open (D4 policy, unchanged)', () => {
+    const { ws, seen, closes } = makeClosableWs();
+    const blocked = [];
+    installGate(ws, {
+      canEdit: () => false,
+      editCapabilityDegraded: () => false,
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
+    expect(seen).toHaveLength(0);
+    // No `degraded` key at all — the pre-046 payload shape, exactly.
+    expect(blocked).toEqual([['WS_EDIT_BLOCKED', { kind: 'update' }]]);
+    expect(closes).toEqual([]);
+  });
+
+  test('omitting editCapabilityDegraded leaves pre-046 behavior byte-for-byte', () => {
+    const { ws, closes } = makeClosableWs();
+    const blocked = [];
+    installGate(ws, { canEdit: () => false, onBlocked: (e, i) => blocked.push([e, i]) });
+    ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]));
+    expect(blocked).toEqual([['WS_EDIT_BLOCKED', { kind: 'update' }]]);
+    expect(closes).toEqual([]);
+  });
+
+  test('the predicate is read ONLY on a drop, never on the honest path', () => {
+    const { ws, closes } = makeClosableWs();
+    let reads = 0;
+    installGate(ws, {
+      canEdit: () => true,
+      editCapabilityDegraded: () => { reads += 1; return true; },
+    });
+
+    ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]));
+    ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_STEP1, 1]));
+    expect(reads).toBe(0);
+    expect(closes).toEqual([]);
+  });
+
+  test('a throwing predicate degrades to "genuine" — no close, frame still dropped', () => {
+    const { ws, seen, closes } = makeClosableWs();
+    installGate(ws, {
+      canEdit: () => false,
+      editCapabilityDegraded: () => { throw new Error('predicate blew up'); },
+    });
+
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(closes).toEqual([]);
+  });
+
+  test('a throwing ws.close does not escape into message dispatch', () => {
+    const seen = [];
+    const ws = {
+      emit: (event, ...args) => { seen.push([event, ...args]); return true; },
+      close: () => { throw new Error('socket already destroyed'); },
+    };
+    installGate(ws, { canEdit: () => false, editCapabilityDegraded: () => true });
+
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_UPDATE, 1]))).toBe(false);
+      expect(seen).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('non-edit frames are never closed on, however degraded the connection', () => {
+    const { ws, seen, closes } = makeClosableWs();
+    installGate(ws, { canEdit: () => false, editCapabilityDegraded: () => true });
+
+    // step1 is a read-only request; viewers must keep receiving content (FR-004).
+    expect(ws.emit('message', Buffer.from([MESSAGE_SYNC, SYNC_STEP1, 1]))).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(closes).toEqual([]);
   });
 });
 

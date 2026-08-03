@@ -9,6 +9,7 @@ const Y = require('yjs');
 const { randomUUID } = require('crypto');
 const { createOrigin } = require('./origin');
 const documents = require('./documents');
+const { BindFailedError } = require('./bind-failure');
 
 let getYDocFn = null;
 let extractDocGuidFn = null;
@@ -149,6 +150,30 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
     // observe that it has begun. One event-loop turn preserves the contract
     // 037's callers were written against.
     await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  // ── REFUSED BIND (feature 046, NEW-5) ──────────────────────────────────────
+  // The listener's `_bindFailed` gate drops the persist for a document whose
+  // load failed, and its comment assumes only WebSocket traffic reaches it —
+  // which is true for browsers (refuseBind closes their sockets, they reconnect
+  // and rebind) and FALSE for us. A server-side writer holds a handle it
+  // acquired before the refusal: no connection to close, so it transacts, the
+  // listener silently drops the write, and this function used to resolve
+  // normally. An agent then reported "done" for content that exists nowhere and
+  // kept building on it.
+  //
+  // Checked AFTER the transaction rather than before, because the interesting
+  // window is exactly the one a pre-check cannot see: the bind failing between
+  // handle acquisition and the write. A refusal that landed earlier is caught
+  // here too, so one check covers both.
+  //
+  // Throwing, not refetching: `refuseBind` EVICTS the doc, so the caller's next
+  // `getSharedDoc` builds a fresh one and re-attempts the load. Retrying inside
+  // this call would re-run `updateFn` against a different document state with no
+  // way to tell the caller that happened — for a mutation expressed as an
+  // arbitrary function, that is the caller's decision to make.
+  if (ydoc._bindFailed) {
+    throw new BindFailedError(docGuid);
   }
 
   // No-change transactions never fire, so this returns the zero value

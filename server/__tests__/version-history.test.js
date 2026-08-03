@@ -20,6 +20,7 @@ const {
 } = require('../version-history');
 const Y = require('yjs');
 const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('./helpers/db');
+const { asLiveSharedDoc } = require('./helpers/live-doc');
 const editRecords = require('../undo/edit-records');
 const undoService = require('../undo/undo-service');
 
@@ -2765,7 +2766,9 @@ describe('version-history module', () => {
         // durable state restore reads from. Before FR-011 the stored row was a
         // delta against that stale read, so it encoded a different transition
         // than the one users actually saw applied.
-        const liveDoc = await persistence.getYDoc(docGuid);
+        // 046: marked live — bound and connected. Restore only computes a
+        // stored artifact from the in-memory copy when it is trustworthy.
+        const liveDoc = asLiveSharedDoc(await persistence.getYDoc(docGuid));
         liveDoc.transact(() => {
           liveDoc.getXmlFragment('default').insert(2, [para('Gamma')]);
         });
@@ -2801,6 +2804,111 @@ describe('version-history module', () => {
         replay.destroy();
         liveDoc.destroy();
       } finally {
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    /**
+     * Feature 046 (NEW-2a/NEW-2b): finding a doc in the registry is not enough.
+     *
+     * Both tests replay the STORED ROW on top of the current persisted state,
+     * which is what every client and every later reader ends up doing. A restore
+     * to version '0' means "Alpha only", so a replay that still contains 'Beta'
+     * is a row that lies about the transition it represents — permanently, on
+     * every client. Both shapes below produced exactly that before this fix.
+     */
+    const replayStoredRowOnCurrentState = async (docGuid, newClock) => {
+      const current = await persistence.getYDoc(docGuid);
+      const stored = await pool.query(
+        'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock = $2',
+        [docGuid, newClock]
+      );
+      const replay = new Y.Doc();
+      Y.applyUpdate(replay, Y.encodeStateAsUpdate(current));
+      Y.applyUpdate(replay, new Uint8Array(stored.rows[0].update_data));
+      const xml = replay.getXmlFragment('default').toString();
+      replay.destroy();
+      current.destroy();
+      return xml;
+    };
+
+    test('NEW-2a: a HALF-LOADED live doc is refused — restore falls back to the durable path', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // Exactly what a doc created milliseconds ago looks like: in the
+        // registry, connected, readable — and EMPTY, because y-websocket does
+        // not await bindState. Transacting on it deletes nothing, so the stored
+        // row would be the target clone alone, and the in-flight DB load would
+        // then merge the old content back in underneath it.
+        const halfLoaded = new Y.Doc();
+        halfLoaded.conns = new Map([[{ conn: 1 }, new Set()]]);
+        expect(halfLoaded._bindComplete).toBeUndefined();
+        expect(halfLoaded.getXmlFragment('default').length).toBe(0);
+
+        const res = await restoreVersion(persistence, docGuid, '0', userId, {
+          getSharedDoc: (g) => (g === docGuid ? halfLoaded : null),
+          redisPubSub: null,
+          agentName: null,
+        });
+
+        // The half-loaded doc was never transacted on...
+        expect(halfLoaded.getXmlFragment('default').toString()).not.toContain('Alpha');
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('bind-incomplete'));
+
+        // ...and the stored row is the honest transition to the target version.
+        const xml = await replayStoredRowOnCurrentState(docGuid, res.newClock);
+        expect(xml).toContain('Alpha');
+        expect(xml).not.toContain('Beta');
+        // One paragraph — not the old content plus a duplicated restore target.
+        expect(xml.match(/<paragraph>/g)).toHaveLength(1);
+
+        halfLoaded.destroy();
+      } finally {
+        warn.mockRestore();
+        await cleanupDoc(docGuid);
+      }
+    });
+
+    test('NEW-2b: a LEAKED connection-less doc is refused — restore falls back to the durable path', async () => {
+      const docGuid = require('crypto').randomUUID();
+      await seedDoc(docGuid);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // A server-created doc: a sync push / agent create / import reached an
+        // unopened document through the CREATING getSharedDoc. It got no Redis
+        // subscription (that is wired only in the WS connection handler) and
+        // nothing evicts it (eviction is y-websocket's closeConn, and it never
+        // had a connection), so it is frozen at the state it was born with while
+        // the real document moved on. Here: frozen before 'Beta' existed.
+        const { content } = await getVersionContent(persistence, docGuid, '0', { withGap: true });
+        const leaked = new Y.Doc();
+        Y.applyUpdate(leaked, new Uint8Array(content));
+        leaked._bindComplete = true;
+        leaked.conns = new Map(); // never had one
+        expect(leaked.getXmlFragment('default').toString()).not.toContain('Beta');
+
+        const res = await restoreVersion(persistence, docGuid, '0', userId, {
+          getSharedDoc: (g) => (g === docGuid ? leaked : null),
+          redisPubSub: null,
+          agentName: null,
+        });
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('no-connections'));
+
+        // Computed against the DURABLE current state, so the row removes 'Beta'.
+        // On the live path it would have been a delta against a document that
+        // never saw 'Beta', leaving it behind on every client — feature 041's
+        // defect back as a standing condition rather than a race.
+        const xml = await replayStoredRowOnCurrentState(docGuid, res.newClock);
+        expect(xml).toContain('Alpha');
+        expect(xml).not.toContain('Beta');
+        expect(xml.match(/<paragraph>/g)).toHaveLength(1);
+
+        leaked.destroy();
+      } finally {
+        warn.mockRestore();
         await cleanupDoc(docGuid);
       }
     });
@@ -2862,7 +2970,7 @@ describe('version-history module', () => {
       const docGuid = require('crypto').randomUUID();
       await seedDoc(docGuid);
 
-      const liveDoc = await persistence.getYDoc(docGuid);
+      const liveDoc = asLiveSharedDoc(await persistence.getYDoc(docGuid)); // 046: bound + connected
       // y-websocket broadcasts to its clients from a peer 'update' listener, so
       // "did this listener fire" is exactly "did the connected editors see it".
       const broadcastOrigins = [];

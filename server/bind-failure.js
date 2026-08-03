@@ -127,9 +127,39 @@ function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null,
   return { paged, evicted, closedConnections };
 }
 
+/**
+ * Thrown when a SERVER-SIDE write lands on a document whose bind was refused
+ * (feature 046, NEW-5).
+ *
+ * The `_bindFailed` gate in the update listener was written for WebSocket
+ * traffic, where closing the connections is the whole remedy — a browser that
+ * gets 1013 reconnects and rebinds. That assumption is false for a server-side
+ * writer (`documentService.updateDocument`, reached by agent modify, import and
+ * document creation) which is holding a doc handle it acquired BEFORE the
+ * refusal: it has no connection to close, so it transacts, the listener silently
+ * drops the persist, and `updateDocument` resolves normally. The agent is told
+ * "done" for content that exists nowhere.
+ *
+ * Surfacing it as an error puts the caller back in charge: an MCP tool reports a
+ * failure the model can retry rather than a success it will build on. A retry is
+ * the right remedy, because `refuseBind` also EVICTS the doc — the next
+ * `getSharedDoc` builds a fresh one and re-attempts the load.
+ */
+class BindFailedError extends Error {
+  constructor(docGuid) {
+    super(
+      `Document ${docGuid} could not be loaded, so this change was not saved. `
+      + 'The document is being reloaded — retry in a moment.'
+    );
+    this.name = 'BindFailedError';
+    this.docGuid = docGuid;
+  }
+}
+
 module.exports = {
   refuseBind,
   resetPageThrottle,
+  BindFailedError,
   BIND_FAILED_CLOSE_CODE,
   PAGE_THROTTLE_MS,
 };

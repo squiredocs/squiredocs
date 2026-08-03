@@ -1906,6 +1906,15 @@ wss.on('connection', (ws, req) => {
   const tokenMayWrite = req.tokenMayWrite !== false;
   let currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
 
+  // Feature 046 (NEW-1): is the CURRENT `currentCanEdit === false` the result of
+  // a failed re-check rather than a role verdict? The re-check below fails
+  // closed, which is right for safety and catastrophic for durability if the
+  // dropped frames are merely swallowed — see the "silent divergence" note in
+  // server/ws-edit-gate.js. Only this scope knows which of the two happened, so
+  // it is recorded here and read by the gate when a frame is actually dropped.
+  // Starts false: the handshake capability above IS a verdict.
+  let editCapabilityDegraded = false;
+
   // Sanitize URL to remove token from logs
   const sanitizedUrl = req.url?.split('?')[0] || req.url;
 
@@ -1968,6 +1977,11 @@ wss.on('connection', (ws, req) => {
   // table and the synchronicity assumption behind the flag window.
   installGate(ws, {
     canEdit: () => currentCanEdit,
+    // Feature 046 (NEW-1): read ONLY when an edit frame is dropped. True means
+    // "this connection is still believed editor-capable and we are refusing on
+    // an error" ⇒ the gate closes with 1013 and the client re-supplies on
+    // reconnect, instead of diverging silently and forever.
+    editCapabilityDegraded: () => editCapabilityDegraded,
     // Feature 044: the ownership view for the awareness guard, resolved per
     // frame. y-websocket stays the sole maintainer of `doc.conns` (the guard
     // only reads it); the ledger alongside it is the guard's own record of
@@ -2022,9 +2036,25 @@ wss.on('connection', (ws, req) => {
       }
       // Re-checking the role must never widen what the token allows.
       currentCanEdit = tokenMayWrite && documents.ROLES[currentRole] >= documents.ROLES['editor'];
+      // A successful re-check is a VERDICT: whatever `currentCanEdit` now says
+      // is backed by the DB. If it says false, this is a genuine downgrade and
+      // the gate's drop-and-stay-open policy is the correct answer.
+      editCapabilityDegraded = false;
     } catch (err) {
       console.error(`[WS:${connId}] Role re-check failed:`, err.message);
+      // Feature 046 (NEW-1). Fail closed as before — but REMEMBER that this
+      // false is an error, not a verdict, so the gate can close the connection
+      // rather than silently swallowing this editor's frames. The distinction is
+      // sticky across repeated failures: once degraded, a connection stays
+      // degraded until a re-check actually succeeds, because every subsequent
+      // failure leaves `currentCanEdit` already false and would otherwise look
+      // indistinguishable from an honest viewer.
+      const believedCapable = currentCanEdit || editCapabilityDegraded;
       currentCanEdit = false; // Fail closed — block edits until next successful recheck
+      editCapabilityDegraded = believedCapable;
+      if (believedCapable) {
+        logPerf('WS_EDIT_CAPABILITY_DEGRADED', { connId, userId, docId, role: userRole });
+      }
     }
   }, ROLE_RECHECK_INTERVAL);
 
