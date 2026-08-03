@@ -348,7 +348,10 @@ async function startCollabServer(opts = {}) {
         const userRole = req.userRole;
         const docId = req.docId;
 
-        // H3: BOTH axes, ANDed, exactly as index.js does it.
+        // H3: BOTH axes, ANDed, exactly as index.js does it. Both literals are
+        // pinned against production by G7 in
+        // server/__tests__/collab-extraction-guard.test.js, so a change to
+        // either predicate fails there rather than drifting silently here.
         const tokenMayWrite = req.tokenMayWrite !== false;
         const currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
 
@@ -401,8 +404,13 @@ async function startCollabServer(opts = {}) {
       ws.once('open', resolve);
       ws.once('error', reject);
     });
-    // Let the server's own step1/awareness land before the caller speaks.
-    await tick(50);
+    // Let the server's own step1 land before the caller speaks. That arrival is
+    // an OBSERVABLE condition, so H9 says poll it rather than sleep on a guess:
+    // `setupWSConnection` writes a sync step1 to every new connection, so the
+    // first received frame is the handshake being under way.
+    await waitFor(() => received.length > 0, {
+      label: 'the server\'s opening sync frame',
+    });
 
     return {
       ws,
