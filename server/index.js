@@ -56,7 +56,6 @@ const rateLimit = require('./rate-limit');
 const { createShutdown } = require('./shutdown');
 const { createReadyHandler } = require('./ready');
 const { createPendingWrites } = require('./pending-writes');
-const { retryWithBackoff } = require('./retry');
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const { router: authRouter, initUsers, requireAuth, requireAdmin } = require('./auth');
@@ -90,17 +89,20 @@ const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
-const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin, shouldPublishToRedis } = require('./origin');
+const { ORIGIN_REDIS, shouldPublishToRedis } = require('./origin');
 // The sync-protocol edit gate (feature 038). Frame classification AND the
 // interceptor that installs it live in one module so there is exactly one
 // implementation: the unit test, the FR-008 protocol e2e, and this file all
 // exercise the same code. Do not reintroduce byte classification here.
-const { installGate, viaSyncFromOrigin } = require('./ws-edit-gate');
+const { installGate } = require('./ws-edit-gate');
 // Feature 044: the awareness guard's per-document ownership view. This file
 // resolves the handle and hands it over; it never parses a frame or decides an
 // ownership question itself.
 const { ownershipFor: awarenessOwnershipFor } = require('./ws-awareness-guard');
-const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
+// Feature 043 (X1): the y-websocket bindState and its update listener — the one
+// place a live edit's user_id / agent_name / via_sync are written. It lives in
+// its own module so tests can drive the real thing instead of mirroring it.
+const { createBindState, extractDocGuid } = require('./collab-bind-state');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
@@ -111,9 +113,6 @@ const { createChatAttachmentsRouter } = require('./api/chat-attachments');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
-// Feature 041 (FR-010): a document-load failure refuses the bind instead of
-// serving an empty doc over an outage.
-const { refuseBind } = require('./bind-failure');
 const { sendShareInvite, sendShareNotification } = require('./email');
 const { buildBaseUrl } = require('./url');
 const users = require('./auth/users');
