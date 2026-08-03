@@ -83,6 +83,17 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
     expect(indexCode).toMatch(/identityFromPrincipal\s*\(/);
   });
 
+  test('G4c: the derivation\'s RESULT is what lands on the connection', () => {
+    // Calling identityFromPrincipal is not the claim — ASSIGNING its result is.
+    // Without these two, `ws.userId = req.query.userId ?? wsIdentity.userId`, or
+    // dropping/reordering the assignments outright, passes G4a and G4b, passes
+    // every E2E (the harness makes its own correct assignment at
+    // __tests__/integration/helpers/collab-harness.js:356-358), and
+    // misattributes in production only.
+    expect(indexCode).toMatch(/ws\.userId = wsIdentity\.userId/);
+    expect(indexCode).toMatch(/ws\.agentName = wsIdentity\.agentName/);
+  });
+
   test('G4b: index.js contains no hand-rolled isAgent identity derivation', () => {
     // The historical misattribution bug was fixed by deriving identity from the
     // token. A second, inline copy of that derivation is a second place for it
@@ -128,6 +139,17 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
     expect(indexSrc.match(/installGate\s*\(/g)).toHaveLength(1);
     expect(indexSrc).toMatch(
       /request\.tokenMayWrite\s*=\s*!Array\.isArray\(user\.scopes\)\s*\|\|\s*user\.scopes\.includes\('documents:write'\)/
+    );
+    // The OTHER authorization axis, pinned for the same reason. The shared
+    // harness re-declares this computation as a literal
+    // (collab-harness.js:353) because the upgrade handler is outside 043's
+    // extraction budget — so if production ever changed the edit threshold, the
+    // harness would keep gating on the old one and US2's negative control (a
+    // viewer's step2 must be blocked) would silently be testing stale rules.
+    // The tokenMayWrite literal above already had this protection; this line
+    // did not.
+    expect(indexSrc).toMatch(
+      /tokenMayWrite && documents\.ROLES\[userRole\] >= documents\.ROLES\['editor'\]/
     );
   });
 });
