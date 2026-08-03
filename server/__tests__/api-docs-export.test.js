@@ -423,6 +423,87 @@ describe('API: GET /api/docs/:docId/export', () => {
     });
   });
 
+  describe('front-matter lastModifiedBy never names a relayer (045-review MEDIUM-3)', () => {
+    const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
+
+    // A pinned-client doc that yields two successive updates: the author's own
+    // committed edit, then the edit a crash lost and someone else re-supplied.
+    function authoredPair(clientID, title) {
+      const ydoc = new Y.Doc();
+      ydoc.clientID = clientID;
+      const frag = ydoc.get('default', Y.XmlFragment);
+      const captured = [];
+      ydoc.on('update', (update) => captured.push(update));
+
+      const para = (text) => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, text);
+        p.insert(0, [t]);
+        return p;
+      };
+      ydoc.transact(() => {
+        frag.insert(0, [para('first')]);
+        ydoc.getMap('meta').set('title', title);
+      });
+      ydoc.transact(() => {
+        frag.insert(frag.length, [para('lost then re-supplied')]);
+      });
+      return { first: captured[0], relayed: captured[1] };
+    }
+
+    test('a relayed tail row exports its TRUE author, not the client that carried it', async () => {
+      await documents.createDocument(docId, testUserId);
+      const { first, relayed } = authoredPair(717171, 'Relayed Doc');
+      // user 2 authored both edits; the second one came back through user 1's
+      // reconnect, so the durable row is stamped with user 1 + via_sync.
+      await persistence.storeUpdate(docId, first, testUser2Id);
+      await persistence.storeUpdate(docId, relayed, testUserId, null, null, null, { viaSync: true });
+
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      const { squire } = parseFrontmatter(res.text);
+      expect(squire.lastModifiedBy).toBe('test-export-2@example.com');
+    });
+
+    test('an unresolvable relayed tail row exports no modifier at all', async () => {
+      await documents.createDocument(docId, testUserId);
+      const { update } = buildDocUpdate('Unresolvable Doc');
+      await persistence.storeUpdate(docId, update, testUser2Id);
+      // Content from a client identity this document has never seen attributed:
+      // authorship is not recoverable, and the relayer must not stand in for it.
+      const stranger = new Y.Doc();
+      stranger.clientID = 828282;
+      let strangerUpdate = null;
+      stranger.on('update', (u) => { strangerUpdate = u; });
+      stranger.get('default', Y.XmlFragment).insert(0, [new Y.XmlElement('paragraph')]);
+      await persistence.storeUpdate(docId, strangerUpdate, testUserId, null, null, null, { viaSync: true });
+
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      const { squire } = parseFrontmatter(res.text);
+      expect(squire.lastModifiedBy).toBe('');
+    });
+
+    test('a direct tail row is byte-identical to the pre-045 export (FR-022)', async () => {
+      await documents.createDocument(docId, testUserId);
+      const { update } = buildDocUpdate('Direct Doc');
+      await persistence.storeUpdate(docId, update, testUserId, 'some-agent');
+
+      const res = await request(app)
+        .get(`/api/docs/${docId}/export?frontmatter=true&flavor=squire`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      const { squire } = parseFrontmatter(res.text);
+      // email wins over agent_name, exactly as before.
+      expect(squire.lastModifiedBy).toBe('test-export-1@example.com');
+    });
+  });
+
   describe('sqd_ API tokens (personal access tokens)', () => {
     test('exports end to end with a default-scope token', async () => {
       await seedDoc(testUserId, 'PAT Doc');

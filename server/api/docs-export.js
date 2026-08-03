@@ -26,6 +26,8 @@ const documents = require('../documents');
 const documentImages = require('../document-images');
 const s3Images = require('../s3-images');
 const { toMarkdown, buildFrontmatter } = require('../mcp/yjs/serialization');
+const versionHistory = require('../version-history');
+const { resolveForRows } = require('../resupply-resolution');
 const { notifyException } = require('../exception-notifier');
 
 // Sanitize a document title into a safe download filename (without extension).
@@ -86,10 +88,23 @@ function contentDisposition(filename) {
 /**
  * Latest clock + last-modifier identity from the yjs update log — the same
  * sources the document listing exposes (research R12); no new tracking.
+ *
+ * The identity goes through the SAME single-slot collapse the MCP
+ * `lastModifiedBy` uses (feature 045, RBD-045-12; the export twin was added by
+ * the 045 review, MEDIUM-3). It matters more here than anywhere else: this
+ * field is written into a DURABLE artifact that leaves the product, so naming
+ * the client that merely relayed a lost edit would record the lie permanently
+ * in someone's repository. A relayed row is therefore resolved to its true
+ * author, or — when authorship cannot be recovered — emitted as `''`, the same
+ * value a document with no rows at all produces. "Synced content" is a UI
+ * contributor entry, not an identity, and never goes into front-matter.
+ *
+ * A row that is not `via_sync` takes the pre-045 path unchanged, so every
+ * existing export is byte-identical (FR-022).
  */
-async function getExportMeta(pool, docId) {
-  const result = await pool.query(
-    `SELECT yu.clock, yu.agent_name, usr.email
+async function getExportMeta(persistence, docId) {
+  const result = await persistence.pool.query(
+    `SELECT yu.clock, yu.user_id, yu.agent_name, yu.via_sync, usr.email, usr.name, usr.picture
      FROM yjs_updates yu
      LEFT JOIN users usr ON yu.user_id = usr.id
      WHERE yu.doc_guid = $1
@@ -98,9 +113,27 @@ async function getExportMeta(pool, docId) {
     [docId]
   );
   const row = result.rows[0];
+  if (!row) return { clock: 0, lastModifiedBy: '' };
+
+  const clock = Number(row.clock);
+  if (row.via_sync !== true) {
+    return { clock, lastModifiedBy: row.email || row.agent_name || '' };
+  }
+
+  const relayed = {
+    clock,
+    userId: row.user_id,
+    agentName: row.agent_name,
+    userName: row.name,
+    userEmail: row.email,
+    userPicture: row.picture,
+    viaSync: true,
+  };
+  const resolution = await resolveForRows(persistence, docId, [relayed]);
+  const author = versionHistory.authorForSingleSlot(relayed, resolution);
   return {
-    clock: row ? Number(row.clock) : 0,
-    lastModifiedBy: row ? (row.email || row.agent_name || '') : '',
+    clock,
+    lastModifiedBy: author && !author.isSynced ? (author.email || author.name || '') : '',
   };
 }
 
@@ -215,7 +248,7 @@ function createExportRouter(persistence) {
       // and the next sync push, baselined on that mismatched clock, would
       // silently revert the interleaved edit. Building at meta.clock excludes
       // any later-arriving update, keeping frontmatter and body consistent.
-      const meta = await getExportMeta(persistence.pool, docId);
+      const meta = await getExportMeta(persistence, docId);
       const ydoc = await persistence.getYDocAtClock(docId, meta.clock);
       const xmlFragment = ydoc.get('default', Y.XmlFragment);
       const title = ydoc.getMap('meta').get('title') || 'Untitled';
