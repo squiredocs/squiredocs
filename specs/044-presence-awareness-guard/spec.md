@@ -151,6 +151,19 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
   `[spoof of Ca][garbage]` would pass the guard and still land. (Plan decision D-044-1,
   research R2; the guard's view of a frame must never be narrower than the applier's.)
 - **Empty awareness frame (zero clients)**: asserts nothing; nothing to spoof; allowed.
+- **A client echoing other participants' states back to the server**: the collaboration
+  client re-broadcasts every awareness change it applies, so in any session with two or
+  more participants each client routinely sends frames carrying the *others'* clientIDs.
+  These carry the clock the server already holds, so the applier discards them; they are
+  not assertions and MUST NOT be counted or logged as spoofs (FR-010). This is the single
+  most common awareness frame shape in production and the guard sees it constantly.
+- **A frame declaring an implausible number of entries**: refused outright before it is
+  parsed (FR-009), not walked and not evaluated. Refusing is never narrower than the
+  applier, so the fail-closed direction is safe.
+- **A connection whose document handle never resolved** (setup threw, socket closing):
+  awareness frames that assert ids are dropped, not passed through. There is no legitimate
+  traffic in that window — the guard and the collaboration setup run in one synchronous
+  turn — and a socket on its way out has no presence to preserve.
 
 ## Requirements *(mandatory)*
 
@@ -160,12 +173,28 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
   cross-instance — any awareness frame arriving on a client WebSocket connection that
   asserts a Yjs clientID the connection does not legitimately control.
 - **FR-002**: A connection legitimately controls a clientID when the clientID is (a) in
-  that connection's own controlled-id set (already announced by it), (b) currently owned
-  by **no** connection on the document, or (c) owned only by other connection(s) of the
-  **same authenticated user** (self reconnect / multi-tab). Ownership is first-writer-wins
-  per document and is derived from the per-connection controlled-id set the collaboration
-  server already maintains for presence cleanup — this feature adds no second identity
-  model.
+  that connection's own controlled-id set (already announced by it), (b) recorded to the
+  **same authenticated principal** in the document's ownership record (self reconnect /
+  multi-tab / the same user returning after a drop), or (c) recorded to nobody **and**
+  held by no other connection on the document. Ownership is first-writer-wins per
+  document.
+- **FR-002a** *(added after the post-merge review)*: The ownership record MUST NOT be the
+  per-connection controlled-id set alone. That set is maintained only from newly-added
+  clientIDs, so it forgets an id permanently the first time its owner reconnects — after
+  which the id reads as unclaimed and the guard fails open for the rest of the document's
+  life. The server MUST keep its own per-document record of which principal was last
+  allowed to assert each clientID, written when a frame is allowed, **retained for a
+  bounded period after the presence state goes away** (so a reconnecting owner matches
+  themselves and a squatter cannot win the gap), and bounded per principal so that
+  churning clientIDs cannot displace another principal's record. This record is a
+  *principal* record: it never evicts presence and never writes the collaboration
+  library's own map, which remains the sole basis for disconnect cleanup.
+- **FR-002b** *(added after the post-merge review)*: ClientIDs that arrive over the
+  cross-instance relay MUST be recorded as belonging to another instance, and MUST NOT be
+  assertable by any local connection. Without this, every participant on another instance
+  is unowned locally and therefore hijackable from any socket on this one — and the
+  forgery relays back to the victim's own instance, where relay applies are exempt by
+  design (FR-008).
 - **FR-003**: The guard MUST extract the asserted clientIDs from the awareness frame by
   parsing it the **same way the applier parses it** (the same decoding primitive
   `applyAwarenessUpdate` uses, including acceptance of non-minimal varint encodings), so
@@ -188,13 +217,38 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
     WebSocket clients with their own Yjs clientID;
   - (e) cross-instance awareness applied via the Redis relay (no client connection), which
     carries clientIDs already validated on the originating instance and is out of scope for
-    the per-connection guard (FR-008).
+    the per-connection guard (FR-008);
+  - (f) a client re-broadcasting awareness changes it has just applied, including other
+    participants' clientIDs — the ordinary output of the collaboration client on every
+    join and every remote cursor move (FR-010).
 - **FR-007**: When a frame is dropped, the server MUST emit a distinct, named, countable
   observability event, **rate-suppressed** so that a sustained stream of spoofed frames
   produces a bounded number of log lines rather than one per frame.
 - **FR-008**: The guard applies only to awareness frames on authenticated client
   WebSocket connections. It MUST NOT gate the server's own cross-instance relay apply path
-  (connection-less applies), which is not a client frame.
+  (connection-less applies), which is not a client frame. (The relay still *teaches* the
+  ownership record — FR-002b — which is a read of what it applied, not a gate on it.)
+- **FR-009** *(added after the post-merge review)*: An awareness frame MUST NOT be able to
+  cost the server more than the applier would spend rejecting it. The guard MUST refuse a
+  frame that declares more entries than any legitimate client sends, **before** walking it,
+  and MUST NOT re-scan every other connection for every asserted id. The collaboration
+  socket MUST also bound the size of an inbound frame rather than accepting the transport
+  library's default. Without these, any authenticated viewer on any readable document can
+  block the event loop for ~1 s per frame, repeatedly, with a payload the applier discards
+  in microseconds — and the frame is *allowed*, so it emits no observability event.
+- **FR-010** *(added after the post-merge review)*: The guard MUST evaluate only the ids a
+  frame asserts that `applyAwarenessUpdate` could still act on. An entry the applier would
+  step over (its clock is not ahead of what the server already has, and it is not a
+  removal of a live state) changes nothing and MUST NOT be treated as an assertion. The
+  collaboration client re-broadcasts every awareness change it applies — including other
+  participants' clientIDs — so without this every honest multi-participant session
+  produces blocked-frame events naming innocent users, which both breaks SC-002 and
+  destroys the signal SC-003 exists to provide.
+- **FR-011** *(added after the post-merge review)*: The document name the guard reads
+  ownership from and the document name the collaboration library binds the connection to
+  MUST be the same value, derived once. They were independently derived from the
+  normalised path and the raw request target respectively, which differ for a
+  path-traversal URL.
 
 ### Key Entities
 
@@ -211,12 +265,32 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
 
 ### Measurable Outcomes
 
-- **SC-001**: The reviewer-reproduced spoof/evict has a **0%** success rate: a connection
-  asserting another user's clientID can neither change nor remove that user's displayed
-  presence, on the local instance or cross-instance.
+- **SC-001**: A connection asserting a clientID recorded to a **different principal** can
+  neither change nor remove that participant's displayed presence — whether the
+  participant is connected to the same instance, is reconnecting after a drop, has
+  disconnected within the ownership-retention window, or is present on **another
+  instance** via the cross-instance relay. Enforcement happens on the socket where the
+  frame enters: each instance guards its own client frames and relay applies stay exempt
+  (FR-008), so the cross-instance property is exactly "every instance guards its own
+  clients", not "the relay validates what it receives".
+
+  Two boundaries are deliberate and **excluded** from this claim, not defects:
+  - **First-writer-wins** (Q1): a clientID that no connection holds and that no record
+    remembers is claimable by whoever announces it first — that is how every first
+    announcement works. An attacker who claims an id *before its owner has ever announced
+    it* therefore wins it, and the owner is refused. The window is narrow in practice
+    (ids are random 32-bit values learned only from a broadcast that itself creates the
+    record) and the per-principal record bound stops it from being brute-forced at scale,
+    but it is not zero.
+  - **Same principal** (Q3): connections of the same authenticated user — including that
+    user's agent tokens — may assert one another's clientIDs. That is what makes reconnect
+    and multi-tab work, and it grants no access the principal does not already hold.
 - **SC-002**: **Zero** false-positive drops across the enumerated legitimate cases
-  (FR-006 a–e): reconnect, own-id removal, agent presence, import presence, and
-  multi-instance presence all display exactly as before.
+  (FR-006 a–f): reconnect, own-id removal, agent presence, import presence,
+  multi-instance presence, and the client's routine re-broadcast of other participants'
+  states all display exactly as before, and produce **no** blocked-frame events. The last
+  of those is the one the first implementation got wrong, and it is the most common
+  awareness frame in production.
 - **SC-003**: Every distinct spoofing connection produces at least one countable
   observability event, and a sustained spoof flood produces a bounded (rate-suppressed)
   number of log lines rather than one per dropped frame.
@@ -237,6 +311,19 @@ lines is bounded (rate-suppressed) rather than one-per-frame.
   asserting your id; a connection asserting a clientID also held by another connection of
   the same authenticated user is a self reconnect/multi-tab case and is allowed — this
   also removes the reconnect-race false positive. (Ledger Q3.)
+- **The principal is the authenticated user, not the connection or the token, and
+  intra-principal impersonation is out of scope.** A user's agent token can assert and
+  evict that same user's browser clientID: one human impersonating themselves, granting no
+  access they do not already have. The boundary this feature defends is *cross-principal*
+  assertion. Narrowing the principal (per-token, per-session) would break the reconnect and
+  multi-tab cases Q3 ratified, so it is not a future refinement to reach for casually —
+  it is a different trade. (Post-merge review LOW-8.)
+- **Ownership outlives the socket by a bounded window.** The record for a clientID is
+  retained after its presence state goes away rather than deleted with it. This is what
+  makes a reconnect match itself (the collaboration library's own map cannot — see
+  FR-002a) and what stops an attacker from waiting for a socket to drop and claiming the
+  id in the gap. It is a reservation, never an eviction: a retained record only ever
+  refuses another principal's claim. (Post-merge review HIGH-1, MEDIUM-4.)
 - **No telemetry counter infrastructure exists yet.** The 038 review recorded that
   `WS_EDIT_BLOCKED` is console-only with no counter; this feature builds the minimal
   rate-suppressed emission for its own event rather than assuming a metrics pipeline.
