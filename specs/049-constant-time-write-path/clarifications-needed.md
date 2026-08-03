@@ -529,3 +529,64 @@ Recorded because it upgrades FR-007 from a precaution to a **requirement with a
 located mechanical cause**: a borrowed id receives no protection from yjs's own
 duplicate-id repair, and caching stretches that exposure across the process
 lifetime. The manual clock re-check is the only thing standing in for it.
+
+---
+
+## H. Implementation close-out (2026-08-03, implement agent) — T046
+
+### PD-049-1..4 — all four CONFIRMED AS IMPLEMENTED
+
+- **PD-049-1** (two-phase, no mutate-only form): implemented. `updateDocument`
+  takes `computeMutation` only; a bare mutate function is not merely
+  unsupported, it is **detected** and throws `ComputePhaseMutationError`
+  (pinned N6/N7). The prohibition list lives in the JSDoc so the signature
+  carries it (T018a).
+- **PD-049-2** (WeakMap keyed by the live `Y.Doc`): implemented. **The FR-006 /
+  US3-AS3 tension was resolved in favour of FR-006's anti-leak MUST**, as the
+  plan directed. A reload produces a new document object and therefore a fresh
+  id; what AS3 actually protects — never minting a duplicate `(clientId, clock)`
+  pair, and always reading the clock from the document's own store — is
+  preserved and pinned (N5, N3). Sam may overturn; nothing else depends on the
+  choice, because losing the cache costs one client id in a state vector.
+- **PD-049-3** (keep the ratified detector, add the tripwire): implemented, both
+  enabled in production. The measured hole is now demonstrated *inside* the
+  guard itself: N7 asserts the state vector is byte-identical across a
+  delete-only mutation before asserting the tripwire catches it, so the reason
+  the second detector exists cannot be lost to a later "simplification".
+- **PD-049-4** (mutate-phase throw logs loudly, rethrows the ORIGINAL error):
+  implemented. Verified by G5 (`rejects.toBe(boom)`, the object itself) and by
+  the import suite, where `ImportError.code` still drives the HTTP status.
+
+### F-049-4 — NOTE — `invariant-guards.md` listed C1 as "kept unchanged"; one of its clauses was falsified
+
+C1 (chat image insert) carried `expect(a[0]).not.toBe(b[0])` — "each insert
+authored under its own one-shot identity". Both inserts in that fixture are made
+by the **same** identity, so the per-identity cache makes them share one id, by
+design. The contract characterised C1 as a content-placement guard and missed
+the clause.
+
+Re-pointed exactly as G3 was, and recorded as a deviation (promotion-notes D3)
+rather than quietly edited. Content-placement assertions are untouched; the
+identity clause now asserts same-identity reuse plus the two properties that
+must not weaken (exactly one id per update, never the document's own).
+
+### F-049-5 — NOTE — the FR-008 audit found one live reader that no prior stage had flagged
+
+`yjs.cjs:3402` stamps subdocuments with the live `doc.clientID`, permanently.
+Unreachable today (nothing creates subdocuments), now prohibited in the
+`updateDocument` JSDoc with the located line as its reason. Full entry at
+F-049-2 above. **The GO verdict is conditional on nothing creating a
+subdocument in a mutate phase.**
+
+### Owed to Sam (unchanged by implementation, restated)
+
+1. **D-049-A** — the Squire design doc's "no better and no worse" residual claim
+   does not survive caching. The implementation now *provides* the missing
+   re-check (FR-007, pinned N3) and the audit records the mechanical reason it
+   is required (`yjs.cjs:3379` is gated on `!transaction.local`, so yjs's own
+   self-heal can never fire for our writes). The design sentence still needs
+   amending in the Squire doc; `design/` is export-only and was not touched.
+2. **The manual walk** in `quickstart.md` §7.
+3. **`docs/dev.md`** — the FR-012 upgrade checklist is owed to the merge queue,
+   with ready-to-paste text in `promotion-notes.md` §5. Not applied here because
+   the implement brief reserves that file to the merge queue.

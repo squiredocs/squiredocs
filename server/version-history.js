@@ -1048,8 +1048,21 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
   // SEED differs between the two cases: a trusted live copy is the most current
   // state available on this instance, and the persisted state is the honest
   // fallback for everything else. This is the durable path generalized, so both
-  // cases share one shape — and the restore, like every other server-side
-  // write, is authored under a one-shot clientID rather than the shared doc's.
+  // cases share one shape.
+  //
+  // CORRECTED BY FEATURE 049 (FR-014): the second half of that sentence used to
+  // read "and the restore, like every other server-side write, is authored under
+  // a one-shot clientID rather than the shared doc's". That is no longer how
+  // every other server-side write works — `documentService.updateDocument` now
+  // authors on the SHARED document under a borrowed client identity and pays no
+  // copy at all (see `server/borrowed-identity.js`).
+  //
+  // Restore deliberately keeps its own document anyway, and 049 did not change
+  // it. The reason is ORDERING, not identity: computing on a separate doc is
+  // what lets the delta be STORED BEFORE it is broadcast (store-then-apply,
+  // matching undo and sync push). That property is what the G2 guards pin, and
+  // it is unrelated to which client id signs the structs. The attribution
+  // outcome is the same either way — one clientID bound to exactly one identity.
   const seed = liveDoc
     ? Y.encodeStateAsUpdate(liveDoc)
     : Y.encodeStateAsUpdate(currentYdoc);
