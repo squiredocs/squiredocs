@@ -130,6 +130,29 @@ docblock says so.
 
 ---
 
+## 1d. Dropped deliberately: the step2-viewer-block mirror (analyze finding C6)
+
+`__tests__/integration/step2-viewer-block.test.js:111-133` still carries its own
+hand-written `bindState`. X1 makes repointing it *possible*; it was **not** done,
+on purpose:
+
+- it is a **pre-existing suite belonging to feature 038**, and this branch's
+  verification bar is "no pre-existing test modified beyond the two authorized
+  pin repointings". Repointing it is a separate, ratifiable change;
+- its mirror is a **transport fixture for a security test about frame gating**,
+  not a copy of an attribution decision. Its assertions are about
+  `WS_STEP2_BLOCKED`, not about who a row is credited to, so the drift risk that
+  justified X1 does not apply to it;
+- **the coverage gap it represented is now closed elsewhere.** The US2 negative
+  control (`sync-catchup-e2e.test.js`) drives the identical viewer-step2 block
+  through the REAL `createBindState`, so the behavior 038 cares about is now
+  asserted against production wiring regardless.
+
+Recommended, not urgent: fold it into `collab-harness.js` in a future pass, and
+delete its local `extractDocGuid` and frame constants at the same time.
+
+---
+
 ## 1. THE BLOCKER (historical record — cleared, see §1a)
 
 **This is the most important item in this file. The feature's headline
