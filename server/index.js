@@ -94,6 +94,10 @@ const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
 // implementation: the unit test, the FR-008 protocol e2e, and this file all
 // exercise the same code. Do not reintroduce byte classification here.
 const { installGate, viaSyncFromOrigin } = require('./ws-edit-gate');
+// Feature 044: the awareness guard's per-document ownership view. This file
+// resolves the handle and hands it over; it never parses a frame or decides an
+// ownership question itself.
+const { ownershipFor: awarenessOwnershipFor } = require('./ws-awareness-guard');
 const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
@@ -131,6 +135,7 @@ const PORT = process.env.PORT || 3001;
 //   TRUST_PROXY_HOPS=1              numeric trusted-proxy hop count (prod: 2)
 //   SHUTDOWN_DEADLINE_MS=20000      graceful-drain force-exit backstop (< 30s grace)
 //   CHAT_BODY_LIMIT=10mb            /api/chat inline JSON body cap
+//   WS_MAX_PAYLOAD_BYTES=33554432   largest inbound collab WS frame (32MB; ws default is 100MiB)
 //   DB_POOL_MAX=20                  pg app-pool max connections
 //   DB_POOL_ACQUIRE_TIMEOUT_MS=5000 pg connection acquisition timeout
 //   DB_STATEMENT_TIMEOUT_MS=30000   pg per-session server-side statement timeout
@@ -1962,10 +1967,30 @@ const server = app.listen(PORT, async () => {
   lifecycle.markInitialized();
 });
 
+// Largest inbound WebSocket frame the collaboration socket will reassemble.
+//
+// `ws` defaults to 100 MiB, which is a memory-amplification primitive: any
+// authenticated viewer on any readable document can make the process buffer
+// that much per frame, repeatedly, on every connection it opens (feature 044
+// post-merge review, HIGH-3). The CPU half of that finding is fixed in the
+// awareness guard (it refuses an over-count frame before walking it); this is
+// the memory half, and it also bounds every OTHER frame type.
+//
+// The largest LEGITIMATE frame is a sync step2 carrying a whole document's Yjs
+// state. Uploaded images are stored out of band and referenced by URL
+// (client/src/utils/uploadImage.js), so the only inline bytes a document can
+// hold are rasterised diagrams, capped at ~1 MB PNG each before base64
+// (client/src/extensions/diagramShared.js RASTER_MAX_BYTES). 32 MB is therefore
+// roughly twenty maximum-size diagrams of headroom above anything this editor
+// can produce, at a third of the default. Overridable because the failure mode
+// — a 1009 close and a reconnect loop — is nasty to diagnose from the client.
+const WS_MAX_PAYLOAD_BYTES = parseInt(process.env.WS_MAX_PAYLOAD_BYTES || '', 10) || 32 * 1024 * 1024;
+
 // Create WebSocket server attached to HTTP server
 // Using noServer mode to handle custom path matching
-const wss = new WebSocket.Server({ 
-  noServer: true
+const wss = new WebSocket.Server({
+  noServer: true,
+  maxPayload: WS_MAX_PAYLOAD_BYTES,
 });
 
 // Handle upgrade requests - mount WebSocket at /s/* to support document-specific paths
@@ -2143,9 +2168,12 @@ wss.on('connection', (ws, req) => {
   // table and the synchronicity assumption behind the flag window.
   installGate(ws, {
     canEdit: () => currentCanEdit,
-    // Feature 044: the ownership record for the awareness guard, resolved per
-    // frame. y-websocket is its sole maintainer; the guard only reads it.
-    getConns: () => (sharedDoc ? sharedDoc.conns : null),
+    // Feature 044: the ownership view for the awareness guard, resolved per
+    // frame. y-websocket stays the sole maintainer of `doc.conns` (the guard
+    // only reads it); the ledger alongside it is the guard's own record of
+    // which principal may speak as which clientID, and it lives on the doc, so
+    // it dies with the doc.
+    getOwnership: () => (sharedDoc ? awarenessOwnershipFor(sharedDoc) : null),
     onBlocked: (event, info = {}) => {
       // Feature 044: an awareness frame refused for asserting someone else's
       // clientID. Already rate-suppressed per connection by the gate, so this
@@ -2154,11 +2182,18 @@ wss.on('connection', (ws, req) => {
       // line below because it is a different accusation: this connection tried
       // to speak AS another participant, whatever its edit permission.
       if (event === 'WS_AWARENESS_BLOCKED') {
-        const { foreignIds, dropped, sinceLastLog } = info;
-        logPerf(event, { connId, userId, docId, role: userRole, foreignIds, dropped, sinceLastLog });
+        const { reason, foreignIds, conflicts, dropped, sinceLastLog } = info;
+        // `conflicts` names the HOLDING principal beside the asserting one.
+        // Without it the line accuses whoever sent the frame, which on a
+        // squatted clientID is the victim, not the squatter (review MEDIUM-4).
+        logPerf(event, {
+          connId, userId, docId, role: userRole, reason, foreignIds, conflicts, dropped, sinceLastLog,
+        });
         console.log(
-          `✗ Awareness frame blocked: user ${userId} asserted clientIds [${foreignIds}] `
-          + `it does not control on doc ${docId} (dropped=${dropped} on this connection)`
+          `✗ Awareness frame blocked (${reason}): user ${userId} asserted clientIds [${foreignIds}] `
+          + `it does not control on doc ${docId} (held by `
+          + `[${(conflicts || []).map((c) => c.heldBy.join('|')).join(', ')}], `
+          + `dropped=${dropped} on this connection)`
         );
         return;
       }
@@ -2200,15 +2235,24 @@ wss.on('connection', (ws, req) => {
     console.log('WebSocket connection closed:', sanitizedUrl);
   });
   
+  // ONE document name, derived once and passed to BOTH sides (review LOW-6).
+  // y-websocket's default name is `req.url.slice(1).split('?')[0]` — the RAW
+  // request target — while `docId` comes from the NORMALISED `URL.pathname` that
+  // authorization was checked against. For `/s/../s/X` those differ, so the
+  // connection would bind to one document while the guard read another's
+  // ownership, and the authorized document would not be the one being edited.
+  // Passing the name removes the divergence by construction rather than
+  // asserting the two happen to agree.
+  const wsDocName = `s/${docId}`;
+
   try {
     setupWSConnection(ws, req, {
-      gc: true
+      gc: true,
+      docName: wsDocName
     });
     logPerf('WS_SETUP_COMPLETE', { connId });
 
-    // IMPORTANT: y-websocket uses the URL path as the doc name (e.g., "s/UUID")
-    // We need to get the SAME doc instance that y-websocket is using
-    const wsDocName = `s/${docId}`;
+    // The SAME doc instance y-websocket is using — same name, same registry.
     const doc = getYDoc(wsDocName, true);
     // From here the awareness guard (feature 044) can see who owns which
     // clientID on this document. See the `getConns` handler above.

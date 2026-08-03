@@ -31,7 +31,11 @@ const { setupWSConnection, getYDoc } = require('y-websocket/bin/utils');
 
 const { ORIGIN_REDIS } = require('../../server/origin');
 const { MESSAGE_AWARENESS, MESSAGE_SYNC, SYNC_STEP1, installGate } = require('../../server/ws-edit-gate');
-const { AWARENESS_BLOCKED_EVENT } = require('../../server/ws-awareness-guard');
+const {
+  AWARENESS_BLOCKED_EVENT,
+  MAX_FRAME_ENTRIES,
+  ownershipFor,
+} = require('../../server/ws-awareness-guard');
 
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 
@@ -150,26 +154,28 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
         wss = new WebSocket.Server({ server });
 
         // The production wiring, reproduced: stamp the principal, install the
-        // REAL gate with a lazily-resolved doc handle, THEN setupWSConnection.
+        // REAL gate with a lazily-resolved doc handle, THEN setupWSConnection —
+        // with ONE document name derived from the normalised path and passed to
+        // both sides, exactly as server/index.js does since review LOW-6.
         wss.on('connection', (ws, req) => {
           const url = new URL(req.url, 'http://localhost');
           ws.userId = url.searchParams.get('userId') || null;
           ws.agentName = url.searchParams.get('agentName') || null;
 
           let sharedDoc = null;
+          const wsDocName = `s/${url.pathname.slice(3)}`;
 
           installGate(ws, {
             canEdit: () => url.searchParams.get('role') !== 'viewer',
-            getConns: () => (sharedDoc ? sharedDoc.conns : null),
+            getOwnership: () => (sharedDoc ? ownershipFor(sharedDoc) : null),
             onBlocked: (event, info) => {
               blockedEvents.push({ event, userId: ws.userId, ...info });
             },
           });
 
-          setupWSConnection(ws, req, { gc: true });
+          setupWSConnection(ws, req, { gc: true, docName: wsDocName });
 
-          const docName = req.url.slice(1).split('?')[0];
-          sharedDoc = getYDoc(docName, true);
+          sharedDoc = getYDoc(wsDocName, true);
         });
 
         resolve();
@@ -184,6 +190,14 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
 
   beforeEach(() => {
     blockedEvents.length = 0;
+  });
+
+  // A connection that dropped frames emits one final summary when it closes
+  // (review LOW-5), and a socket closed in a test's `finally` closes
+  // asynchronously. Draining here — before the next `beforeEach` clears the
+  // log — keeps that real behavior from leaking into the next test's counts.
+  afterEach(async () => {
+    await tick(80);
   });
 
   // ── helpers bound to the running server ────────────────────────────────────
@@ -580,6 +594,384 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
     });
   });
 
+  // ══ post-merge review — the exploits that survived the first cut ══════════
+  //
+  // Each of these was reproduced by the adversarial reviewer against the merged
+  // guard. They fail against it and pass against the ownership ledger.
+
+  describe('review HIGH-1: a reconnect must not un-own a clientID', () => {
+    /** Wait until the server has forgotten `clientId`'s state. */
+    const gone = (docGuid, clientId) => waitFor(
+      () => !serverAwareness(docGuid).getStates().has(clientId),
+      { label: `eviction of ${clientId}` }
+    );
+
+    test('after Alice reconnects, Bob still cannot overwrite her presence', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 5001;
+
+      const first = await connect(docGuid, 'user-alice');
+      await announce(first.ws, docGuid, Ca, 'Alice');
+      first.ws.close();
+      await gone(docGuid, Ca);
+
+      // The reconnect. y-websocket records a clientID into a connection's
+      // controlled set ONLY from the `added` bucket, and `removeAwarenessStates`
+      // never deletes `meta` — so this re-announcement is `updated`, and
+      // `doc.conns` will never hold Ca again for the life of this document.
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice', 2);
+        // The premise of the finding, asserted so this test cannot quietly stop
+        // testing anything if y-websocket's bookkeeping ever changes.
+        const conns = getYDoc(`s/${docGuid}`, true).conns;
+        const holders = [...conns.values()].filter((ids) => ids.has(Ca));
+        expect(holders).toHaveLength(0);
+
+        bob.ws.send(awarenessFrame([[Ca, 99, userState('MALLORY')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0]).toMatchObject({ userId: 'user-bob', foreignIds: [Ca] });
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Ca, assertedBy: 'user-bob', heldBy: ['user-alice'] },
+        ]);
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('and Bob cannot EVICT her either — the null-state half of the same hole', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 5002;
+
+      const first = await connect(docGuid, 'user-alice');
+      await announce(first.ws, docGuid, Ca, 'Alice');
+      first.ws.close();
+      await gone(docGuid, Ca);
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice', 2);
+        bob.ws.send(awarenessFrame([[Ca, 99, null]]));
+        await tick(150);
+
+        expect(serverAwareness(docGuid).getStates().has(Ca)).toBe(true);
+        expect(blocks()).toHaveLength(1);
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('Alice\'s own reconnect is silent — the guard costs her nothing (FR-006c)', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 5003;
+
+      const first = await connect(docGuid, 'user-alice');
+      await announce(first.ws, docGuid, Ca, 'Alice');
+      first.ws.close();
+      await gone(docGuid, Ca);
+
+      const alice = await connect(docGuid, 'user-alice');
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice back', 2);
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice back'));
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        alice.ws.close();
+      }
+    });
+  });
+
+  describe('review HIGH-2: cross-instance participants are owned too', () => {
+    test('a local connection cannot hijack a clientID learned from the relay', async () => {
+      const docGuid = crypto.randomUUID();
+      const Cremote = 6001;
+
+      const carol = await connect(docGuid, 'user-carol');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        // Alice is on the other pod. Her presence arrives the only way it can:
+        // applied with the Redis origin and no connection at all, so no local
+        // connection's controlled-id set will ever hold it.
+        awarenessProtocol.applyAwarenessUpdate(
+          serverAwareness(docGuid),
+          awarenessUpdate([[Cremote, 1, userState('Alice (pod A)')]]),
+          ORIGIN_REDIS
+        );
+        expect(stateOf(docGuid, Cremote)).toEqual(userState('Alice (pod A)'));
+
+        // The full chain the reviewer walked: Bob asserts it here, it applies
+        // here, the doc's awareness 'update' fires with a ws origin, and the
+        // Redis publisher ships the forgery to Alice's own pod — where the
+        // relay apply is exempt by design (FR-008), so it lands.
+        bob.ws.send(awarenessFrame([[Cremote, 99, userState('MALLORY')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Cremote)).toEqual(userState('Alice (pod A)'));
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0]).toMatchObject({ userId: 'user-bob', foreignIds: [Cremote] });
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Cremote, assertedBy: 'user-bob', heldBy: ['remote-instance'] },
+        ]);
+        expect(carol.ws.readyState).toBe(WebSocket.OPEN);
+      } finally {
+        carol.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('a relayed removal cannot be forged locally either', async () => {
+      const docGuid = crypto.randomUUID();
+      const Cremote = 6002;
+
+      const bob = await connect(docGuid, 'user-bob');
+      try {
+        awarenessProtocol.applyAwarenessUpdate(
+          serverAwareness(docGuid),
+          awarenessUpdate([[Cremote, 1, userState('Alice (pod A)')]]),
+          ORIGIN_REDIS
+        );
+
+        bob.ws.send(awarenessFrame([[Cremote, 99, null]]));
+        await tick(150);
+
+        expect(serverAwareness(docGuid).getStates().has(Cremote)).toBe(true);
+        expect(blocks()).toHaveLength(1);
+      } finally {
+        bob.ws.close();
+      }
+    });
+
+    test('the relay still applies and still fans out — the exemption is intact (FR-008)', async () => {
+      // The HIGH-2 fix teaches the ledger from the relay; it must not start
+      // GATING the relay, which would evict every remote participant.
+      const docGuid = crypto.randomUUID();
+      const Cremote = 6003;
+
+      const carol = await connect(docGuid, 'user-carol');
+      try {
+        const mark = carol.received.length;
+        awarenessProtocol.applyAwarenessUpdate(
+          serverAwareness(docGuid),
+          awarenessUpdate([[Cremote, 1, userState('Remote Instance User')]]),
+          ORIGIN_REDIS
+        );
+        // ...and a later relayed update for the same id still applies.
+        awarenessProtocol.applyAwarenessUpdate(
+          serverAwareness(docGuid),
+          awarenessUpdate([[Cremote, 2, userState('Remote Instance User moved')]]),
+          ORIGIN_REDIS
+        );
+
+        expect(stateOf(docGuid, Cremote)).toEqual(userState('Remote Instance User moved'));
+        await waitFor(() => carol.idsSeenSince(mark).includes(Cremote), { label: 'relay fan-out' });
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        carol.ws.close();
+      }
+    });
+  });
+
+  describe('review HIGH-3: an over-count frame is refused, not walked', () => {
+    /** The DoS frame: a tiny payload declaring a colossal entry count. */
+    function overCountFrame(declared) {
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, declared);
+      encoding.writeVarUint(enc, 0);
+      encoding.writeVarUint(enc, 1);
+      encoding.writeVarString(enc, '');      // invalid JSON: the applier throws here
+      return frameFromUpdate(encoding.toUint8Array(enc));
+    }
+
+    test('3,000,000 declared entries are dropped, and the victim is untouched', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 7001;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+
+        bob.ws.send(overCountFrame(3_000_000));
+        await tick(150);
+
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0]).toMatchObject({ userId: 'user-bob', reason: 'entry-cap' });
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+        // Detection, not disconnection — the same policy as every other drop.
+        expect(bob.ws.readyState).toBe(WebSocket.OPEN);
+
+        // The socket is still usable and still guarded afterwards.
+        bob.ws.send(awarenessFrame([[Ca, 99, userState('MALLORY')]]));
+        await tick(150);
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+      } finally {
+        alice.ws.close(); bob.ws.close();
+      }
+    });
+
+    test('a frame at the cap still works — honest fan-in is not collateral', async () => {
+      const docGuid = crypto.randomUUID();
+      const entries = [];
+      for (let i = 0; i < MAX_FRAME_ENTRIES; i++) entries.push([8000 + i, 1, userState(`P${i}`)]);
+
+      const alice = await connect(docGuid, 'user-alice');
+      try {
+        alice.ws.send(awarenessFrame(entries));
+        await waitFor(() => stateOf(docGuid, 8000), { label: 'the capped-size frame' });
+        expect(blocks()).toHaveLength(0);
+      } finally {
+        alice.ws.close();
+      }
+    });
+  });
+
+  describe('review MEDIUM-4: a squatted clientID is refused, and the log names both sides', () => {
+    test('Mallory cannot claim Alice\'s id in the gap between her sockets', async () => {
+      const docGuid = crypto.randomUUID();
+      const Ca = 9001;
+
+      // Mallory learns Ca from the ordinary presence broadcast — it is on the
+      // wire for every participant — and waits for Alice's socket to drop.
+      const first = await connect(docGuid, 'user-alice');
+      await announce(first.ws, docGuid, Ca, 'Alice');
+      const mallory = await connect(docGuid, 'user-mallory');
+      first.ws.close();
+      await waitFor(
+        () => !serverAwareness(docGuid).getStates().has(Ca),
+        { label: 'Alice\'s eviction' }
+      );
+
+      try {
+        mallory.ws.send(awarenessFrame([[Ca, 50, userState('Alice')]]));
+        await tick(150);
+
+        // The squat is refused...
+        expect(serverAwareness(docGuid).getStates().has(Ca)).toBe(false);
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0]).toMatchObject({ userId: 'user-mallory', foreignIds: [Ca] });
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Ca, assertedBy: 'user-mallory', heldBy: ['user-alice'] },
+        ]);
+
+        // ...and Alice is not locked out of her own identity when she returns.
+        const alice = await connect(docGuid, 'user-alice');
+        try {
+          await announce(alice.ws, docGuid, Ca, 'Alice', 60);
+          expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+          expect(blocks()).toHaveLength(1);      // no new event for her
+        } finally {
+          alice.ws.close();
+        }
+      } finally {
+        mallory.ws.close();
+      }
+    });
+
+    test('when a squat DOES win the race, the event still identifies the squatter', async () => {
+      // First-writer-wins is the ratified ownership model (Q1): an id nobody
+      // has ever announced is claimable, so a squatter who gets there first
+      // owns it. What must not happen is a log line that reads as if the victim
+      // were the attacker — the shipped payload named only the sender.
+      const docGuid = crypto.randomUUID();
+      const Ca = 9002;
+
+      const mallory = await connect(docGuid, 'user-mallory');
+      const alice = await connect(docGuid, 'user-alice');
+
+      try {
+        await announce(mallory.ws, docGuid, Ca, 'Alice');   // forged name, never-seen id
+        alice.ws.send(awarenessFrame([[Ca, 99, userState('Alice')]]));
+        await tick(150);
+
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Ca, assertedBy: 'user-alice', heldBy: ['user-mallory'] },
+        ]);
+      } finally {
+        mallory.ws.close(); alice.ws.close();
+      }
+    });
+  });
+
+  // ══ review FP-1 — the REAL client, which is not a hand-crafted socket ═════
+  //
+  // Every other test in this file speaks raw bytes, which is the only way to
+  // craft a spoof — but it also means none of them exercises what the actual
+  // y-websocket client puts on the wire. It puts more than you would expect:
+  // `_awarenessUpdateHandler` re-broadcasts EVERY awareness change the client
+  // applies, ignoring the origin, so each participant echoes the OTHER
+  // participants' clientIDs straight back to the server. Against the merged
+  // guard that is a foreign-id assertion per join and per cursor move, and it
+  // logged an innocent user as the offender every time — SC-002's "zero false
+  // positives" was false in any session with two people in it.
+
+  describe('FP-1: two real clients produce no blocked events', () => {
+    const Y = require('yjs');
+    const { WebsocketProvider } = require('y-websocket');
+
+    /**
+     * A real provider, with BroadcastChannel disabled — in a browser it is
+     * per-origin, so two separate browsers (the case that matters) never share
+     * one. Leaving it on in Node makes both "browsers" share an in-process
+     * channel and masks the echo this test exists to pin.
+     */
+    function openClient(docGuid, userId, name) {
+      const doc = new Y.Doc();
+      const provider = new WebsocketProvider(`ws://localhost:${port}/s`, docGuid, doc, {
+        WebSocketPolyfill: WebSocket,
+        disableBc: true,
+        params: { userId },
+      });
+      provider.awareness.setLocalStateField('user', { name, color: '#123456' });
+      return { doc, provider };
+    }
+
+    test('joining, moving and leaving stays silent, and both participants display', async () => {
+      const docGuid = crypto.randomUUID();
+      const alice = openClient(docGuid, 'user-alice', 'Alice');
+      await tick(400);
+      const bob = openClient(docGuid, 'user-bob', 'Bob');
+
+      try {
+        await waitFor(
+          () => serverAwareness(docGuid).getStates().size === 2,
+          { label: 'both participants present' }
+        );
+
+        for (let i = 0; i < 3; i++) {
+          alice.provider.awareness.setLocalStateField('cursor', { anchor: i, head: i });
+          await tick(120);
+        }
+        await tick(200);
+
+        expect(stateOf(docGuid, alice.doc.clientID).user.name).toBe('Alice');
+        expect(stateOf(docGuid, bob.doc.clientID).user.name).toBe('Bob');
+        expect(blocks()).toEqual([]);
+
+        // ...and the departure broadcast, which every remaining client echoes
+        // back as a same-clock removal, is silent too.
+        alice.provider.destroy();
+        await waitFor(
+          () => !serverAwareness(docGuid).getStates().has(alice.doc.clientID),
+          { label: 'Alice\'s departure' }
+        );
+        await tick(200);
+        expect(blocks()).toEqual([]);
+      } finally {
+        alice.provider.destroy();
+        bob.provider.destroy();
+      }
+    }, 15000);
+  });
+
   // ══ US3 — spoofing is observable, logs are bounded ═════════════════════════
 
   describe('US3: a spoof flood is countable without flooding the log', () => {
@@ -622,6 +1014,39 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
       } finally {
         alice.ws.close(); bob.ws.close(); mallory.ws.close();
       }
+    });
+
+    test('a burst that ends with the socket dropping reports its real size (LOW-5)', async () => {
+      // The suppressor lives in the installGate closure and used to go out of
+      // scope with the socket, so the only record of a 500-frame attack read
+      // `dropped: 1` — a 500× understatement, and the shape an attacker would
+      // deliberately choose.
+      const docGuid = crypto.randomUUID();
+      const Ca = 4002;
+      const BURST = 500;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+
+      await announce(alice.ws, docGuid, Ca, 'Alice');
+      for (let i = 0; i < BURST; i++) {
+        bob.ws.send(awarenessFrame([[Ca, 100 + i, userState(`MALLORY ${i}`)]]));
+      }
+      await tick(250);
+
+      bob.ws.close();
+      await waitFor(
+        () => blocks().filter((e) => e.userId === 'user-bob').length === 2,
+        { label: 'the final summary' }
+      );
+
+      const fromBob = blocks().filter((e) => e.userId === 'user-bob');
+      expect(fromBob[0]).toMatchObject({ dropped: 1 });                 // D-044-3
+      expect(fromBob[1]).toMatchObject({
+        reason: 'connection-closed', dropped: BURST, sinceLastLog: BURST - 1,
+      });
+      expect(stateOf(docGuid, Ca)).toEqual(userState('Alice'));
+      alice.ws.close();
     });
   });
 });

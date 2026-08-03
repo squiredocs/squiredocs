@@ -456,6 +456,7 @@ describe('ws-edit-gate: installGate', () => {
  */
 describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
   const encoding = require('lib0/encoding');
+  const { createOwnershipLedger } = require('../ws-awareness-guard');
 
   function awarenessFrame(entries) {
     const inner = encoding.createEncoder();
@@ -473,21 +474,32 @@ describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
 
   const presence = (name) => ({ user: { name } });
 
-  /** A fake ws that records everything the wrapped emit delegates through. */
-  function makeGatedWs({ userId = 'u-self', conns, principalOf } = {}) {
+  /**
+   * A fake ws that records everything the wrapped emit delegates through.
+   *
+   * `conns === undefined` means the caller passes NO `getOwnership` at all —
+   * the pre-044 shape, which must stay byte-for-byte unguarded. `conns === null`
+   * means the caller opted in but the doc handle never resolved, which is the
+   * fail-closed case (review LOW-7).
+   */
+  function makeGatedWs({ userId = 'u-self', conns, principalOf, ledger, awareness } = {}) {
     const seen = [];
     const blocked = [];
+    const closeHandlers = [];
     const ws = {
       userId,
       emit: (event, ...args) => { seen.push([event, ...args]); return true; },
+      on: (event, fn) => { if (event === 'close') closeHandlers.push(fn); },
     };
     installGate(ws, {
       canEdit: () => true,
-      getConns: conns === undefined ? undefined : () => conns,
+      getOwnership: conns === undefined
+        ? undefined
+        : () => (conns === null ? null : { conns, awareness, ledger }),
       principalOf,
       onBlocked: (event, info) => blocked.push([event, info]),
     });
-    return { ws, seen, blocked };
+    return { ws, seen, blocked, close: () => closeHandlers.forEach((fn) => fn()) };
   }
 
   const other = { userId: 'u-other' };
@@ -523,7 +535,7 @@ describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
     self.emit = (event, ...args) => { seen.push([event, ...args]); return true; };
     installGate(self, {
       canEdit: () => true,
-      getConns: () => conns,
+      getOwnership: () => ({ conns }),
       onBlocked: (event, info) => blocked.push([event, info]),
     });
 
@@ -533,22 +545,36 @@ describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
     expect(blocked).toHaveLength(0);
   });
 
-  test('getConns() returning null passes through — no doc bound yet', () => {
-    // Before setupWSConnection there is no message listener at all, so the
-    // frame cannot reach any applier and there is nothing to guard.
+  test('getOwnership() returning null FAILS CLOSED for a frame that asserts ids (LOW-7)', () => {
+    // Not the pre-setup window: the gate and setupWSConnection run in one
+    // synchronous turn, so no frame can arrive between them. This is the window
+    // after setupWSConnection THREW — the message listener may already be
+    // attached, ws.close() is a graceful handshake, and frames keep arriving
+    // with no ownership record to check them against. The shipped code let them
+    // through unguarded.
     const { ws, seen, blocked } = makeGatedWs({ conns: null });
-    expect(ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]))).toBe(true);
-    expect(seen).toHaveLength(1);
-    expect(blocked).toHaveLength(0);
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]))).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0][1]).toMatchObject({ reason: 'unbound', foreignIds: [42] });
   });
 
-  test('getConns() returning a non-Map passes through', () => {
+  test('getOwnership() returning a non-Map conns fails closed too', () => {
     const { ws, seen } = makeGatedWs({ conns: { 42: ['nope'] } });
-    ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]));
+    expect(ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]))).toBe(false);
+    expect(seen).toHaveLength(0);
+  });
+
+  test('an unbound connection still passes frames that assert NOTHING', () => {
+    // Fail-closed applies to assertions, not to traffic: a zero-entry frame or
+    // an undecodable one cannot spoof, and dropping it would change the
+    // documented pass-through behavior for no benefit.
+    const { ws, seen } = makeGatedWs({ conns: null });
+    expect(ws.emit('message', awarenessFrame([]))).toBe(true);
     expect(seen).toHaveLength(1);
   });
 
-  test('omitting getConns leaves 038 behavior byte-for-byte — awareness untouched', () => {
+  test('omitting getOwnership leaves 038 behavior byte-for-byte — awareness untouched', () => {
     // This is what keeps every pre-044 caller, harness and test valid.
     const { ws, seen, blocked } = makeGatedWs({ conns: undefined });
     ws.emit('message', awarenessFrame([[42, 9, presence('MALLORY')]]));
@@ -581,6 +607,96 @@ describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
     expect(seen).toHaveLength(1);
   });
 
+  test('an over-cap frame is dropped without consulting ownership at all (HIGH-3)', () => {
+    // The DoS frame: a huge declared entry count. The gate must refuse it
+    // before it asks anything of the document — the shipped code walked it
+    // first and then ALLOWED it, so it did not even leave a log line.
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, 3_000_000);
+    encoding.writeVarUint(enc, 0);
+    encoding.writeVarUint(enc, 1);
+    encoding.writeVarString(enc, '');
+    const outer = encoding.createEncoder();
+    encoding.writeVarUint(outer, MESSAGE_AWARENESS);
+    encoding.writeVarUint8Array(outer, encoding.toUint8Array(enc));
+
+    let ownershipLookups = 0;
+    const seen = [];
+    const blocked = [];
+    const ws = { userId: 'u-self', emit: (e, ...a) => { seen.push([e, ...a]); return true; } };
+    installGate(ws, {
+      canEdit: () => true,
+      getOwnership: () => { ownershipLookups += 1; return { conns: new Map() }; },
+      onBlocked: (event, info) => blocked.push([event, info]),
+    });
+
+    expect(ws.emit('message', Buffer.from(encoding.toUint8Array(outer)))).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(ownershipLookups).toBe(0);
+    expect(blocked[0][1]).toMatchObject({ reason: 'entry-cap' });
+  });
+
+  test('an ALLOWED frame claims its ids in the ledger — the record conns cannot keep', () => {
+    const ledger = createOwnershipLedger();
+    const self = { userId: 'u-self' };
+    const conns = new Map([[self, new Set()]]);
+    const seen = [];
+    self.emit = (event, ...args) => { seen.push([event, ...args]); return true; };
+    installGate(self, {
+      canEdit: () => true,
+      getOwnership: () => ({ conns, ledger }),
+    });
+
+    self.emit('message', awarenessFrame([[7, 1, presence('Self')]]));
+    expect(seen).toHaveLength(1);
+    expect(ledger.ownerOf(7)).toBe('u-self');
+  });
+
+  test('a REFUSED frame claims nothing', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(7, 'u-other');
+    const { ws } = makeGatedWs({ conns: new Map(), ledger });
+    ws.emit('message', awarenessFrame([[7, 1, presence('MALLORY')]]));
+    expect(ledger.ownerOf(7)).toBe('u-other');
+  });
+
+  test('an INERT entry claims nothing — a stale clock must not buy ownership', () => {
+    // Otherwise the cheapest way to own a victim's id would be to assert it
+    // with a clock the applier ignores.
+    const ledger = createOwnershipLedger();
+    const awareness = { states: new Map([[7, { user: {} }]]), meta: new Map([[7, { clock: 5 }]]) };
+    const { ws, seen } = makeGatedWs({ conns: new Map(), ledger, awareness });
+
+    expect(ws.emit('message', awarenessFrame([[7, 3, presence('MALLORY')]]))).toBe(true);
+    expect(seen).toHaveLength(1);          // passed through: the applier ignores it
+    expect(ledger.ownerOf(7)).toBe(null);  // and it bought nothing
+  });
+
+  test('a burst that ends with the socket closing reports what it swallowed (LOW-5)', () => {
+    const conns = new Map([[other, new Set([42])]]);
+    const { ws, blocked, close } = makeGatedWs({ conns });
+
+    for (let i = 0; i < 500; i++) ws.emit('message', awarenessFrame([[42, 100 + i, presence('M')]]));
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0][1]).toMatchObject({ dropped: 1 });   // D-044-3: first drop emits
+
+    close();
+    expect(blocked).toHaveLength(2);
+    expect(blocked[1][1]).toMatchObject({
+      reason: 'connection-closed', dropped: 500, sinceLastLog: 499,
+    });
+  });
+
+  test('a connection that never dropped a frame registers no close handler', () => {
+    // Honest sockets must stay untouched: no suppressor, no listener, nothing
+    // to garbage collect that was not there before 044.
+    const conns = new Map();
+    const { ws, blocked, close } = makeGatedWs({ conns });
+    ws.emit('message', awarenessFrame([[7, 1, presence('Self')]]));
+    close();
+    expect(blocked).toHaveLength(0);
+  });
+
   test('edit classification is untouched by the awareness wiring (FR-005)', () => {
     const conns = new Map([[other, new Set([42])]]);
     const seen = [];
@@ -588,7 +704,7 @@ describe('ws-edit-gate: installGate — awareness ownership (044)', () => {
     const ws = { userId: 'u-self', emit: (e, ...a) => { seen.push([e, ...a]); return true; } };
     installGate(ws, {
       canEdit: () => false,
-      getConns: () => conns,
+      getOwnership: () => ({ conns }),
       onBlocked: (event, info) => blocked.push([event, info]),
     });
 
@@ -665,19 +781,19 @@ describe('ws-edit-gate: server/index.js has no mirrored classification (C1)', ()
 
   // ── extended for the awareness guard (feature 044) ────────────────────────
 
-  test('index.js passes getConns to the gate', () => {
+  test('index.js passes getOwnership to the gate', () => {
     // Without it the awareness guard silently stands down in production while
     // every test still passes against its own wiring.
-    expect(indexSrc).toMatch(/getConns\s*:/);
+    expect(indexSrc).toMatch(/getOwnership\s*:/);
   });
 
   test('index.js resolves the doc handle lazily, not at install time', () => {
     // The gate is installed BEFORE setupWSConnection and must stay there; the
-    // handle is assigned after getYDoc. A getConns that closed over a
+    // handle is assigned after getYDoc. A getOwnership that closed over a
     // not-yet-existing doc would be permanently null — a guard that never runs.
     expect(indexSrc).toMatch(/let\s+sharedDoc\s*=\s*null/);
     expect(indexSrc).toMatch(/sharedDoc\s*=\s*doc\s*;/);
-    expect(indexSrc).toMatch(/getConns\s*:\s*\(\)\s*=>\s*\(?\s*sharedDoc/);
+    expect(indexSrc).toMatch(/getOwnership\s*:\s*\(\)\s*=>\s*\(?\s*sharedDoc/);
   });
 
   test('index.js defines NO awareness parser of its own', () => {
@@ -711,6 +827,27 @@ describe('ws-edit-gate: server/index.js has no mirrored classification (C1)', ()
     // format — the drift 038 hit three times.
     expect(indexSrc).not.toMatch(/require\(['"]lib0\/decoding['"]\)/);
     expect(indexSrc).not.toMatch(/readVarUint\s*\(/);
+  });
+
+  test('index.js binds ONE document name for both y-websocket and the guard (LOW-6)', () => {
+    // y-websocket's default doc name is the RAW `req.url`; `docId` comes from
+    // the NORMALISED pathname that authorization was checked against. For
+    // `/s/../s/X` those differ, so the connection would bind one document while
+    // the guard read another's ownership — and the authorized document would
+    // not be the one being edited. Passing the name removes the divergence by
+    // construction, which is why it has to be pinned here rather than assumed.
+    expect(indexSrc).toMatch(/const\s+wsDocName\s*=\s*`s\/\$\{docId\}`/);
+    const setup = indexSrc.slice(indexSrc.indexOf('setupWSConnection(ws, req'));
+    expect(setup.slice(0, 200)).toMatch(/docName\s*:\s*wsDocName/);
+    expect(indexSrc).toMatch(/getYDoc\(wsDocName/);
+  });
+
+  test('index.js bounds the inbound WebSocket frame size (HIGH-3)', () => {
+    // ws defaults to 100 MiB per frame, which any authenticated viewer can make
+    // the process buffer on demand.
+    expect(indexSrc).toMatch(/maxPayload\s*:/);
+    const wssBlock = indexSrc.slice(indexSrc.indexOf('new WebSocket.Server({'));
+    expect(wssBlock.slice(0, 200)).toMatch(/maxPayload:\s*WS_MAX_PAYLOAD_BYTES/);
   });
 
   test('index.js routes the awareness event through logPerf', () => {

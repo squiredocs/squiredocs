@@ -221,24 +221,61 @@ function viaSyncFromOrigin(origin) {
  * @param {function(string, object): void} [handlers.onBlocked] -
  *   Called with the event name from `blockedEventFor` when an edit frame is
  *   dropped, or AWARENESS_BLOCKED_EVENT when an awareness frame is (044).
- * @param {function(): (Map|null)} [handlers.getConns] - OPTIONAL (044). Resolves
- *   the document's `Map<conn, Set<number>>` ownership record PER FRAME — the doc
- *   does not exist yet when the gate is installed. Returning null/non-Map
- *   disables the awareness check for that frame, which is safe: before
- *   setupWSConnection runs there is no message listener for a frame to reach.
+ * @param {function(): (object|null)} [handlers.getOwnership] - OPTIONAL (044).
+ *   Resolves this document's ownership view — `{ conns, awareness, ledger }`,
+ *   built by `ws-awareness-guard.ownershipFor(doc)` — PER FRAME, because the doc
+ *   handle does not exist yet when the gate is installed. Returning null makes
+ *   awareness frames that assert ids FAIL CLOSED (see the drop table below).
  * @param {function(*): (string|null)} [handlers.principalOf] - OPTIONAL (044).
  *   The same-user tie-break input; defaults to reading `conn.userId`.
  * @returns {function} The original (unwrapped) `ws.emit`, bound to `ws`.
  */
-function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
+function installGate(ws, { canEdit, onBlocked, getOwnership, principalOf } = {}) {
   const originalEmit = ws.emit.bind(ws);
 
   // Per-connection log suppression for awareness drops (feature 044, FR-007),
   // created on the FIRST drop so honest connections never allocate one. Living
   // in this closure means it is garbage collected with the socket: no global
-  // map to leak, no cleanup handler to forget, and one connection's flood can
-  // never suppress another connection's first alarm.
+  // map to leak, and one connection's flood can never suppress another
+  // connection's first alarm. The close handler is registered alongside it —
+  // also only once a drop has happened — so a burst that ends with the socket
+  // dropping still reports what the suppression window swallowed (LOW-5).
   let dropSuppressor = null;
+
+  /**
+   * Refuse one awareness frame: count it, log it if the suppressor lets the
+   * line through, and tell the caller nothing ran.
+   *
+   * @param {string} reason - 'foreign-id' | 'entry-cap' | 'unbound'
+   * @param {object} [detail]
+   * @returns {false} what `emit` returns for a dropped frame
+   */
+  const dropAwarenessFrame = (reason, detail = {}) => {
+    const guard = awarenessGuard();
+    if (!dropSuppressor) {
+      dropSuppressor = guard.createDropSuppressor();
+      if (typeof ws.on === 'function') {
+        ws.on('close', () => {
+          const final = dropSuppressor.flush();
+          if (onBlocked && final) {
+            onBlocked(guard.AWARENESS_BLOCKED_EVENT, {
+              kind: 'awareness', reason: 'connection-closed', foreignIds: [], conflicts: [], ...final,
+            });
+          }
+        });
+      }
+    }
+    const counts = dropSuppressor.record();
+    // Counted always; LOGGED only when the suppressor lets one through. The
+    // counts ride in the payload, so the volume is still recoverable from the
+    // lines that were emitted.
+    if (onBlocked && counts) {
+      onBlocked(guard.AWARENESS_BLOCKED_EVENT, {
+        kind: 'awareness', reason, foreignIds: [], conflicts: [], ...detail, ...counts,
+      });
+    }
+    return false;
+  };
 
   ws.emit = (event, ...args) => {
     if (event === 'message') {
@@ -256,16 +293,38 @@ function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
       // on frames `classifyFrame` already called "not an edit", and it never
       // changes what `classifyFrame` returns (FR-005). Awareness frames remain
       // "not an edit" for every role; the guard applies to viewers and editors
-      // alike. Skipped entirely when the caller passes no `getConns`, which is
-      // what keeps every pre-044 caller and test byte-for-byte unaffected.
-      if (kind === null && getConns) {
-        const conns = getConns();
-        if (conns instanceof Map) {
-          const guard = awarenessGuard();
-          const { isAwareness, clientIds } = guard.parseAwarenessFrame(buffer);
-          if (isAwareness && clientIds.length > 0) {
-            const { allowed, foreignIds } = guard.evaluateAwarenessFrame({
-              conns, conn: ws, clientIds, principalOf,
+      // alike. Skipped entirely when the caller passes no `getOwnership`, which
+      // is what keeps every pre-044 caller and test byte-for-byte unaffected.
+      if (kind === null && getOwnership) {
+        const guard = awarenessGuard();
+        const parsed = guard.parseAwarenessFrame(buffer);
+        if (parsed.isAwareness) {
+          // A frame declaring more entries than any honest client sends is
+          // refused before it is walked (HIGH-3). Nothing has been decoded
+          // beyond the count, so the refusal is O(1).
+          if (parsed.oversized) return dropAwarenessFrame('entry-cap');
+
+          const ownership = getOwnership();
+          // Ids the applier could still act on. An entry it would step over —
+          // every routine echo of another participant's state — asserts nothing
+          // and must not be mistaken for an attack.
+          const clientIds = guard.assertedIds(parsed, ownership && ownership.awareness);
+
+          if (clientIds.length > 0) {
+            if (!ownership || !(ownership.conns instanceof Map)) {
+              // FAIL CLOSED (LOW-7). This is not the pre-setup window — the gate
+              // and setupWSConnection run in the same synchronous turn, so no
+              // frame can arrive between them. It is the window after
+              // setupWSConnection THREW: the message listener may already be
+              // attached while the doc handle never got assigned, and ws.close()
+              // is a graceful handshake, so frames keep arriving with no
+              // ownership record to check them against. Dropping presence for a
+              // socket that is on its way out costs nothing.
+              return dropAwarenessFrame('unbound', { foreignIds: clientIds });
+            }
+
+            const { allowed, foreignIds, conflicts, principal } = guard.evaluateAwarenessFrame({
+              conns: ownership.conns, conn: ws, clientIds, principalOf, ledger: ownership.ledger,
             });
             if (!allowed) {
               // Dropped whole: no listener runs, so nothing is applied, nothing
@@ -273,19 +332,15 @@ function installGate(ws, { canEdit, onBlocked, getConns, principalOf } = {}) {
               // awareness publisher is driven by the doc's own awareness
               // 'update' event — nothing is relayed cross-instance either.
               // The socket stays OPEN and is NOT notified.
-              if (!dropSuppressor) dropSuppressor = guard.createDropSuppressor();
-              const counts = dropSuppressor.record();
-              // Counted always; LOGGED only when the suppressor lets one
-              // through. The counts ride in the payload, so the volume is
-              // still recoverable from the lines that were emitted.
-              if (onBlocked && counts) {
-                onBlocked(guard.AWARENESS_BLOCKED_EVENT, {
-                  kind: 'awareness',
-                  foreignIds,
-                  ...counts,
-                });
-              }
-              return false;
+              return dropAwarenessFrame('foreign-id', { foreignIds, conflicts });
+            }
+
+            // Allowed: record this principal as the owner of every id the frame
+            // asserts, BEFORE delegating. Ordering matters — a removal frame is
+            // applied inside the delegated emit and lapses its own record on the
+            // way out, which a claim written afterwards would resurrect.
+            if (ownership.ledger && principal != null) {
+              for (const clientId of clientIds) ownership.ledger.claim(clientId, principal);
             }
           }
         }

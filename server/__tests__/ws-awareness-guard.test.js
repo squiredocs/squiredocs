@@ -22,8 +22,16 @@ const {
 const {
   AWARENESS_BLOCKED_EVENT,
   AWARENESS_BLOCK_LOG_WINDOW_MS,
+  MAX_FRAME_ENTRIES,
+  OWNERSHIP_RETENTION_MS,
+  MAX_IDS_PER_PRINCIPAL,
+  REMOTE_PRINCIPAL,
   parseAwarenessFrame,
+  assertedIds,
   evaluateAwarenessFrame,
+  createOwnershipLedger,
+  ownershipFor,
+  principalLabel,
   defaultPrincipalOf,
   createDropSuppressor,
 } = require('../ws-awareness-guard');
@@ -98,7 +106,9 @@ describe('ws-awareness-guard: parseAwarenessFrame', () => {
     expect(parseAwarenessFrame(frame)).toEqual({
       isAwareness: true,
       clientIds: [42],
+      entries: [{ clientId: 42, clock: 1, stateIsNull: false }],
       truncated: false,
+      oversized: false,
     });
   });
 
@@ -134,14 +144,16 @@ describe('ws-awareness-guard: parseAwarenessFrame', () => {
     writePaddedVarUint(enc, MESSAGE_AWARENESS);
     encoding.writeVarUint8Array(enc, awarenessUpdate([[3, 1, { user: {} }]]));
     const parsed = parseAwarenessFrame(Buffer.from(encoding.toUint8Array(enc)));
-    expect(parsed).toEqual({ isAwareness: true, clientIds: [3], truncated: false });
+    expect(parsed).toMatchObject({ isAwareness: true, clientIds: [3], truncated: false });
   });
 
   test('a zero-entry frame asserts nothing and is not truncated', () => {
     expect(parseAwarenessFrame(awarenessFrame([]))).toEqual({
       isAwareness: true,
       clientIds: [],
+      entries: [],
       truncated: false,
+      oversized: false,
     });
   });
 
@@ -192,7 +204,7 @@ describe('ws-awareness-guard: parseAwarenessFrame', () => {
     // A count that reads, then nothing at all: the applier throws before
     // applying anything, so there is nothing to spoof and the frame passes.
     const parsed = parseAwarenessFrame(frameFromUpdate(Uint8Array.from([2])));
-    expect(parsed).toEqual({ isAwareness: true, clientIds: [], truncated: true });
+    expect(parsed).toMatchObject({ isAwareness: true, clientIds: [], truncated: true });
   });
 
   test('an empty inner update asserts nothing', () => {
@@ -227,7 +239,9 @@ describe('ws-awareness-guard: parseAwarenessFrame', () => {
     expect(parseAwarenessFrame(syncFrame(syncType))).toEqual({
       isAwareness: false,
       clientIds: [],
+      entries: [],
       truncated: false,
+      oversized: false,
     });
   });
 
@@ -283,6 +297,389 @@ describe('ws-awareness-guard: parseAwarenessFrame', () => {
   });
 });
 
+// ─── the entry cap (post-merge review HIGH-3) ────────────────────────────────
+
+describe('ws-awareness-guard: parseAwarenessFrame — the entry cap', () => {
+  /**
+   * The DoS the reviewer measured: a 9 MB frame declaring 3,000,000 entries,
+   * every clientID 0 and every state invalid JSON. `applyAwarenessUpdate` threw
+   * at entry 1 in 0.16 ms; the shipped guard spent ~1 s of blocked event loop
+   * on it and then ALLOWED it (all ids unowned), so it did not even log.
+   */
+  function overCountFrame(declared, provided) {
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, declared);
+    for (let i = 0; i < provided; i++) {
+      encoding.writeVarUint(enc, 0);
+      encoding.writeVarUint(enc, 1);
+      encoding.writeVarString(enc, '');
+    }
+    return frameFromUpdate(encoding.toUint8Array(enc));
+  }
+
+  test('a frame declaring more entries than the cap is refused, and refused CHEAPLY', () => {
+    const frame = overCountFrame(3_000_000, 1);
+
+    const start = process.hrtime.bigint();
+    const parsed = parseAwarenessFrame(frame);
+    const micros = Number(process.hrtime.bigint() - start) / 1000;
+
+    expect(parsed).toMatchObject({ isAwareness: true, oversized: true, clientIds: [] });
+    // The count is checked BEFORE the loop, so the work is one comparison — not
+    // three million varint decodes. A generous bound: the shipped parser took
+    // ~336 ms on this frame.
+    expect(micros).toBeLessThan(5000);
+  });
+
+  test('the cap is checked against the DECLARED count, not the bytes present', () => {
+    // The whole point: the bytes are cheap to send and expensive to walk.
+    expect(parseAwarenessFrame(overCountFrame(MAX_FRAME_ENTRIES + 1, 0)).oversized).toBe(true);
+    expect(parseAwarenessFrame(overCountFrame(MAX_FRAME_ENTRIES, 0)).oversized).toBe(false);
+  });
+
+  test('a frame exactly at the cap is parsed normally', () => {
+    const entries = [];
+    for (let i = 0; i < MAX_FRAME_ENTRIES; i++) entries.push([100 + i, 1, { user: {} }]);
+    const parsed = parseAwarenessFrame(awarenessFrame(entries));
+    expect(parsed.oversized).toBe(false);
+    expect(parsed.clientIds).toHaveLength(MAX_FRAME_ENTRIES);
+  });
+
+  test('an over-cap frame asserts NOTHING — the drop is the caller\'s job, not a pass-through', () => {
+    // Fail-closed is never narrower than the applier: refusing a frame outright
+    // is the extreme of "not narrower". The caller must not read clientIds: []
+    // as "nothing to guard" — `oversized` is what it keys on.
+    const parsed = parseAwarenessFrame(overCountFrame(MAX_FRAME_ENTRIES + 1, 3));
+    expect(parsed.clientIds).toEqual([]);
+    expect(parsed.oversized).toBe(true);
+  });
+});
+
+// ─── assertedIds: the applier's own precondition (FP-1) ──────────────────────
+
+describe('ws-awareness-guard: assertedIds', () => {
+  /** A stand-in for y-protocols' Awareness, holding only what the applier reads. */
+  function fakeAwareness(entries = []) {
+    const states = new Map();
+    const meta = new Map();
+    for (const [clientId, clock, state] of entries) {
+      meta.set(clientId, { clock, lastUpdated: Date.now() });
+      if (state !== null) states.set(clientId, state);
+    }
+    return { states, meta };
+  }
+
+  const parse = (entries) => parseAwarenessFrame(awarenessFrame(entries));
+
+  test('an entry with a HIGHER clock is asserted', () => {
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    expect(assertedIds(parse([[42, 6, { user: { name: 'MALLORY' } }]]), awareness)).toEqual([42]);
+  });
+
+  test('an entry with an EQUAL clock and a live state is INERT — this is the honest echo', () => {
+    // The real y-websocket client re-broadcasts every awareness change it
+    // applies, including other participants' ids (its _awarenessUpdateHandler
+    // ignores the origin). Those frames carry the clock the server just sent,
+    // so the applier steps over them. Treating them as assertions logged an
+    // innocent user as a spoofer on every join and every cursor move.
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    expect(assertedIds(parse([[42, 5, { user: {} }]]), awareness)).toEqual([]);
+  });
+
+  test('an entry with a LOWER clock is inert', () => {
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    expect(assertedIds(parse([[42, 4, { user: { name: 'MALLORY' } }]]), awareness)).toEqual([]);
+  });
+
+  test('an EQUAL-clock REMOVAL of a live state is asserted — the applier does apply it', () => {
+    // The one echo shape that is not inert, and the nastier half of the
+    // original finding: eviction is spoofing too.
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    expect(assertedIds(parse([[42, 5, null]]), awareness)).toEqual([42]);
+  });
+
+  test('an equal-clock removal of an ALREADY-REMOVED state is inert (the removal echo)', () => {
+    const awareness = fakeAwareness([[42, 5, null]]);   // meta remembered, state gone
+    expect(assertedIds(parse([[42, 5, null]]), awareness)).toEqual([]);
+  });
+
+  test('a JSON null with whitespace around it still counts as a removal', () => {
+    // `JSON.parse(' null ')` is null, so the applier would remove. A guard that
+    // only recognised the exact four bytes would wave the eviction through.
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    for (const raw of ['null', ' null', 'null\n', '\t null \r\n']) {
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, 1);
+      encoding.writeVarUint(enc, 42);
+      encoding.writeVarUint(enc, 5);
+      encoding.writeVarString(enc, raw);
+      const parsed = parseAwarenessFrame(frameFromUpdate(encoding.toUint8Array(enc)));
+      expect(assertedIds(parsed, awareness)).toEqual([42]);
+    }
+  });
+
+  test('a state that merely CONTAINS "null" is not a removal', () => {
+    const awareness = fakeAwareness([[42, 5, { user: {} }]]);
+    expect(assertedIds(parse([[42, 5, { user: { name: 'null' } }]]), awareness)).toEqual([]);
+  });
+
+  test('an UNKNOWN clientID is asserted at any clock — currClock is 0', () => {
+    expect(assertedIds(parse([[42, 1, { user: {} }]]), fakeAwareness())).toEqual([42]);
+  });
+
+  test('an entry whose clock did not decode is asserted (D-044-1 stays conservative)', () => {
+    const head = awarenessUpdate([[11, 1, { user: {} }]]);
+    const update = new Uint8Array(head.length + 1);
+    update.set(head, 0);
+    update[0] = 2;                          // one more entry than the bytes hold
+    update[head.length] = 0x2a;             // clientID 42, then nothing
+    const parsed = parseAwarenessFrame(frameFromUpdate(update));
+
+    // 11's clock is known and stale; 42's never decoded, so it stays asserted.
+    const awareness = fakeAwareness([[11, 9, { user: {} }], [42, 9, { user: {} }]]);
+    expect(assertedIds(parsed, awareness)).toEqual([42]);
+  });
+
+  test('with NO awareness to compare against, every decoded id is asserted (fail safe)', () => {
+    const parsed = parse([[42, 1, { user: {} }], [43, 1, { user: {} }]]);
+    expect(assertedIds(parsed, null)).toEqual([42, 43]);
+    expect(assertedIds(parsed, {})).toEqual([42, 43]);
+  });
+
+  test('the guard never disagrees with the applier about a mixed frame', () => {
+    const awareness = fakeAwareness([[1, 5, { user: {} }], [2, 5, { user: {} }]]);
+    const parsed = parse([
+      [1, 5, { user: {} }],                 // inert echo
+      [2, 6, { user: { name: 'MALLORY' } }], // real assertion
+      [3, 1, { user: {} }],                 // unknown id, real assertion
+    ]);
+    expect(assertedIds(parsed, awareness)).toEqual([2, 3]);
+  });
+});
+
+// ─── the ownership ledger (post-merge review HIGH-1 / HIGH-2 / MEDIUM-4) ─────
+
+describe('ws-awareness-guard: createOwnershipLedger', () => {
+  function fakeClock(start = 1_000_000) {
+    let t = start;
+    return { now: () => t, advance: (ms) => { t += ms; } };
+  }
+
+  test('a claim records the principal and reads back', () => {
+    const ledger = createOwnershipLedger();
+    expect(ledger.claim(42, 'u-alice')).toBe(true);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+    expect(ledger.ownerOf(43)).toBe(null);
+  });
+
+  test('a live record is never stolen by another principal', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    expect(ledger.claim(42, 'u-bob')).toBe(false);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+  });
+
+  test('a null principal records nothing — null never owns and never matches', () => {
+    const ledger = createOwnershipLedger();
+    expect(ledger.claim(42, null)).toBe(false);
+    expect(ledger.claim(42, undefined)).toBe(false);
+    expect(ledger.ownerOf(42)).toBe(null);
+  });
+
+  test('a lapsed id stays reserved for its own principal, then expires', () => {
+    // This is the reconnect window AND the anti-squat window (HIGH-1/MEDIUM-4).
+    const clock = fakeClock();
+    const ledger = createOwnershipLedger({ now: clock.now, retentionMs: 1000 });
+
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);
+    expect(ledger.ownerOf(42)).toBe('u-alice');       // still hers
+    expect(ledger.claim(42, 'u-bob')).toBe(false);    // squat refused
+    expect(ledger.claim(42, 'u-alice')).toBe(true);   // she may come back
+
+    ledger.lapse([42]);
+    clock.advance(1000);
+    expect(ledger.ownerOf(42)).toBe(null);            // released
+    expect(ledger.claim(42, 'u-bob')).toBe(true);
+  });
+
+  test('re-claiming an own lapsed id un-lapses it — the retention clock restarts on the NEXT lapse', () => {
+    const clock = fakeClock();
+    const ledger = createOwnershipLedger({ now: clock.now, retentionMs: 1000 });
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);
+    clock.advance(900);
+    ledger.claim(42, 'u-alice');
+    clock.advance(900);
+    expect(ledger.ownerOf(42)).toBe('u-alice');       // would have expired if still lapsed
+  });
+
+  test('lapse is not eviction: an unknown id is ignored and nothing is deleted', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([999]);
+    ledger.lapse(null);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+    expect(ledger.size()).toBe(1);
+  });
+
+  test('a flooder can only cannibalise ITS OWN records (per-principal quota)', () => {
+    // The bound has to be per principal. A global LRU would let an attacker
+    // churn ids until the victim's record fell off the end — which would
+    // re-open HIGH-1 on demand.
+    const ledger = createOwnershipLedger({ maxPerPrincipal: 4 });
+    ledger.claim(1, 'u-alice');
+    for (let i = 0; i < 100; i++) ledger.claim(1000 + i, 'u-mallory');
+
+    expect(ledger.ownerOf(1)).toBe('u-alice');
+    let mallorys = 0;
+    for (const [, record] of ledger.entries()) if (record.principal === 'u-mallory') mallorys += 1;
+    expect(mallorys).toBe(4);
+  });
+
+  test('the remote sentinel is exempt from the per-principal quota', () => {
+    // Every participant on every other instance shares one principal; capping
+    // them at 32 would silently un-own the rest and re-open HIGH-2.
+    const ledger = createOwnershipLedger({ maxPerPrincipal: 2 });
+    for (let i = 0; i < 50; i++) ledger.claim(2000 + i, REMOTE_PRINCIPAL);
+    expect(ledger.size()).toBe(50);
+    expect(ledger.ownerOf(2000)).toBe(REMOTE_PRINCIPAL);
+  });
+
+  test('at the absolute bound the ledger refuses NEW records rather than forgetting owners', () => {
+    const ledger = createOwnershipLedger({ maxEntries: 3, maxPerPrincipal: 99 });
+    expect(ledger.claim(1, 'u-a')).toBe(true);
+    expect(ledger.claim(2, 'u-b')).toBe(true);
+    expect(ledger.claim(3, 'u-c')).toBe(true);
+    expect(ledger.claim(4, 'u-d')).toBe(false);
+    expect(ledger.ownerOf(1)).toBe('u-a');            // nobody was evicted
+  });
+
+  test('expired records are swept to make room at the bound', () => {
+    const clock = fakeClock();
+    const ledger = createOwnershipLedger({ maxEntries: 2, retentionMs: 1000, now: clock.now });
+    ledger.claim(1, 'u-a');
+    ledger.claim(2, 'u-b');
+    ledger.lapse([1, 2]);
+    clock.advance(1000);
+    expect(ledger.claim(3, 'u-c')).toBe(true);
+    expect(ledger.size()).toBe(1);
+  });
+
+  test('a non-numeric clientId is refused', () => {
+    const ledger = createOwnershipLedger();
+    expect(ledger.claim('42', 'u-a')).toBe(false);
+    expect(ledger.claim(NaN, 'u-a')).toBe(false);
+  });
+
+  test('entries() is a copy — callers cannot mutate the ledger through it', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    const snapshot = ledger.entries();
+    snapshot.delete(42);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+  });
+
+  test('the shipped defaults are the documented ones', () => {
+    expect(OWNERSHIP_RETENTION_MS).toBe(300000);
+    expect(MAX_IDS_PER_PRINCIPAL).toBe(32);
+    expect(MAX_FRAME_ENTRIES).toBe(64);
+  });
+});
+
+describe('ws-awareness-guard: principalLabel', () => {
+  test('renders the remote sentinel, which JSON.stringify would silently drop', () => {
+    expect(principalLabel(REMOTE_PRINCIPAL)).toBe('remote-instance');
+    expect(JSON.stringify({ p: REMOTE_PRINCIPAL })).toBe('{}');   // why it exists
+    expect(principalLabel('u-alice')).toBe('u-alice');
+    expect(principalLabel(null)).toBe(null);
+    expect(principalLabel(undefined)).toBe(null);
+  });
+});
+
+// ─── ownershipFor: the per-document view ─────────────────────────────────────
+
+describe('ws-awareness-guard: ownershipFor', () => {
+  /** A WSSharedDoc-shaped stand-in with a real-enough awareness emitter. */
+  function fakeDoc() {
+    const listeners = [];
+    const conns = new Map();
+    const awareness = {
+      states: new Map(),
+      meta: new Map(),
+      getStates: () => awareness.states,
+      on: (event, fn) => { if (event === 'update') listeners.push(fn); },
+      emitUpdate: (changes, origin) => listeners.forEach((fn) => fn(changes, origin)),
+    };
+    return { conns, awareness };
+  }
+
+  test('returns null for a handle that is not a bound shared doc — callers fail closed', () => {
+    expect(ownershipFor(null)).toBe(null);
+    expect(ownershipFor({})).toBe(null);
+    expect(ownershipFor({ conns: new Map() })).toBe(null);
+  });
+
+  test('is cached per doc — one ledger, not one per frame', () => {
+    const doc = fakeDoc();
+    const first = ownershipFor(doc);
+    expect(ownershipFor(doc)).toBe(first);
+    expect(first.conns).toBe(doc.conns);
+    expect(first.awareness).toBe(doc.awareness);
+  });
+
+  test('seeds pre-existing states that no local connection holds as REMOTE', () => {
+    // A doc can already carry relayed presence before the first socket arrives.
+    // Leaving those claimable is exactly HIGH-2.
+    const doc = fakeDoc();
+    const localConn = { userId: 'u-alice' };
+    doc.conns.set(localConn, new Set([1]));
+    doc.awareness.states.set(1, { user: {} });
+    doc.awareness.states.set(2, { user: {} });
+
+    const { ledger } = ownershipFor(doc);
+    expect(ledger.ownerOf(1)).toBe(null);                 // held locally, not ours to label
+    expect(ledger.ownerOf(2)).toBe(REMOTE_PRINCIPAL);
+  });
+
+  test('a connection-less apply teaches the ledger (the Redis relay path)', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    doc.awareness.emitUpdate({ added: [7], updated: [], removed: [] }, 'redis');
+    expect(ledger.ownerOf(7)).toBe(REMOTE_PRINCIPAL);
+  });
+
+  test('an apply from one of this doc\'s connections teaches it nothing', () => {
+    // The gate already claimed those ids under the real principal before the
+    // frame was delegated; relabelling them REMOTE would lock the sender out.
+    const doc = fakeDoc();
+    const conn = { userId: 'u-alice' };
+    doc.conns.set(conn, new Set());
+    const { ledger } = ownershipFor(doc);
+    ledger.claim(7, 'u-alice');
+    doc.awareness.emitUpdate({ added: [], updated: [7], removed: [] }, conn);
+    expect(ledger.ownerOf(7)).toBe('u-alice');
+  });
+
+  test('a relay update never overwrites a local owner — pod migration stays possible', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    ledger.claim(7, 'u-alice');
+    doc.awareness.emitUpdate({ added: [], updated: [7], removed: [] }, 'redis');
+    expect(ledger.ownerOf(7)).toBe('u-alice');
+  });
+
+  test('a removal lapses the record instead of deleting it', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    ledger.claim(7, 'u-alice');
+    doc.awareness.emitUpdate({ added: [], updated: [], removed: [7] }, null);
+    // Still hers (reconnect), still refused to anyone else (squat).
+    expect(ledger.ownerOf(7)).toBe('u-alice');
+    expect(ledger.claim(7, 'u-bob')).toBe(false);
+  });
+});
+
 // ─── evaluateAwarenessFrame ──────────────────────────────────────────────────
 
 /** A stand-in connection. `userId` is what the default principal reads. */
@@ -298,7 +695,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     const alice = makeConn('u-alice');
     const conns = makeConns([[alice, [42]]]);
     expect(evaluateAwarenessFrame({ conns, conn: alice, clientIds: [42] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
   });
 
   test('rule 2: an id held by NO connection is allowed (first-writer-wins claim)', () => {
@@ -308,7 +705,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     // This is how a first announcement establishes ownership; blocking it would
     // mean nobody could ever appear.
     expect(evaluateAwarenessFrame({ conns, conn: bob, clientIds: [77] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
   });
 
   test('rule 4: an id held by ANOTHER user\'s connection is foreign — the whole point', () => {
@@ -316,7 +713,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     const bob = makeConn('u-bob');
     const conns = makeConns([[alice, [42]], [bob, [43]]]);
     expect(evaluateAwarenessFrame({ conns, conn: bob, clientIds: [42] }))
-      .toEqual({ allowed: false, foreignIds: [42] });
+      .toMatchObject({ allowed: false, foreignIds: [42] });
   });
 
   test('a mixed own+foreign frame is dropped WHOLE (Q2 — no partial apply)', () => {
@@ -331,7 +728,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
   test('an empty id list is allowed', () => {
     const alice = makeConn('u-alice');
     expect(evaluateAwarenessFrame({ conns: makeConns([[alice, [1]]]), conn: alice, clientIds: [] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
   });
 
   test.each([
@@ -341,7 +738,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     ['an array', []],
   ])('conns as %s is allowed — no doc bound yet, the frame reaches no applier', (_label, conns) => {
     expect(evaluateAwarenessFrame({ conns, conn: makeConn('u-a'), clientIds: [1, 2] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
   });
 
   test('a connection with no entry in conns can still claim unowned ids', () => {
@@ -397,7 +794,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — ownership rules', () =>
     const conns = new Map([[self, countingOwn], [makeConn('u-other'), tripwire]]);
 
     expect(evaluateAwarenessFrame({ conns, conn: self, clientIds: [42] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
     expect(ownLookups).toBe(1);
   });
 
@@ -419,7 +816,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — same-user tie-break (ru
     const reconnect = makeConn('u-alice');
     const conns = makeConns([[first, [42]], [reconnect, []]]);
     expect(evaluateAwarenessFrame({ conns, conn: reconnect, clientIds: [42] }))
-      .toEqual({ allowed: true, foreignIds: [] });
+      .toMatchObject({ allowed: true, foreignIds: [] });
   });
 
   test('a DIFFERENT user under identical conditions is foreign — same-user, not same-id', () => {
@@ -427,7 +824,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — same-user tie-break (ru
     const other = makeConn('u-bob');
     const conns = makeConns([[first, [42]], [other, []]]);
     expect(evaluateAwarenessFrame({ conns, conn: other, clientIds: [42] }))
-      .toEqual({ allowed: false, foreignIds: [42] });
+      .toMatchObject({ allowed: false, foreignIds: [42] });
   });
 
   test.each([
@@ -457,7 +854,7 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — same-user tie-break (ru
     const asserter = makeConn('u-alice');
     const conns = makeConns([[mine, [42]], [theirs, [42]], [asserter, []]]);
     expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }))
-      .toEqual({ allowed: false, foreignIds: [42] });
+      .toMatchObject({ allowed: false, foreignIds: [42] });
   });
 
   test('the default principalOf is used when none is injected', () => {
@@ -478,6 +875,130 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — same-user tie-break (ru
     expect(evaluateAwarenessFrame({ conns, conn: stranger, clientIds: [42], principalOf }).allowed).toBe(false);
     // ...and without it, `userId` is absent on both, so nothing matches.
     expect(evaluateAwarenessFrame({ conns, conn: asserter, clientIds: [42] }).allowed).toBe(false);
+  });
+});
+
+describe('ws-awareness-guard: evaluateAwarenessFrame — the ledger (rule 2)', () => {
+  test('a RECONNECTED owner matches their own record even though conns has forgotten it', () => {
+    // HIGH-1, at unit scale. y-websocket only adds an id to a connection's set
+    // from the `added` bucket, and a re-announcement of a known id is `updated`,
+    // so after any reconnect `conns` says the id is unowned — forever.
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);                              // the old socket was reaped
+
+    const reconnected = makeConn('u-alice');
+    const conns = makeConns([[reconnected, []]]);    // note: EMPTY set
+    expect(evaluateAwarenessFrame({ conns, conn: reconnected, clientIds: [42], ledger }).allowed)
+      .toBe(true);
+  });
+
+  test('a DIFFERENT user is refused against the same record — the fail-open is closed', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);
+
+    const bob = makeConn('u-bob');
+    const conns = makeConns([[bob, []]]);
+    const verdict = evaluateAwarenessFrame({ conns, conn: bob, clientIds: [42], ledger });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.foreignIds).toEqual([42]);
+  });
+
+  test('a relay-learned id cannot be asserted by ANY local connection (HIGH-2)', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);
+
+    const bob = makeConn('u-bob');
+    const conns = makeConns([[bob, []]]);
+    const verdict = evaluateAwarenessFrame({ conns, conn: bob, clientIds: [42], ledger });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.conflicts).toEqual([
+      { clientId: 42, assertedBy: 'u-bob', heldBy: ['remote-instance'] },
+    ]);
+  });
+
+  test('the sentinel is unmatchable — not even a connection whose principal is the symbol', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);
+    const conn = {};
+    const conns = makeConns([[conn, []]]);
+    // A hostile `principalOf` returning the sentinel is the only way to try
+    // this, and the sentinel is module-private to production callers.
+    const verdict = evaluateAwarenessFrame({
+      conns, conn, clientIds: [42], ledger, principalOf: () => REMOTE_PRINCIPAL,
+    });
+    // Honest outcome either way: what must NOT happen is a null-ish match.
+    expect(typeof verdict.allowed).toBe('boolean');
+    expect(evaluateAwarenessFrame({ conns, conn, clientIds: [42], ledger }).allowed).toBe(false);
+  });
+
+  test('the ledger outranks an empty holder list — that is the whole point', () => {
+    // Rule 3 (unclaimed ⇒ first-writer-wins) must not be reachable for an id
+    // the ledger still remembers, or the reconnect hole reopens.
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    const bob = makeConn('u-bob');
+    expect(evaluateAwarenessFrame({ conns: makeConns([[bob, []]]), conn: bob, clientIds: [42], ledger }).allowed)
+      .toBe(false);
+  });
+
+  test('the connection\'s OWN set still wins first, and costs one lookup', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    const alice = makeConn('u-alice');
+    const conns = makeConns([[alice, [42]]]);
+    expect(evaluateAwarenessFrame({ conns, conn: alice, clientIds: [42], ledger }).allowed).toBe(true);
+  });
+
+  test('with no ledger the rules are exactly the shipped ones', () => {
+    // Every pre-existing assertion in this file runs without a ledger, which is
+    // what keeps that equivalence honest; this states it directly.
+    const alice = makeConn('u-alice');
+    const bob = makeConn('u-bob');
+    const conns = makeConns([[alice, [42]], [bob, []]]);
+    expect(evaluateAwarenessFrame({ conns, conn: bob, clientIds: [42] }).allowed).toBe(false);
+    expect(evaluateAwarenessFrame({ conns, conn: bob, clientIds: [99] }).allowed).toBe(true);
+  });
+
+  test('the ledger is never written here — evaluation is pure', () => {
+    const ledger = createOwnershipLedger();
+    const bob = makeConn('u-bob');
+    evaluateAwarenessFrame({ conns: makeConns([[bob, []]]), conn: bob, clientIds: [1, 2, 3], ledger });
+    expect(ledger.size()).toBe(0);
+  });
+
+  test('conflicts name BOTH sides so a squat victim is not read as the offender (MEDIUM-4)', () => {
+    const squatter = makeConn('u-mallory');
+    const victim = makeConn('u-alice');
+    const conns = makeConns([[squatter, [7001]], [victim, []]]);
+    const verdict = evaluateAwarenessFrame({ conns, conn: victim, clientIds: [7001] });
+    expect(verdict.conflicts).toEqual([
+      { clientId: 7001, assertedBy: 'u-alice', heldBy: ['u-mallory'] },
+    ]);
+  });
+});
+
+describe('ws-awareness-guard: evaluateAwarenessFrame — cost (HIGH-3c)', () => {
+  test('other connections are walked ONCE per frame, not once per asserted id', () => {
+    // The shipped loop rescanned every connection's set for every asserted id:
+    // O(ids × conns), and with a 64-id frame against a busy document that is
+    // the other half of the DoS.
+    let iterations = 0;
+    const countingSet = (ids) => ({
+      has: (id) => ids.has(id),
+      [Symbol.iterator]: function* iter() { for (const id of ids) { iterations += 1; yield id; } },
+    });
+
+    const self = makeConn('u-self');
+    const conns = new Map([[self, new Set()]]);
+    for (let i = 0; i < 50; i++) conns.set(makeConn(`u-${i}`), countingSet(new Set([i])));
+
+    const clientIds = [];
+    for (let i = 0; i < 64; i++) clientIds.push(500 + i);   // 64 unowned ids
+
+    evaluateAwarenessFrame({ conns, conn: self, clientIds });
+    expect(iterations).toBe(50);        // one pass over the document, not 64
   });
 });
 
@@ -569,6 +1090,34 @@ describe('ws-awareness-guard: createDropSuppressor', () => {
     // her own first event — per-connection state, not a shared rate limiter.
     expect(mallory.record()).toEqual({ dropped: 1, sinceLastLog: 1, windowMs: 60000 });
     expect(mallory.record()).toBe(null);
+  });
+
+  // ── flush: the burst that ends before the window does (review LOW-5) ──────
+
+  test('flush reports what the window swallowed when the socket goes away', () => {
+    // 500 spoofs then a disconnect used to leave one line reading `dropped: 1`
+    // — a 500× understatement of the only record of the attack.
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: clock.now });
+
+    for (let i = 0; i < 500; i++) suppressor.record();
+    expect(suppressor.flush()).toEqual({ dropped: 500, sinceLastLog: 499, windowMs: 60000 });
+  });
+
+  test('flush on a connection that dropped nothing since its last line is silent', () => {
+    const clock = fakeClock();
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: clock.now });
+    expect(suppressor.flush()).toBe(null);          // never dropped anything
+    suppressor.record();                            // emitted immediately
+    expect(suppressor.flush()).toBe(null);          // nothing suppressed since
+  });
+
+  test('flush is not double-counting — a second flush adds nothing', () => {
+    const suppressor = createDropSuppressor({ windowMs: 60000, now: fakeClock().now });
+    suppressor.record();
+    suppressor.record();
+    expect(suppressor.flush()).toMatchObject({ dropped: 2, sinceLastLog: 1 });
+    expect(suppressor.flush()).toBe(null);
   });
 
   test('defaults to the module window and the real clock', () => {
