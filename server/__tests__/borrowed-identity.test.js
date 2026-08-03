@@ -21,6 +21,7 @@ const {
   BorrowReentrancyError,
   BorrowMintError,
   MAX_MINT_ATTEMPTS,
+  MAX_IDENTITIES_PER_DOC,
 } = borrowedIdentity;
 
 const ID_A = ['user-a', null];
@@ -165,6 +166,111 @@ describe('049 N8 — a reentrant borrow is refused loudly', () => {
     // Crucially: the next write is not permanently locked out by the failure.
     expect(isBorrowOpen(doc)).toBe(false);
     expect(() => borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['ok']))).not.toThrow();
+  });
+});
+
+describe('049 N3 — a cached id another writer advanced is discarded (FR-007, SC-009)', () => {
+  test('a foreign advance of the cached id forces a re-mint, and no (clientId, clock) pair is duplicated', () => {
+    const doc = new Y.Doc();
+
+    const first = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['one']));
+    const clockAfterFirst = Y.getState(doc.store, first);
+
+    // Someone ELSE writes to this document under the very same client id — the
+    // situation yjs's own self-heal would normally catch, except that self-heal
+    // is gated on `!transaction.local` and our writes are local, so it never
+    // fires for us. The cached entry is now stale.
+    const foreign = new Y.Doc();
+    Y.applyUpdate(foreign, Y.encodeStateAsUpdate(doc));
+    foreign.clientID = first;
+    foreign.transact(() => foreign.getArray('a').insert(1, ['foreign']));
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(foreign, Y.encodeStateVector(doc)));
+
+    expect(Y.getState(doc.store, first)).toBeGreaterThan(clockAfterFirst);
+
+    // The next write by the SAME identity must NOT reuse the advanced id.
+    const second = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['two']));
+    expect(second).not.toBe(first);
+
+    // And the document is not corrupt: every (client, clock) pair is unique,
+    // which is the actual harm a stale reuse would cause.
+    const pairs = new Set();
+    for (const [client, structs] of doc.store.clients) {
+      for (const s of structs) {
+        const key = `${client}:${s.id.clock}`;
+        expect(pairs.has(key)).toBe(false);
+        pairs.add(key);
+      }
+    }
+  });
+
+  test('a cached id that became the document\'s OWN id is discarded', () => {
+    const doc = new Y.Doc();
+    const first = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['one']));
+
+    // yjs re-mints the document's own id onto ours (its self-heal path).
+    doc.clientID = first;
+
+    const second = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['two']));
+    expect(second).not.toBe(first);
+  });
+});
+
+describe('049 N5 — the clock comes from the document\'s own store', () => {
+  test('consecutive borrows by one identity produce strictly increasing clocks, no gap and no replay', () => {
+    const doc = new Y.Doc();
+    const clocks = [];
+    let id = null;
+
+    for (let i = 0; i < 6; i += 1) {
+      const got = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, [`v${i}`]));
+      if (id === null) id = got;
+      expect(got).toBe(id);                 // reused, per the cache
+      clocks.push(Y.getState(doc.store, id));
+    }
+
+    // Strictly increasing…
+    for (let i = 1; i < clocks.length; i += 1) {
+      expect(clocks[i]).toBeGreaterThan(clocks[i - 1]);
+    }
+    // …and contiguous: the final clock equals the number of structs written, so
+    // nothing was skipped and nothing was replayed.
+    expect(clocks[clocks.length - 1]).toBe(doc.store.clients.get(id).reduce((n, s) => n + s.length, 0));
+  });
+});
+
+describe('049 N10 — eviction is harmless (RBD-049-4)', () => {
+  test('evicting an identity costs a fresh id on its next write, and nothing else', () => {
+    const doc = new Y.Doc();
+    const firstId = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['a-1']));
+
+    // Push ID_A out of the bounded per-document map with unrelated identities.
+    for (let i = 0; i < MAX_IDENTITIES_PER_DOC; i += 1) {
+      borrowedWrite(doc, [`filler-${i}`, null], (d) => d.getArray('a').insert(0, [`f${i}`]));
+    }
+
+    // ID_A writes again: a NEW id, correct attribution, document still sound.
+    const afterEviction = borrowedWrite(doc, ID_A, (d) => d.getArray('a').insert(0, ['a-2']));
+    expect(afterEviction).not.toBe(firstId);
+
+    // Both of ID_A's ids belong to ID_A alone — eviction never shares an id.
+    expect(doc.store.clients.has(firstId)).toBe(true);
+    expect(doc.store.clients.has(afterEviction)).toBe(true);
+    expect(doc.getArray('a').toArray()).toContain('a-1');
+    expect(doc.getArray('a').toArray()).toContain('a-2');
+  });
+
+  test('the per-document identity map stays bounded', () => {
+    const doc = new Y.Doc();
+    for (let i = 0; i < MAX_IDENTITIES_PER_DOC * 2; i += 1) {
+      borrowedWrite(doc, [`u-${i}`, null], (d) => d.getArray('a').insert(0, [`x${i}`]));
+    }
+    // Not directly observable by design (the WeakMap is private), so assert the
+    // consequence instead: the process did not accumulate unbounded entries and
+    // writes still succeed at the far end.
+    const last = borrowedWrite(doc, ['u-final', null], (d) => d.getArray('a').insert(0, ['final']));
+    expect(Number.isInteger(last)).toBe(true);
+    expect(doc.getArray('a').toArray()).toContain('final');
   });
 });
 

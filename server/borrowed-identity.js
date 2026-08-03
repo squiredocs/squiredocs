@@ -40,9 +40,19 @@
  * B8  A reentrant borrow is refused loudly, never nested.              RBD-049-5
  */
 const crypto = require('crypto');
+const Y = require('yjs');
 
 /** Bound on redraws before we fail rather than install a colliding id (FR-002). */
 const MAX_MINT_ATTEMPTS = 10;
+
+/**
+ * Bound on distinct identities cached per document (FR-006, RBD-049-4).
+ *
+ * Eviction is HARMLESS by construction: an evicted identity simply mints a
+ * fresh id on its next write, costing one extra entry in the document's state
+ * vector and nothing else. Nothing about correctness depends on a cache hit.
+ */
+const MAX_IDENTITIES_PER_DOC = 64;
 
 /**
  * A borrow was attempted while one was already open on the same document.
@@ -128,10 +138,54 @@ function acquire(ydoc, userId, agentName) {
   const rec = recordFor(ydoc);
   if (rec.open) throw new BorrowReentrancyError(docLabel(ydoc));
 
-  const clientId = mint(ydoc);
+  // Nulls are LITERAL in the key (RBD-049-3): a write by (user, null) and one by
+  // (user, 'Squire Docs Assistant') are different principals and must never
+  // share an id, so the key must distinguish them rather than coalescing.
+  const key = JSON.stringify([userId ?? null, agentName ?? null]);
+  let entry = rec.entries.get(key);
+
+  if (entry) {
+    // ── THE FR-007 REUSE CHECK ───────────────────────────────────────────────
+    // WHY A CLOCK COMPARISON AND NOT `store.clients.has()`: a cached id IS in
+    // the document's client store — that is what reuse means, so `has()` is
+    // always true and answers nothing. The question at reuse time is "has
+    // anyone else advanced this id since we last used it?", and that is exactly
+    // what comparing the document's current clock against the one we left it at
+    // asks. `has()` is the right check only at MINT time.
+    //
+    // WHY THIS EXISTS AT ALL: yjs has its own duplicate-client-id self-heal
+    // (`yjs.cjs:3379`), but it is guarded by `!transaction.local` — and our
+    // writes are LOCAL (`doc.transact`), so it can NEVER fire for us. 048's
+    // merge-back went through `Y.applyUpdate`, which is non-local, and did get
+    // that protection. A borrowed id gets none, and caching stretches the
+    // exposure across the whole process lifetime, so the re-check is the only
+    // thing standing between a stale entry and a duplicate (clientId, clock)
+    // pair — which corrupts the CRDT.
+    const currentClock = Y.getState(ydoc.store, entry.clientId);
+    if (currentClock !== entry.clock) {
+      entry = null;              // another writer advanced it — never reuse
+    } else if (entry.clientId === ydoc.clientID) {
+      entry = null;              // yjs re-minted the document's own id onto ours
+    }
+    if (!entry) rec.entries.delete(key);
+  }
+
+  if (!entry) {
+    const clientId = mint(ydoc);
+    entry = { clientId, clock: Y.getState(ydoc.store, clientId) };
+  }
+
+  // LRU touch, then bound. Insertion order is Map iteration order, so deleting
+  // the first key evicts the least recently used identity.
+  rec.entries.delete(key);
+  rec.entries.set(key, entry);
+  while (rec.entries.size > MAX_IDENTITIES_PER_DOC) {
+    rec.entries.delete(rec.entries.keys().next().value);
+  }
+
   rec.open = true;
-  rec.openClientId = clientId;
-  return clientId;
+  rec.openClientId = entry.clientId;
+  return entry.clientId;
 }
 
 /**
@@ -189,6 +243,19 @@ function endBorrow(ydoc, clientId) {
   if (!rec) return;
   rec.open = false;
   rec.openClientId = null;
+
+  // Record the clock this borrow ended at, ALWAYS read from the document's own
+  // store (B3) rather than incremented from a remembered counter. That is what
+  // lets a reused id resume at the right clock instead of replaying clocks it
+  // has already used, and it is what the FR-007 check above compares against.
+  // Runs on every path — success, no-change (the clock simply does not move),
+  // and a throwing mutate phase (where it records whatever did land).
+  for (const entry of rec.entries.values()) {
+    if (entry.clientId === clientId) {
+      entry.clock = Y.getState(ydoc.store, clientId);
+      return;
+    }
+  }
 }
 
 /** True when a borrow is currently open on this document (reentrancy guard). */
@@ -216,4 +283,5 @@ module.exports = {
   BorrowReentrancyError,
   BorrowMintError,
   MAX_MINT_ATTEMPTS,
+  MAX_IDENTITIES_PER_DOC,
 };

@@ -331,27 +331,103 @@ describe('048 G — the shared doc never authors a content operation', () => {
     expect(insertClientIds(update)).not.toContain(ydoc.clientID);
   });
 
-  test('G3: two consecutive calls author under two DISTINCT one-shot clientIDs', async () => {
+  // RE-POINTED BY 049 (FR-011). WAS: "two consecutive calls author under two
+  // DISTINCT one-shot clientIDs" — under 048 every operation minted a fresh id.
+  //
+  // WHY THAT CHANGED: FR-006 caches the borrowed id per (identity, document), so
+  // two calls by the SAME identity now legitimately reuse ONE id. That is
+  // deliberate — minting per operation grew the document's state vector without
+  // bound (measured: 5,000 writes left a 30 KB vector, pushed to every browser
+  // on every handshake).
+  //
+  // NOT A WEAKENING. The 048 guarantee was never "one id per operation"; it was
+  // "no id is ever shared by two identities", which is what the resolver
+  // depends on. That clause is now asserted DIRECTLY — every observed id is
+  // mapped to the identity that used it and the mapping is checked to be
+  // one-to-one — rather than inferred as a by-product of distinctness.
+  test('G3: different identities use different ids, one identity reuses one id, and no id is ever shared', async () => {
     const { ydoc } = makeWarmDoc();
+    const USER_B = '22222222-2222-4222-8222-222222222222';
 
-    const first = await documentService.updateDocument(
-      DOC_GUID,
-      () => (doc) => doc.get('default', Y.XmlFragment).insert(0, [paragraph('first')]),
-      ATTRIB
-    );
-    const second = await documentService.updateDocument(
-      DOC_GUID,
-      () => (doc) => doc.get('default', Y.XmlFragment).insert(1, [paragraph('second')]),
-      ATTRIB
-    );
+    const identities = [
+      { userId: USER, agentName: 'Test Agent' },
+      { userId: USER, agentName: 'Test Agent' },   // same identity, twice
+      { userId: USER, agentName: null },           // same user, NO agent — different principal
+      { userId: USER_B, agentName: 'Test Agent' }, // different user
+      { userId: USER_B, agentName: 'Test Agent' }, // same identity, twice
+    ];
 
-    const a = insertClientIds(first.update);
-    const b = insertClientIds(second.update);
-    expect(a).toHaveLength(1);
-    expect(b).toHaveLength(1);
-    expect(a[0]).not.toBe(b[0]);
-    expect(a).not.toContain(ydoc.clientID);
-    expect(b).not.toContain(ydoc.clientID);
+    const idToIdentity = new Map();
+    const idsByIdentity = new Map();
+
+    for (let i = 0; i < identities.length; i += 1) {
+      const attrib = identities[i];
+      const key = JSON.stringify([attrib.userId, attrib.agentName]);
+      const { update } = await documentService.updateDocument(
+        DOC_GUID,
+        () => (doc) => doc.get('default', Y.XmlFragment).insert(i, [paragraph(`w${i}`)]),
+        attrib
+      );
+      const ids = insertClientIds(update);
+      expect(ids).toHaveLength(1);
+      expect(ids).not.toContain(ydoc.clientID);
+
+      const id = ids[0];
+      // THE CLAUSE THAT MUST NOT WEAKEN: one id, one identity, always.
+      if (idToIdentity.has(id)) expect(idToIdentity.get(id)).toBe(key);
+      idToIdentity.set(id, key);
+      if (!idsByIdentity.has(key)) idsByIdentity.set(key, new Set());
+      idsByIdentity.get(key).add(id);
+    }
+
+    // The id -> identity map is one-to-one: no id was ever shared.
+    expect(idToIdentity.size).toBe(new Set(idToIdentity.keys()).size);
+    expect(new Set(idToIdentity.values()).size).toBe(idsByIdentity.size);
+
+    // Each identity used exactly ONE id across all its writes (the cache).
+    for (const [, ids] of idsByIdentity) expect(ids.size).toBe(1);
+
+    // Three distinct principals wrote, so three distinct ids exist.
+    expect(idsByIdentity.size).toBe(3);
+    expect(new Set(idToIdentity.keys()).size).toBe(3);
+  });
+
+  test('N4: N writes by ONE identity add exactly ONE client entry; N identities add N (SC-005)', async () => {
+    // The whole point of the cache: state-vector growth tracks PRINCIPALS, not
+    // operations. Under 048 the left-hand number below would have been 12.
+    {
+      const { ydoc } = makeWarmDoc();
+      const before = Y.decodeStateVector(Y.encodeStateVector(ydoc)).size;
+
+      for (let i = 0; i < 12; i += 1) {
+        await documentService.updateDocument(
+          DOC_GUID,
+          () => (doc) => doc.get('default', Y.XmlFragment).insert(i, [paragraph(`n${i}`)]),
+          ATTRIB
+        );
+      }
+
+      const after = Y.decodeStateVector(Y.encodeStateVector(ydoc)).size;
+      expect(after - before).toBe(1);
+      documentService.init(null, null, null);
+    }
+
+    // N distinct identities introduce N entries — the growth that is real.
+    {
+      const { ydoc } = makeWarmDoc();
+      const before = Y.decodeStateVector(Y.encodeStateVector(ydoc)).size;
+
+      for (let i = 0; i < 5; i += 1) {
+        await documentService.updateDocument(
+          DOC_GUID,
+          () => (doc) => doc.get('default', Y.XmlFragment).insert(i, [paragraph(`m${i}`)]),
+          { userId: USER, agentName: `Agent ${i}` }
+        );
+      }
+
+      const after = Y.decodeStateVector(Y.encodeStateVector(ydoc)).size;
+      expect(after - before).toBe(5);
+    }
   });
 
   // RE-POINTED BY 049 (FR-011). WAS: "updateFn receives an EPHEMERAL doc, and
@@ -542,10 +618,18 @@ describe('048 G — the shared doc never authors a content operation', () => {
     expect(texts).toHaveLength(4);
     expect(texts[0]).toContain('start.png');
 
-    // Each insert authored under its own one-shot identity.
+    // RE-POINTED BY 049, for the same reason as G3. WAS: "each insert authored
+    // under its own one-shot identity" (`a[0] !== b[0]`). Both inserts here are
+    // made by the SAME identity (ATTRIB), so under the per-(identity, document)
+    // cache they legitimately share one borrowed id — that is the point of the
+    // cache, and asserting distinctness would pin the thing 049 removes.
+    // The part that must not weaken is unchanged and asserted below: the id is
+    // never the document's own, and it is exactly one per update.
     const a = insertClientIds(endResult.update);
     const b = insertClientIds(startResult.update);
-    expect(a[0]).not.toBe(b[0]);
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+    expect(a[0]).toBe(b[0]); // same identity, same borrowed id
     expect(a).not.toContain(ydoc.clientID);
     expect(b).not.toContain(ydoc.clientID);
   });
