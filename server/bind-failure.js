@@ -160,9 +160,14 @@ function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null,
  * gets 1013 reconnects and rebinds. That assumption is false for a server-side
  * writer (`documentService.updateDocument`, reached by agent modify, import and
  * document creation) which is holding a doc handle it acquired BEFORE the
- * refusal: it has no connection to close, so it transacts, the listener silently
- * drops the persist, and `updateDocument` resolves normally. The agent is told
- * "done" for content that exists nowhere.
+ * refusal: it has no connection to close, so its write still reaches the shared
+ * doc, the listener silently drops the persist, and `updateDocument` used to
+ * resolve normally. The agent was told "done" for content that exists nowhere.
+ *
+ * Feature 048 added a bind-readiness gate at the START of `updateDocument`, so a
+ * refusal that has ALREADY landed is now refused before the operation is even
+ * computed. This class still covers the window the gate cannot see: a bind
+ * refused after the gate passed and before the merge completes.
  *
  * Surfacing it as an error puts the caller back in charge: an MCP tool reports a
  * failure the model can retry rather than a success it will build on. A retry is

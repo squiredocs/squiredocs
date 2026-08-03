@@ -79,15 +79,32 @@
  * multi-origin one and collapse to "Synced content".
  *
  * ── The shared server doc (045-review HIGH-1, ledger N-045-2) ───────────────
- * Every server-side write path (`updateDocument`, and the live-doc restore
- * clone) transacts on the ONE live `WSSharedDoc` for that document, so all
- * content it creates carries THAT doc's single Yjs client identity while rows
- * are stamped with whichever `(userId, agentName)` acted. Such an identity
- * therefore determines NO author, and binding one would systematically credit
- * the wrong person: bind S→(X,'Assistant') from X's chat edit, lose Y's chat
- * edit in a crash, have any browser resupply it, and every surface confidently
- * credits X for Y's words. Two-identity ambiguity does not save it — the second
- * identity may never commit.
+ * BEFORE FEATURE 048 this was the central hazard. Every server-side write path
+ * (`updateDocument`, and the live-doc restore clone) transacted on the ONE live
+ * `WSSharedDoc` for that document, so all content it created carried THAT doc's
+ * single Yjs client identity while rows were stamped with whichever
+ * `(userId, agentName)` acted. Such an identity determined NO author, and
+ * binding one would systematically credit the wrong person: bind
+ * S→(X,'Assistant') from X's chat edit, lose Y's chat edit in a crash, have any
+ * browser resupply it, and every surface confidently credits X for Y's words.
+ * Two-identity ambiguity did not save it — the second identity may never commit.
+ *
+ * AFTER FEATURE 048 the hazard is closed at the source rather than defended
+ * against here. Every server-side operation authors on a fresh ephemeral Y.Doc
+ * with a one-shot random clientID (`server/document-service.js`; restore does
+ * the same in `server/version-history.js`), so a post-cutover clientID appears
+ * in exactly one row and binds exactly one identity BY CONSTRUCTION. The one
+ * deliberate exception is the sync push, whose clientID is derived from
+ * (doc, baseline clock, content) so an identical retry stays byte-identical —
+ * documented at `syntheticClientId` in `server/markdown-sync.js`.
+ *
+ * The poisoning below is RETAINED, and nothing was deleted at cutover (FR-008).
+ * It is now two things at once: still load-bearing for PRE-cutover rows, which
+ * keep the old shapes forever and are the reason none of this can be simplified
+ * away; and a defence-in-depth tripwire for post-cutover rows (RBD-048-3) — if a
+ * new write path ever transacts on the shared doc again, the live peek makes it
+ * fail HONESTLY ("Synced content") instead of silently crediting the wrong
+ * person. Deleting the live-peek source is recorded cleanup, not this feature.
  *
  * So a client identity KNOWN to be a shared server doc's is poisoned:
  * `SERVER_DOC` — never binds, never resolves, always "Synced content". Three
@@ -101,30 +118,44 @@
  *   3. the pre-existing 2+ identity ambiguity, unchanged.
  *
  * ── RESIDUALS, recorded not hidden (ledger RBD-045-12, formerly N-045-2) ────
+ * BOTH residuals below are CLOSED for post-cutover rows by feature 048, and both
+ * stand unchanged for rows written before it. The log is append-only and is not
+ * rewritten: a stamp discriminator that would let a reader tell the two eras
+ * apart needs a migration and is explicitly out of scope (RBD-048-1), so the
+ * conservative refusals above still apply to everything.
+ *
  * R1. A server-side write under a PLAIN user identity (title set, document seed,
- *     restore, REST/MCP import) leaves a single-identity binding the log cannot
+ *     restore, REST/MCP import) left a single-identity binding the log could not
  *     distinguish from the legitimate case — a genuine offline edit whose
- *     author's own prior rows bind their own client identity has a
- *     byte-identical shape.
- * R2. ALL THREE SOURCES ABOVE ARE PROCESS-LOCAL, so two pods can disagree and
- *     one of them can be confidently wrong WITH EVERY POD ALIVE (feature 047,
- *     NF-5). The live peek only ever sees THIS instance's shared doc, and each
- *     pod's shared-doc client identity is known only to itself: pod A refuses an
- *     identity it recognises as its own, while pod B binds that same identity
- *     from an evidence row and credits whoever was stamped on it. This was
- *     previously described as needing "a pod that has since died"; it does not.
- *     It only needs the reader not to be the writer's pod.
+ *     author's own prior rows bind their own client identity had a
+ *     byte-identical shape. Closed post-048: such a write's clientID is unique
+ *     to that one operation, so there is no prior evidence to bind it to and the
+ *     resolver reaches the honest refusal on its own.
+ * R2. ALL THREE SOURCES ABOVE ARE PROCESS-LOCAL, so two pods could disagree and
+ *     one of them be confidently wrong WITH EVERY POD ALIVE (feature 047, NF-5).
+ *     The live peek only ever sees THIS instance's shared doc, and each pod's
+ *     shared-doc client identity was known only to itself: pod A refused an
+ *     identity it recognised as its own, while pod B bound that same identity
+ *     from an evidence row and credited whoever was stamped on it. This was once
+ *     described as needing "a pod that has since died"; it did not — it only
+ *     needed the reader not to be the writer's pod. Closed post-048: the answer
+ *     no longer depends on any process-local knowledge, so every pod resolves
+ *     the same rows identically.
  *
  * Cross-instance propagation of learned identities was considered and REJECTED
  * (it misses the cases that matter, and it would make a memoized outcome
  * invalidatable asynchronously by any pod, so one row could render as a named
  * author on one read and "Synced content" on the next). Closing both residuals
- * properly means giving server-side writes per-identity docs the way MCP agent
+ * properly meant giving server-side writes per-identity docs the way MCP agent
  * sessions already have them (research R12) — feature 048, required by
  * constitution Principle VII (v1.2.0; RBD-045-12 OVERTURNED 2026-08-03).
- * R2 is NOT latent at one replica: every rolling update briefly runs two pods,
- * so each deploy opens the reader-is-not-the-writer's-pod window for tens of
+ * R2 was NOT latent at one replica: every rolling update briefly runs two pods,
+ * so each deploy opened the reader-is-not-the-writer's-pod window for tens of
  * seconds. The full argument is in the ledger entry.
+ *
+ * Assistant-stamped rows are still REFUSED on resupply even post-cutover
+ * (RBD-048-1): source 2 keys off the durable stamp, which cannot distinguish a
+ * pre-048 row from a post-048 one, and over-refusing is the safe direction.
  *
  * ── Configuration ──────────────────────────────────────────────────────────
  *  RESUPPLY_EVIDENCE_MAX_ROWS  (20000) evidence rows decoded for ONE document
