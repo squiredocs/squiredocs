@@ -12,6 +12,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const Y = require('yjs');
 const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
+const { asLiveSharedDoc } = require('../../../__tests__/helpers/live-doc');
 const toolRegistry = require('../../tools/index');
 const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
 const agentPresence = require('../../agent-presence');
@@ -201,7 +202,7 @@ export default function edit(doc) {
 
     // "Instance B": its own persistence and its own independently loaded doc.
     const persistenceB = createPersistence();
-    const liveB = await persistenceB.getYDoc(docGuid);
+    const liveB = asLiveSharedDoc(await persistenceB.getYDoc(docGuid)); // 046: bound + connected
     try {
       const result = await undoService.performUndo(
         { docGuid, userId: testUserId, agentName: AGENT_NAME },
@@ -294,7 +295,7 @@ export default function edit(doc) {
 
     // The serving instance's live doc holds an in-flight collaborator edit
     // that is NOT yet persisted to the log (typed while the undo lands).
-    const liveDoc = await persistence.getYDoc(docGuid);
+    const liveDoc = asLiveSharedDoc(await persistence.getYDoc(docGuid)); // 046: bound + connected
     liveDoc.get('default', Y.XmlFragment).get(0).get(0).insert(14, ' TYPED-DURING-UNDO');
     const liveBefore = liveDoc.get('default', Y.XmlFragment).toString();
     expect(liveBefore).toContain('TYPED-DURING-UNDO');
@@ -323,7 +324,7 @@ export default function edit(doc) {
     // In the live doc, a collaborator has already removed the agent's text
     // (not yet persisted). Supersession is evaluated against the merged live
     // state (FR-013): nothing left to undo, nothing appended.
-    const liveDoc = await persistence.getYDoc(docGuid);
+    const liveDoc = asLiveSharedDoc(await persistence.getYDoc(docGuid)); // 046: bound + connected
     const t = liveDoc.get('default', Y.XmlFragment).get(0).get(0);
     t.delete(14, 7); // removes ' DOOMED'
 
@@ -495,7 +496,7 @@ export default function edit(doc) {
         cleanup = () => persistenceR.destroy();
       } else if (cycle === 6) {
         const persistenceB = createPersistence();
-        const liveB = await persistenceB.getYDoc(docGuid);
+        const liveB = asLiveSharedDoc(await persistenceB.getYDoc(docGuid)); // 046: bound + connected
         deps = { persistence: persistenceB, getSharedDoc: () => liveB };
         cleanup = async () => { liveB.destroy(); await persistenceB.destroy(); };
       }

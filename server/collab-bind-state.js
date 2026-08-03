@@ -277,6 +277,24 @@ function createBindState(deps) {
         try { ydoc._lastClassifiedXml = extractXml(ydoc); } catch { /* leave unset ⇒ unknown */ }
       }
 
+      // Feature 046 (NEW-2a): the doc has ABSORBED its persisted state. Set
+      // LAST, after the applyUpdate above, so the flag can never be true over a
+      // half-loaded document.
+      //
+      // WHY ANY OF THIS IS NEEDED: y-websocket does not await bindState. A doc
+      // created milliseconds ago is in the registry and READABLE while still
+      // EMPTY. Anything that reads the live doc to compute a durable artifact
+      // therefore has to distinguish "loaded and genuinely empty" from "not
+      // loaded yet" — and a state-vector check cannot, because both look
+      // identical. Only the binder knows, so the binder says so.
+      //
+      // Absent on: a doc whose bind is still running, a doc whose bind FAILED
+      // (`_bindFailed` — refuseBind evicts it), and any doc built outside this
+      // binder. Every one of those is a doc no caller should derive durable
+      // state from, so "unset ⇒ do not trust the live copy" is the right
+      // reading in all three cases.
+      ydoc._bindComplete = true;
+
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
       logPerf('BIND_STATE_COMPLETE', { docGuid, totalDuration: Date.now() - startTime });
     } catch (error) {

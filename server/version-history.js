@@ -8,6 +8,7 @@ const { ORIGIN_RESTORE } = require('./origin');
 const { extractXml, replaceFragmentContents } = require('./yjs-utils');
 const editRecords = require('./undo/edit-records');
 const { applyLiveUpdate, publishIfUnhandled } = require('./live-apply');
+const { isTrustedLiveDoc, untrustedReason } = require('./live-doc-trust');
 const { resolveForRows, EMPTY_RESOLUTION } = require('./resupply-resolution');
 
 /**
@@ -1000,6 +1001,23 @@ async function restoreVersion(persistence, docGuid, versionId, userId, {
     liveDoc = getSharedDoc ? getSharedDoc(docGuid) : null;
   } catch (peekErr) {
     console.error(`[Restore] live-doc lookup failed for ${docGuid} (falling back to the durable path):`, peekErr.message);
+    liveDoc = null;
+  }
+
+  // Feature 046 (NEW-2a/NEW-2b): finding a doc in the registry is NOT the same
+  // as finding a doc whose state may be transacted on and STORED. A half-loaded
+  // doc (bindState is not awaited) makes `replaceFragmentContents` delete
+  // nothing, so the stored row is the target clone alone and the in-flight load
+  // then merges the old content back in — durably, everywhere. A leaked
+  // connection-less doc is frozen at whenever a server-side write created it, so
+  // the stored row describes a transition from state the document left long ago.
+  // Both refuse to the durable path, which is what already runs for a document
+  // nobody has open. See server/live-doc-trust.js for the full reasoning.
+  if (liveDoc && !isTrustedLiveDoc(liveDoc)) {
+    console.warn(
+      `[Restore] ignoring the live copy of ${docGuid} (${untrustedReason(liveDoc)})`
+      + ' — computing the restore from the durable log instead'
+    );
     liveDoc = null;
   }
 

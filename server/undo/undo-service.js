@@ -29,6 +29,7 @@
 const Y = require('yjs');
 const { ORIGIN_INVERSE_APPLY } = require('../origin');
 const { applyLiveUpdate } = require('../live-apply');
+const { isTrustedLiveDoc, untrustedReason } = require('../live-doc-trust');
 const editRecords = require('./edit-records');
 const { computeInverse } = require('./inverse');
 // Namespace import (feature 020, analyze A1): the call site must stay
@@ -225,8 +226,28 @@ async function performInverse(mode, { docGuid, userId, agentName }, deps = {}) {
       ? 'Nothing undone: the document is still syncing — retry in a moment.'
       : 'Nothing redone: the document is still syncing — retry in a moment.');
   }
+  // Feature 046 (NEW-2a/NEW-2b): `computeInverse` reads this doc to decide what
+  // LATER edits already superseded, and that decision is baked into the inverse
+  // it stores. A doc that is half-loaded (bindState is not awaited) or leaked
+  // and connection-less (a server-side write created it and nothing evicts or
+  // subscribes it) does not carry those later edits, so consulting it produces a
+  // supersession verdict about a document that no longer exists. Fall back to
+  // the log-only computation, which is what already runs for a document nobody
+  // has open. See server/live-doc-trust.js.
+  //
+  // Fan-out at step 5 deliberately still uses `getSharedDoc` unfiltered: pushing
+  // the committed inverse into a stale doc is how that doc catches up.
   const liveDoc = (() => {
-    try { return getSharedDoc(docGuid); } catch { return null; }
+    let doc = null;
+    try { doc = getSharedDoc(docGuid); } catch { return null; }
+    if (doc && !isTrustedLiveDoc(doc)) {
+      console.warn(
+        `[undo-service] ignoring the live copy of ${docGuid} (${untrustedReason(doc)})`
+        + ' — computing supersession from the durable log alone'
+      );
+      return null;
+    }
+    return doc;
   })();
 
   // -- 3. Compute the inverse -----------------------------------------------
