@@ -55,6 +55,9 @@ describe('Collaboration Edge Cases', () => {
             } catch (error) {
               // New document
             }
+            // Mirrors the real createBindState's completion mark, which the 048
+            // bind-readiness gate in updateDocument waits on.
+            ydoc._bindComplete = true;
           },
           // writeState intentionally empty - we persist on every update
           writeState: async () => {},

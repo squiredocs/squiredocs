@@ -68,6 +68,9 @@ describe('create_document teaching thresholds', () => {
           const persisted = await persistenceProvider.getYDoc(docGuid);
           Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persisted), ORIGIN_DB_LOAD);
         } catch { /* fresh doc */ }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistenceProvider,

@@ -57,11 +57,17 @@ function applyLiveUpdate({ getSharedDoc, redisPubSub }, docGuid, update, origin,
 /**
  * Publish-only companion to applyLiveUpdate (feature 037, FR-018/FR-019).
  *
- * For updates produced by a transaction ON the shared doc itself — an import's
- * append/replace — which are therefore ALREADY applied locally. Calling
- * applyLiveUpdate here would re-apply an update the doc already has (a Yjs
- * no-op, but semantically wrong) and would re-derive the double-send guard too
- * late to be meaningful.
+ * For updates that are ALREADY applied to the shared doc — an import's
+ * append/replace, whose bytes `updateDocument` merges into the shared doc before
+ * returning them (since feature 048 the transaction itself runs on an ephemeral
+ * per-operation doc, but the merge means the shared doc carries the update by
+ * the time a caller sees it). Calling applyLiveUpdate here would re-apply an
+ * update the doc already has (a Yjs no-op, but semantically wrong) and would
+ * re-derive the double-send guard too late to be meaningful.
+ *
+ * Restore does NOT use this: since 048 it stores first and then broadcasts
+ * through applyLiveUpdate, because its live doc genuinely does not have the
+ * update yet.
  *
  * NEVER applies anything, so there is no double-apply and no new origin
  * sentinel: receivers apply with ORIGIN_REDIS, which is on the publisher

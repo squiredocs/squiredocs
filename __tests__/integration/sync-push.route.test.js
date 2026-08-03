@@ -74,6 +74,10 @@ describe('sync-push route (mode=sync)', () => {
           const persisted = await persistence.getYDoc(docGuid);
           Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persisted), ORIGIN_DB_LOAD);
         } catch { /* fresh doc */ }
+        // The real createBindState sets this at the end of a successful load;
+        // this fake must too, or the 048 bind-readiness gate in updateDocument
+        // has nothing to observe and every write waits out its 5 s timeout.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistence,

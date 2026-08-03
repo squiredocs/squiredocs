@@ -2966,7 +2966,16 @@ describe('version-history module', () => {
     // can paper over — what it must not do is hide it. The rejection reaches the
     // caller (route → 500 + page, MCP → surfaced error), so the user is told the
     // restore failed instead of being shown a success over an unrecorded change.
-    test('T024: a terminal storeUpdate rejection on the live path surfaces to the caller and records nothing', async () => {
+    // Feature 048 (RBD-048-2) flipped the ordering to store-then-apply, and this
+    // test is where the consequence is visible. It used to assert that a failed
+    // store still left the restore applied to the live doc and already broadcast
+    // to its editors — a fan-out with nothing durable behind it, which anyone
+    // who reloaded would lose. Now the commit is attempted first, so a storage
+    // failure means nothing was shown to anyone. The claims that matter are
+    // unchanged and still asserted: the caller is told, and nothing durable is
+    // recorded. What changed is that the live document no longer diverges from
+    // the log when the write fails.
+    test('T024: a terminal storeUpdate rejection surfaces to the caller, records nothing, and shows nobody a restore that did not commit', async () => {
       const docGuid = require('crypto').randomUUID();
       await seedDoc(docGuid);
 
@@ -2989,11 +2998,12 @@ describe('version-history module', () => {
           })
         ).rejects.toThrow('storage unavailable');
 
-        // The restore DID apply, and DID reach the live doc's clients.
-        expect(broadcastOrigins).toHaveLength(1);
+        // The store is attempted BEFORE the broadcast, so its failure means the
+        // restore never reached the live doc and its editors saw nothing.
+        expect(broadcastOrigins).toHaveLength(0);
         const liveXml = liveDoc.getXmlFragment('default').toString();
         expect(liveXml).toContain('Alpha');
-        expect(liveXml).not.toContain('Beta');
+        expect(liveXml).toContain('Beta'); // untouched — the pre-restore state
 
         // Nothing durable was written: no restore row...
         const rows = await pool.query('SELECT clock FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC', [docGuid]);

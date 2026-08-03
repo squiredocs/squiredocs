@@ -155,6 +155,36 @@ describe('synthetic clientID + determinism (T005, research R4)', () => {
     }
     expect(replayOnce()).toBe(replayOnce()); // byte-identical
   });
+
+  // ── Feature 048 (P2) ──────────────────────────────────────────────────────
+  // 048 made every server-side write author under a FRESH RANDOM clientID. The
+  // sync push is the one deliberate exception: its clientID is derived from
+  // (doc, baseline clock, content) so an identical retry produces byte-identical
+  // bytes and cannot double-apply. The determinism half is pinned above against
+  // a hand-built fork; this pins that the PRODUCTION path really does it, and
+  // really does it before any op exists — a pin applied after the first
+  // operation would leave those structs under the fork's random id and silently
+  // break replay idempotency.
+  test('048 P2: applySyncPush pins the synthetic clientID before creating any op', () => {
+    const fs = require('fs');
+    const path = require('path');
+    // markdown-sync.js carries non-UTF8 bytes; read it as a buffer and decode
+    // leniently rather than assuming clean text.
+    const src = fs.readFileSync(path.join(__dirname, '..', 'markdown-sync.js')).toString('utf8');
+
+    const pinAt = src.indexOf('fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));');
+    expect(pinAt).toBeGreaterThan(-1);
+
+    // The fork's transaction — where every push operation is created — comes
+    // strictly after the pin.
+    const transactAt = src.indexOf('fork.transact(', pinAt);
+    expect(transactAt).toBeGreaterThan(pinAt);
+
+    // And nothing creates an op on the fork between the fork's construction and
+    // the pin: the only fork.transact in applySyncPush is the one after it.
+    const forkTransacts = (src.match(/fork\.transact\(/g) || []).length;
+    expect(forkTransacts).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

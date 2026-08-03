@@ -53,6 +53,9 @@ describe('Log-derived undo/redo workflow', () => {
             .catch((e) => console.error('[test bindState] persist failed:', e.message));
         });
         Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(await persistence.getYDoc(g)), ORIGIN_DB_LOAD);
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
     });
@@ -158,6 +161,161 @@ export default function edit(doc) {
     agentPresence.clearUserSessions(testUserId);
     expect(agentPresence._sessionsByKey.size).toBe(0);
   }
+
+
+  // ── Feature 048 (FR-009, U1/U2 + P1) ──────────────────────────────────────
+  //
+  // 048 changed WHICH Yjs clientID authors a server-side write: each operation
+  // now runs on its own throwaway doc instead of the shared server doc. Undo
+  // selects its target from row STAMPS (user_id, agent_name, via_sync) and
+  // inverts by struct id, so nothing here should have to change. These exist to
+  // prove that, and to fail loudly if any predicate ever starts reading
+  // clientIDs — at which point per-operation identities would silently break
+  // undo for every server-side write path.
+
+  /** Poll until `fn` is truthy, or fail loudly. */
+  async function until(fn, label, timeoutMs = 10000) {
+    const start = Date.now();
+    for (;;) {
+      if (await fn()) return;
+      if (Date.now() - start > timeoutMs) throw new Error(`Timeout waiting for ${label}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  /** An agent import through the real converged path (documentService.updateDocument). */
+  async function agentImport(docGuid, markdown) {
+    const { importMarkdown } = require('../../../markdown-import');
+    return importMarkdown(documentService.getSharedDoc(docGuid), markdown, {
+      mode: 'append',
+      actor: { userId: testUserId, agentName: AGENT_NAME },
+      imageContext: { docId: docGuid },
+    });
+  }
+
+  /** Age this document's rows past the legacy-derivation freshness horizon. */
+  async function ageRows(docGuid) {
+    await pool.query(
+      `UPDATE yjs_updates SET created_at = created_at - interval '1 hour' WHERE doc_guid = $1`,
+      [docGuid]
+    );
+  }
+
+  test('048 U1: an agent markdown import through the per-operation mechanism is still undoable', async () => {
+    const docGuid = await createDoc('048 U1 import undo');
+    await agentImport(docGuid, '\nIMPORTED BY AGENT\n');
+
+    await until(async () => (await dbText(docGuid)).includes('IMPORTED BY AGENT'), 'the import persisted');
+    const beforeUndo = await dbText(docGuid);
+    expect(beforeUndo).toContain('Original text.');
+    expect(beforeUndo).toContain('IMPORTED BY AGENT');
+
+    // The import's rows carry the agent's stamp but no edit record, so undo
+    // reaches them through legacy derivation, which only runs on settled rows.
+    await ageRows(docGuid);
+    killSessions();
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.success).toBe(true);
+    expect(undo.undone).toBe(true);
+
+    const afterUndo = await dbText(docGuid);
+    expect(afterUndo).not.toContain('IMPORTED BY AGENT');
+    expect(afterUndo).toContain('Original text.');
+
+    // The inverse is a normally-attributed row of the acting identity.
+    const inverseRow = await pool.query(
+      'SELECT user_id, agent_name FROM yjs_updates WHERE doc_guid = $1 AND clock = $2',
+      [docGuid, undo.clock]
+    );
+    expect(inverseRow.rows[0].user_id).toBe(testUserId);
+    expect(inverseRow.rows[0].agent_name).toBe(AGENT_NAME);
+  }, 30000);
+
+  test('048 U2: an agent title set keeps its identity stamp and undo behaves exactly as before', async () => {
+    // NOTE the shape of this assertion. A meta title set is NOT an undo target
+    // and never has been: computeInverse builds its UndoManager over the
+    // `default` XmlFragment only, so a write to the `meta` map produces an empty
+    // undo stack and the honest empty. That is pre-048 behaviour and this test
+    // pins it unchanged. What 048 could have broken is the part that IS load
+    // bearing — the row's identity stamp and its fresh authoring clientID — so
+    // that is what is asserted positively.
+    const docGuid = await createDoc('048 U2 title set');
+
+    await documentService.updateDocument(
+      docGuid,
+      (doc) => doc.getMap('meta').set('title', 'Renamed By Agent'),
+      { userId: testUserId, agentName: AGENT_NAME }
+    );
+
+    await until(async () => {
+      const doc = await persistence.getYDoc(docGuid);
+      const title = doc.getMap('meta').get('title');
+      doc.destroy();
+      return title === 'Renamed By Agent';
+    }, 'the title set persisted');
+
+    // The row carries the acting identity — attribution survived the move onto
+    // an ephemeral doc, because the stamp comes from the origin, not the doc.
+    const titleRows = await pool.query(
+      `SELECT user_id, agent_name, update_data FROM yjs_updates
+       WHERE doc_guid = $1 AND agent_name = $2 ORDER BY clock DESC LIMIT 1`,
+      [docGuid, AGENT_NAME]
+    );
+    expect(titleRows.rows).toHaveLength(1);
+    expect(titleRows.rows[0].user_id).toBe(testUserId);
+
+    // And it was authored by a one-shot clientID, not the shared server doc's.
+    const liveDoc = documentService.getSharedDoc(docGuid);
+    const ids = [...Y.parseUpdateMeta(new Uint8Array(titleRows.rows[0].update_data)).to.keys()];
+    expect(ids).not.toContain(liveDoc.clientID);
+
+    await ageRows(docGuid);
+    killSessions();
+
+    // Undo reports the honest empty rather than erroring or inventing a target.
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.success).toBe(true);
+    expect(undo.undone).toBe(false);
+
+    // The title is untouched — nothing was reverted, and nothing was corrupted.
+    const doc = await persistence.getYDoc(docGuid);
+    const title = doc.getMap('meta').get('title');
+    doc.destroy();
+    expect(title).toBe('Renamed By Agent');
+  }, 30000);
+
+  test('048 P1: the undo inverse is authored by its own scratch doc, never the live doc', async () => {
+    // The inverse has always been computed on a scratch doc and stored before it
+    // is applied — one of the two patterns 048 converged everything else onto.
+    // Pinned so a future refactor cannot quietly move it onto the live doc.
+    const docGuid = await createDoc('048 P1 inverse authorship');
+    await modifyAppend(docGuid, 'TO BE UNDONE');
+    killSessions();
+
+    const liveDoc = documentService.getSharedDoc(docGuid);
+    const preRows = await logDump(docGuid);
+
+    const undo = await toolRegistry.executeTool('undo', { docGuid }, mockAgentToken);
+    expect(undo.undone).toBe(true);
+
+    const inverse = await pool.query(
+      'SELECT update_data FROM yjs_updates WHERE doc_guid = $1 AND clock = $2',
+      [docGuid, undo.clock]
+    );
+    const inverseIds = [...Y.parseUpdateMeta(new Uint8Array(inverse.rows[0].update_data)).to.keys()];
+
+    // A pure deletion carries no insert set at all, which is itself proof the
+    // live doc did not author content here. When it does insert, the id must be
+    // the scratch doc's own one-shot identity.
+    expect(inverseIds).not.toContain(liveDoc.clientID);
+
+    // STORE-THEN-APPLY: the log strictly grew by exactly the inverse row, and
+    // every pre-existing row is byte-identical.
+    const postRows = await logDump(docGuid);
+    expect(postRows.length).toBe(preRows.length + 1);
+    expect(postRows.slice(0, preRows.length)).toEqual(preRows);
+  }, 30000);
 
   // ---------------------------------------------------------------- US1 ----
 

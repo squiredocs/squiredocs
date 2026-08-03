@@ -687,3 +687,166 @@ describe('scope guard (FR-010)', () => {
     expect(restore).not.toMatch(/resolveForRows|resolution/);
   });
 });
+
+// ── Feature 048: post-cutover rows resolve honestly on ANY process ──────────
+//
+// This is the payoff the whole feature exists for. Before 048 every server-side
+// write carried the shared server doc's single clientID, so a lost-and-resupplied
+// row could be bound to whichever identity happened to have written through that
+// doc earlier — a different person, stated confidently. The resolver defended
+// against this with three process-LOCAL sources, which is why two pods could
+// disagree (residual R2).
+//
+// After 048 the defence is structural rather than heuristic: each operation
+// authors under its own one-shot clientID, so that clientID appears in exactly
+// one row and there is no prior evidence to bind it to. A reader with no shared
+// memory of the writer reaches the honest "Synced content" by construction.
+
+describe('048 — a resupplied server-side write never credits the wrong author', () => {
+  const documentService = require('../document-service');
+
+  /** Drive a real updateDocument against a warm shared doc and return its bytes. */
+  async function serverSideWrite(sharedDoc, text, { userId, agentName = null }) {
+    documentService.init(() => sharedDoc, (n) => (n.startsWith('s/') ? n.slice(2) : n));
+    try {
+      const { update } = await documentService.updateDocument(
+        'doc-048',
+        (doc) => doc.getText('body').insert(0, text),
+        { userId, agentName }
+      );
+      return update;
+    } finally {
+      documentService.init(null, null, null);
+    }
+  }
+
+  /** One warm shared doc standing in for the process-wide WSSharedDoc. */
+  function warmSharedDoc() {
+    const doc = new Y.Doc();
+    doc._bindComplete = true;
+    return doc;
+  }
+
+  test('SC-001: a plain-user server-side write, lost and resupplied, resolves as Synced content on a process that never saw the writer', async () => {
+    const shared = warmSharedDoc();
+
+    // Two server-side writes under DIFFERENT users, both through the same
+    // shared doc — the exact shape that used to misattribute.
+    const alphaUpdate = await serverSideWrite(shared, 'alpha by user-A', { userId: 'user-A' });
+    const bravoUpdate = await serverSideWrite(shared, 'bravo by user-B', { userId: 'user-B' });
+
+    // user-B's row is lost after broadcast and resupplied by a third browser,
+    // so it arrives stamped with the RELAYER and marked via_sync.
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: alphaUpdate },
+      { clock: 2, userId: 'user-Z', agentName: null, viaSync: true, updateData: bravoUpdate },
+    ];
+
+    // A resolver with NO in-memory knowledge of the writer: no peekSharedDoc
+    // wiring at all, exactly like a different pod or a restarted process.
+    resolution._resetForTest();
+    resolution.init({});
+
+    const users = { 'user-A': { userName: 'Alice', userEmail: 'a@a', userPicture: null } };
+    const ctx = await resolution.resolveForRows(makeReader({ 'doc-048': rows }, users), 'doc-048', rows);
+
+    // The honest refusal. Critically NOT user-A, who is the prior same-doc
+    // author the pre-048 shape would have credited.
+    expect(ctx.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test('SC-001: the clientIDs are what make it honest — one row each, never shared', async () => {
+    const shared = warmSharedDoc();
+    const first = await serverSideWrite(shared, 'first', { userId: 'user-A' });
+    const second = await serverSideWrite(shared, 'second', { userId: 'user-B' });
+
+    const idsOf = (u) => [...Y.parseUpdateMeta(u).to.keys()];
+    expect(idsOf(first)).toHaveLength(1);
+    expect(idsOf(second)).toHaveLength(1);
+    expect(idsOf(first)[0]).not.toBe(idsOf(second)[0]);
+    // And neither is the shared doc's own identity, which is the property the
+    // resolver's live-peek tripwire exists to catch when it is violated.
+    expect(idsOf(first)).not.toContain(shared.clientID);
+    expect(idsOf(second)).not.toContain(shared.clientID);
+  });
+
+  test('SC-002: two independent resolver processes give identical answers for the same rows', async () => {
+    const shared = warmSharedDoc();
+    const alphaUpdate = await serverSideWrite(shared, 'alpha', { userId: 'user-A' });
+    const bravoUpdate = await serverSideWrite(shared, 'bravo', { userId: 'user-B' });
+
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: alphaUpdate },
+      { clock: 2, userId: 'user-Z', agentName: null, viaSync: true, updateData: bravoUpdate },
+    ];
+
+    /**
+     * A genuinely separate resolver instance — its own module registry, so it
+     * shares no memoized outcomes, no evidence fold and no learned shared-doc
+     * identity with the other. That is the cross-process condition SC-002 is
+     * about; `_resetForTest` alone would only clear caches within one instance.
+     */
+    function freshResolver(wiring) {
+      let mod;
+      jest.isolateModules(() => { mod = require('../resupply-resolution'); });
+      mod.init(wiring);
+      return mod;
+    }
+
+    // Pod A holds the document in memory and knows its own shared-doc identity.
+    const podA = freshResolver({ peekSharedDoc: () => shared });
+    // Pod B has never loaded it and knows nothing.
+    const podB = freshResolver({});
+
+    const answerA = await podA.resolveForRows(makeReader({ 'doc-048': rows }), 'doc-048', rows);
+    const answerB = await podB.resolveForRows(makeReader({ 'doc-048': rows }), 'doc-048', rows);
+
+    // Identical, which is the whole point: the answer no longer depends on
+    // which pod happened to receive the read.
+    expect(answerB.outcomes.get(2)).toEqual(answerA.outcomes.get(2));
+    expect(answerA.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+});
+
+// ── Feature 048 (P3, FR-008): nothing was deleted at cutover ────────────────
+
+describe('048 P3 — the resolver keeps all three of its sources', () => {
+  test('the live-peek source is still wired from server/index.js', () => {
+    const indexSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    // The peek is passed to the resolver at boot; deleting this line would
+    // silently retire the defence-in-depth tripwire (RBD-048-3).
+    expect(indexSrc).toMatch(/resupplyResolution\.init\(\s*\{\s*peekSharedDoc:\s*documentService\.peekSharedDoc\s*\}\s*\)/);
+  });
+
+  test('the live-peek source still poisons this instance\'s own shared-doc identity', async () => {
+    const sharedServerDoc = docWithClient(9191);
+    resolution.init({ peekSharedDoc: (guid) => (guid === DOC ? { clientID: 9191 } : null) });
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(sharedServerDoc, 'alpha') },
+      { clock: 2, userId: 'user-B', agentName: null, viaSync: true, updateData: insert(sharedServerDoc, 'bravo') },
+    ];
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }), DOC, rows);
+    expect(ctx.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test('the durable agent-stamp source is still active', async () => {
+    const sharedServerDoc = docWithClient(9292);
+    const rows = [
+      { clock: 1, userId: 'user-X', agentName: CHAT_AGENT_NAME, viaSync: null, updateData: insert(sharedServerDoc, 'x') },
+      { clock: 2, userId: 'user-Z', agentName: null, viaSync: true, updateData: insert(sharedServerDoc, 'y') },
+    ];
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }), DOC, rows);
+    expect(ctx.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test('the 2+ identity ambiguity source is still active', async () => {
+    const doc = docWithClient(9393);
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(doc, 'a') },
+      { clock: 2, userId: 'user-B', agentName: null, viaSync: null, updateData: insert(doc, 'b') },
+      { clock: 3, userId: 'user-Z', agentName: null, viaSync: true, updateData: insert(doc, 'c') },
+    ];
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }), DOC, rows);
+    expect(ctx.outcomes.get(3)).toEqual({ origins: [], unresolved: true });
+  });
+});

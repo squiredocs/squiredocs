@@ -351,6 +351,11 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     beforeEach(() => {
       ydoc = new Y.Doc();
       ydoc.conns = new Map();
+      // "This fake is fully loaded" — the 048 bind-readiness gate waits on it.
+      // Note the gate and the post-transaction _bindFailed check below cover
+      // DIFFERENT windows: the gate refuses a bind that already failed before
+      // the write starts, the post-check catches one that fails mid-write.
+      ydoc._bindComplete = true;
       storeUpdate = jest.fn().mockResolvedValue(1);
 
       // The real listener, wired the way createBindState wires it.
@@ -401,7 +406,12 @@ describe('041 FR-010: bind refusal on document load failure', () => {
       await expect(documentService.updateDocument(
         DOC_GUID,
         (doc) => {
-          refuseBind({ docName: `s/${DOC_GUID}`, docGuid: DOC_GUID, ydoc: doc, error: new Error('load failed mid-write') });
+          // Refuse the SHARED doc, which is what the bind machinery does in
+          // production. Since 048 the doc handed to updateFn is an ephemeral
+          // per-operation copy, so refusing `doc` would flag a throwaway and
+          // prove nothing. The window under test is unchanged: the refusal
+          // lands after the readiness gate passed and before the merge.
+          refuseBind({ docName: `s/${DOC_GUID}`, docGuid: DOC_GUID, ydoc, error: new Error('load failed mid-write') });
           const p = new Y.XmlElement('paragraph');
           p.insert(0, [new Y.XmlText('lost content')]);
           doc.get('default', Y.XmlFragment).insert(0, [p]);

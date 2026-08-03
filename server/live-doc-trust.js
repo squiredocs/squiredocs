@@ -21,7 +21,11 @@
  *    then the in-flight load lands and applies the old content on top. Old
  *    content and restore target end up merged and duplicated, durably, on every
  *    client. `server/api/docs-import.js` already learned this the hard way and
- *    carries `waitForDocLoaded`; restore had no load-completeness check at all.
+ *    carried a state-vector poll of its own; restore had no load-completeness
+ *    check at all. Since feature 048 (FR-013) both defer to the one owner,
+ *    `documentService.waitForDocReady`, which every server-side write path now
+ *    passes through — this predicate stays separate because it asks the
+ *    strictly stronger question (bind complete AND ≥1 live connection).
  *
  * 2. LEAKED AND FROZEN (NEW-2b). Server-created docs — those reached through
  *    the CREATING `getSharedDoc` by a sync push, an agent create, or an import

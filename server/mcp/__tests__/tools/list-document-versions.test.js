@@ -41,6 +41,9 @@ describe('list_document_versions tool', () => {
         } catch (error) {
           // Document doesn't exist yet
         }
+        // Mirrors the real createBindState's completion mark, which the 048
+        // bind-readiness gate in updateDocument waits on.
+        ydoc._bindComplete = true;
       },
       writeState: async () => {},
       provider: persistenceProvider,
