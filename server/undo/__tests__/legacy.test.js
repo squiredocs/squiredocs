@@ -201,7 +201,7 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
   // rows under, deleted in afterAll. See server/__tests__/helpers/db.js.
   const createdDocGuids = [];
   const newDocGuid = () => {
-    const guid = newDocGuid();
+    const guid = randomUUID();
     createdDocGuids.push(guid);
     return guid;
   };

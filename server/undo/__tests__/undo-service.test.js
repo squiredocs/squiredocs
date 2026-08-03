@@ -22,7 +22,7 @@ const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupD
 // convention block in server/__tests__/helpers/db.js.
 const createdDocGuids = [];
 const newDocGuid = () => {
-  const guid = newDocGuid();
+  const guid = randomUUID();
   createdDocGuids.push(guid);
   return guid;
 };
