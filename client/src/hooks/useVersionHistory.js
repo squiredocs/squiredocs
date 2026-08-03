@@ -140,7 +140,9 @@ export function useVersionHistory(docGuid) {
   // and the next 10 s poll silently cleared the banner. An action failure is
   // about the ACTION: it names it, offers no load retry, and stays until the
   // user dismisses it or the next action succeeds.
-  // Shape: { action: 'restore'|'name'|'rename'|'delete', message } | null.
+  // Shape: { action: 'name'|'rename'|'delete', message } | null. Restore is
+  // deliberately NOT on this channel: it is always confirmed through a modal,
+  // which owns its own failure reporting (see restoreVersion).
   const [actionError, setActionError] = useState(null);
 
   // Unified selection state: { type: 'version', data: version } or { type: 'clock', clock: number, data: update }
@@ -324,9 +326,16 @@ export function useVersionHistory(docGuid) {
     } catch (err) {
       if (seq !== diffRequestSeqRef.current) return; // stale failure, ignore
       console.error('Error loading version diff:', err);
-      // Clear the preview rather than showing a wrong (previous) diff, and
-      // record the failure so the preview pane renders an error instead of the
-      // "Select a version to preview" placeholder (FR-006).
+      // A BACKGROUND refetch is the reconcile, not the reader: it must never
+      // destroy the preview they are reading. A 429 while a collaborator types
+      // used to replace the loaded preview with "Couldn't load this version's
+      // preview. Select the version again to retry." — over a version that was
+      // still selected, after the user did nothing. Keep the last-good diff;
+      // the next tick re-requests it.
+      if (background) return;
+      // Foreground: clear the preview rather than showing a wrong (previous)
+      // diff, and record the failure so the preview pane renders an error
+      // instead of the "Select a version to preview" placeholder (FR-006).
       setDiffData(null);
       setDiffError(err.response?.data?.error || 'Failed to load version content');
     } finally {
@@ -465,28 +474,40 @@ export function useVersionHistory(docGuid) {
   }, [loadDiffData]);
 
   /**
-   * Restore document to a previous version
+   * Restore document to a previous version.
+   *
+   * A restore failure is reported by the CONFIRM DIALOG, and only there. Both
+   * entry points — the row menu and the version-history header — run this
+   * through useRestoreFlow, which already keeps its dialog open carrying the
+   * failure; also raising `actionError` reported the same failure twice, and the
+   * banner outlived the modal the user cancelled, so it then needed a separate
+   * Dismiss. The dialog is the surface holding the user's attention, so it is
+   * the owner: a failure THROWS, carrying the server's message for the dialog to
+   * render.
    */
   const restoreVersion = useCallback(async (versionId) => {
     if (!docGuid || !versionId) return false;
 
     setActionError(null);
+    let response;
     try {
-      const response = await api.post(`/api/docs/${docGuid}/restore`, { versionId });
-      if (response.data.success) {
-        // Refresh history after restore
-        await fetchHistory();
-        return true;
-      }
-      return false;
+      response = await api.post(`/api/docs/${docGuid}/restore`, { versionId });
     } catch (err) {
       console.error('Error restoring version:', err);
-      setActionError({
-        action: 'restore',
-        message: err.response?.data?.error || 'Failed to restore version',
-      });
-      return false;
+      throw new Error(err.response?.data?.error || 'Failed to restore version');
     }
+
+    // A 200 whose body does not say `success` is a restore that did not happen.
+    // It used to return a bare `false` reported nowhere — a silent failure
+    // inside the very channel added to end silent failures. Unreachable against
+    // today's server, and stated anyway.
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.error || 'The server did not confirm the restore.');
+    }
+
+    // Refresh history after restore
+    await fetchHistory();
+    return true;
   }, [docGuid, api, fetchHistory]);
 
   /**

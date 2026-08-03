@@ -283,6 +283,27 @@ function subVersionToItem(subVersion) {
  *  the sub-rows of the range that replaced it. */
 const updatesKey = (version) => updatesCacheKey(version.id, version.clockStart, version.clockEnd);
 
+/** Identity of a ROW for expansion state, across refreshes.
+ *
+ *  Not the version id. An auto version's id is `String(clockEnd)`
+ *  (server/version-history.js), so the CURRENT row's id changes on EVERY update
+ *  anyone makes to the document. Keyed by id, the 10 s refresh read that as "the
+ *  row vanished", pruned its expansion and collapsed it under the user — every
+ *  tick, for the whole editing session, which is exactly the live-collaboration
+ *  case the drill-down is for. The current row's stable identity is where its
+ *  range STARTS; only the end moves.
+ *
+ *  Every other row keeps its id, so the prune keeps doing its real job: a
+ *  version genuinely deleted, or re-split out of existence, must not stay
+ *  expanded.
+ *
+ *  This is the EXPANSION key only. Drill-down data is still read under
+ *  updatesKey (id + range), so a row that survived an id change re-requests and
+ *  renders the range it now covers, never the one it used to. */
+const versionRowKey = (version) => (
+  version.isCurrent ? `current:${version.clockStart}` : `id:${version.id}`
+);
+
 /**
  * Unified history item component - renders both versions and clock updates
  */
@@ -411,7 +432,12 @@ function HierarchicalVersionList(props) {
   // first list to arrive after an empty initial render) landed in a collapsed
   // month — hiding "Current" behind a chevron. Only a month never seen before is
   // expanded, so a month the user deliberately collapsed stays collapsed.
-  const monthLabelsKey = filteredVersions.map(m => m.label).join('|');
+  //
+  // Fed from the UNFILTERED list on purpose: what months EXIST does not depend
+  // on the filter. Reading filteredVersions here made "Named versions only" and
+  // back re-introduce the first month as never-seen and re-expand it, undoing a
+  // collapse the user had chosen.
+  const monthLabelsKey = hierarchicalVersions.map(m => m.label).join('|');
   const seenMonthsRef = React.useRef(null);
   React.useEffect(() => {
     const labels = monthLabelsKey ? monthLabelsKey.split('|') : [];
@@ -473,34 +499,48 @@ function HierarchicalVersionList(props) {
     if (!onLoadUpdates) return;
 
     const present = new Map();
+    // Row anchors, so a row that changed KEY (the current row that stopped being
+    // current, once a fresh auto version started above it) is recognised as the
+    // same row rather than as one that vanished.
+    const byClockStart = new Map();
     for (const month of hierarchicalVersions) {
-      for (const version of (month.versions || [])) present.set(version.id, version);
+      for (const version of (month.versions || [])) {
+        present.set(versionRowKey(version), version);
+        byClockStart.set(version.clockStart, version);
+      }
     }
 
-    const expandedIds = Object.keys(expandedVersions).filter(id => expandedVersions[id]);
+    const expandedKeys = Object.keys(expandedVersions).filter(key => expandedVersions[key]);
 
     // A version that no longer exists (re-split, deleted) cannot stay expanded.
-    const vanished = expandedIds.filter(id => !present.has(id));
+    const vanished = expandedKeys.filter(key => !present.has(key));
     if (vanished.length > 0) {
       setExpandedVersions(prev => {
         const next = { ...prev };
-        for (const id of vanished) delete next[id];
+        for (const key of vanished) {
+          delete next[key];
+          const successor = key.startsWith('current:')
+            ? byClockStart.get(Number(key.slice('current:'.length)))
+            : null;
+          if (successor) next[versionRowKey(successor)] = true;
+        }
         return next;
       });
     }
 
-    for (const id of expandedIds) {
-      const version = present.get(id);
+    for (const rowKey of expandedKeys) {
+      const version = present.get(rowKey);
       if (!version) continue;
 
-      // Always re-request with the FRESH range — a re-split moves it. Reading
-      // the cache under the same range-qualified key is what makes a row whose
-      // range moved re-fetch instead of adopting the previous range's answer.
+      // Always re-request with the FRESH range — a re-split moves it, and so
+      // does every edit to the current version. Reading the cache under the
+      // range-qualified key is what makes a row whose range moved re-fetch
+      // instead of adopting the previous range's answer.
       const key = updatesKey(version);
       if (versionUpdates[key] || loadingVersionUpdates[key]) continue;
       if (failedLoadsRef.current.has(key)) continue;
 
-      Promise.resolve(onLoadUpdates(version.clockStart, version.clockEnd, id))
+      Promise.resolve(onLoadUpdates(version.clockStart, version.clockEnd, version.id))
         // `undefined` means the request was superseded, not that it failed —
         // suppressing on that would silence the row that superseded it.
         .then((result) => {
@@ -515,13 +555,13 @@ function HierarchicalVersionList(props) {
   };
 
   const toggleVersion = (version) => {
-    const versionId = version.id;
-    const willExpand = !expandedVersions[versionId];
-    setExpandedVersions(prev => ({ ...prev, [versionId]: willExpand }));
+    const rowKey = versionRowKey(version);
+    const willExpand = !expandedVersions[rowKey];
+    setExpandedVersions(prev => ({ ...prev, [rowKey]: willExpand }));
 
     // Load updates when expanding if not already loaded for THIS range.
     if (willExpand && !versionUpdates[updatesKey(version)] && onLoadUpdates) {
-      onLoadUpdates(version.clockStart, version.clockEnd, versionId);
+      onLoadUpdates(version.clockStart, version.clockEnd, version.id);
     }
   };
 
@@ -662,7 +702,9 @@ function HierarchicalVersionList(props) {
                 // version's id outlives the range it described.
                 const updatesCacheId = updatesKey(version);
                 const updates = versionUpdates[updatesCacheId];
-                const isExpanded = expandedVersions[version.id];
+                // Expansion is keyed by the row, not by the id the row happens
+                // to carry this tick (versionRowKey).
+                const isExpanded = expandedVersions[versionRowKey(version)];
                 // Add clock range subtitle to versions
                 const versionWithSubtitle = {
                   ...version,

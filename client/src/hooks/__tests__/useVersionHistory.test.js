@@ -299,7 +299,11 @@ describe('useVersionHistory', () => {
       });
     });
 
-    it('returns false on restore failure', async () => {
+    // ── Review 2026-08-03 LOW-4: ONE owner for a restore failure ─────────────
+    // Both entry points confirm through useRestoreFlow, whose dialog stays open
+    // carrying the failure. Also raising the action-error banner reported the
+    // same failure twice, and the banner outlived the modal the user cancelled.
+    it('hands a restore failure to the confirm dialog, and raises no banner behind it', async () => {
       mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
       mockApi.post.mockRejectedValue({
         response: { data: { error: 'Restore failed' } },
@@ -311,15 +315,35 @@ describe('useVersionHistory', () => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      let success;
+      // The server's message travels to the dialog, which is the surface with
+      // the user's attention.
       await act(async () => {
-        success = await result.current.restoreVersion('v1');
+        await expect(result.current.restoreVersion('v1')).rejects.toThrow('Restore failed');
       });
 
-      expect(success).toBe(false);
-      // The failure lands on the ACTION channel, never on the timeline's.
-      expect(result.current.actionError).toEqual({ action: 'restore', message: 'Restore failed' });
+      expect(result.current.actionError).toBeNull();
       expect(result.current.error).toBeNull();
+    });
+
+    // ── Review 2026-08-03 LOW-5: no silent hole ──────────────────────────────
+    it('reports a 200 that does not confirm the restore, instead of failing silently', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+      mockApi.post.mockResolvedValue({ data: {} }); // 200, no `success`
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      await act(async () => {
+        await expect(result.current.restoreVersion('v1'))
+          .rejects.toThrow('The server did not confirm the restore.');
+      });
+
+      // A restore that did nothing must not read as one that worked: no
+      // refresh-and-navigate, no silent `false`.
+      expect(mockApi.get).toHaveBeenCalledTimes(1); // the mount fetch only
     });
   });
 
@@ -1053,6 +1077,59 @@ describe('useVersionHistory', () => {
       await waitFor(() => expect(result.current.selection.clockEnd).toBe(6));
 
       expect(result.current.diffData).toBe(rendered);
+    });
+
+    // ── Review 2026-08-03 MED-2 (second round) ───────────────────────────────
+    // The background flag reached the loading state but not the catch, so a
+    // background refetch that failed destroyed the preview the reader had.
+    it('a FAILED background refetch keeps the preview the reader is looking at', async () => {
+      const before = [{ id: '5', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true }];
+      const after = [{ id: '6', name: null, clockStart: 1, clockEnd: 6, timestamp: stamp, isCurrent: true }];
+      const diffA = { document: 'A', meta: { currentClock: 5 } };
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: diffA })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 6 } })
+        .mockRejectedValueOnce({ response: { status: 429, data: { error: 'Too many requests' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      expect(result.current.diffData).toEqual(diffA);
+
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(4));
+
+      // The user did nothing; a collaborator's edit rate-limited a refetch they
+      // never asked for. Their preview stays, and the pane shows no error
+      // telling them to "select the version again" — it still IS selected.
+      expect(result.current.diffData).toEqual(diffA);
+      expect(result.current.diffError).toBeNull();
+      expect(result.current.selection).not.toBeNull();
+    });
+
+    it('a FOREGROUND failure still clears the preview and says so', async () => {
+      const versions = [
+        { id: '5', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: false },
+        { id: '9', name: null, clockStart: 6, clockEnd: 9, timestamp: stamp, isCurrent: true },
+      ];
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 9 } })
+        .mockResolvedValueOnce({ data: { document: 'A', meta: {} } })
+        .mockRejectedValueOnce({ response: { data: { error: 'diff boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(2));
+
+      await act(async () => { await result.current.selectVersion(versions[1]); });
+      await act(async () => { await result.current.selectVersion(versions[0]); });
+
+      // The user asked for THIS version: showing the previous one's content
+      // under its header would be a lie.
+      expect(result.current.diffData).toBeNull();
+      expect(result.current.diffError).toBe('diff boom');
     });
 
     it('a user-initiated selection is still foreground (the placeholder is honest there)', async () => {

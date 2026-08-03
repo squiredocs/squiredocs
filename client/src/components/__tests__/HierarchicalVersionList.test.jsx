@@ -808,6 +808,70 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
     expect(onLoadUpdates.mock.calls.some(c => c[2] === 'v1')).toBe(false);
   });
 
+  // ── Review 2026-08-03 HIGH-1 (third round) ────────────────────────────────
+  // The CURRENT auto version's id is String(clockEnd), so it changes on EVERY
+  // update anyone makes. Keyed by id, the 10 s refresh read that as "the row
+  // vanished", pruned the expansion and collapsed the row under the user — on
+  // every tick, which made the Current row's drill-down unusable during exactly
+  // the live editing the panel exists to describe.
+  it('keeps the Current row expanded while a collaborator keeps typing', async () => {
+    const onLoadUpdates = vi.fn(() => Promise.resolve([]));
+    const at = (clockEnd) => listProps({
+      onLoadUpdates,
+      hierarchicalVersions: [{
+        label: 'January 2024',
+        versions: [mkVersion({ id: String(clockEnd), clockStart: 1, clockEnd, isCurrent: true })],
+      }],
+      versionUpdates: { [`${clockEnd}:1-${clockEnd}`]: [{ ...sub, clockEnd }] },
+    });
+
+    const { container, rerender } = render(<HierarchicalVersionList {...at(5)} />);
+    expandFirstRow(container);
+    expect(container.querySelector('.hierarchy-updates-list')).toBeTruthy();
+
+    // Three polls through a live editing session: same row, three ids.
+    for (const clockEnd of [6, 7, 8]) {
+      rerender(<HierarchicalVersionList {...at(clockEnd)} />);
+      await waitFor(() => {
+        expect(container.querySelector('.hierarchy-updates-list')).toBeTruthy();
+      });
+      // ...showing the range it covers NOW, not the one it used to.
+      expect(container.querySelectorAll('.hierarchy-update')).toHaveLength(1);
+    }
+  });
+
+  it('carries an expanded Current row onto the row it becomes when a newer version starts', async () => {
+    const onLoadUpdates = vi.fn(() => Promise.resolve([]));
+    const current = mkVersion({ id: '5', clockStart: 1, clockEnd: 5, isCurrent: true });
+    const at = (versions) => listProps({
+      onLoadUpdates,
+      hierarchicalVersions: [{ label: 'January 2024', versions }],
+      versionUpdates: { '5:1-5': [sub] },
+    });
+
+    const { container, rerender } = render(<HierarchicalVersionList {...at([current])} />);
+    expandFirstRow(container);
+    expect(container.querySelector('.hierarchy-updates-list')).toBeTruthy();
+
+    // A fresh auto version starts above it. The expanded row did not vanish —
+    // it is the same row, no longer wearing "Current".
+    rerender(
+      <HierarchicalVersionList
+        {...at([
+          mkVersion({ id: '9', clockStart: 6, clockEnd: 9, isCurrent: true }),
+          { ...current, isCurrent: false },
+        ])}
+      />
+    );
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.hierarchy-updates-list')).toHaveLength(1);
+    });
+    const rows = container.querySelectorAll('.hierarchy-version');
+    expect(rows[1].querySelector('.hierarchy-updates-list')).toBeTruthy();
+    expect(rows[0].querySelector('.hierarchy-updates-list')).toBeNull();
+  });
+
   // ── Review L1: a failed drill-down is said on its own row ─────────────────
   // It used to land on the panel's error channel, so a 500 from one expanded
   // row rendered "Couldn't load version history." + Retry over a healthy list
@@ -935,5 +999,58 @@ describe('HierarchicalVersionList — a newly appearing first month expands (LOW
     rerender(list([{ ...january, versions: [version()] }]));
 
     await waitFor(() => expect(screen.queryByText('Draft')).toBeNull());
+  });
+});
+
+/**
+ * Review 2026-08-03 LOW-3 — the seen-months set is filter-invariant.
+ *
+ * It was fed from the FILTERED list, so switching to "Named versions only" and
+ * back made the first month never-seen again and auto-expanded it, undoing a
+ * collapse the user had deliberately made. What months EXIST does not depend on
+ * which of them the filter is showing.
+ */
+describe('HierarchicalVersionList — a filter round-trip leaves a collapsed month collapsed (LOW-3)', () => {
+  const auto = {
+    id: 'v1',
+    name: null,
+    clockStart: 1,
+    clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z',
+    authors: [],
+    isNamed: false,
+    isCurrent: true,
+    onBehalfOf: [],
+    onBehalfOfMore: 0,
+  };
+  const months = [{ label: 'January 2024', versions: [auto] }];
+
+  const list = (filter) => (
+    <HierarchicalVersionList
+      hierarchicalVersions={months}
+      filter={filter}
+      selection={null}
+      onSelectVersion={() => {}}
+      onSelectUpdate={() => {}}
+      userRole="editor"
+      isLoading={false}
+    />
+  );
+
+  it('does not re-expand the month on the way back from "Named versions only"', async () => {
+    const { container, rerender } = render(list('all'));
+    expect(container.querySelectorAll('.hierarchy-version')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText('January 2024'));
+    expect(container.querySelectorAll('.hierarchy-version')).toHaveLength(0);
+
+    // Nothing here is named, so the filter empties the list entirely...
+    rerender(list('named'));
+    expect(screen.queryByText('January 2024')).toBeNull();
+
+    // ...and coming back shows the month exactly as the user left it.
+    rerender(list('all'));
+    await waitFor(() => expect(screen.getByText('January 2024')).toBeTruthy());
+    expect(container.querySelectorAll('.hierarchy-version')).toHaveLength(0);
   });
 });

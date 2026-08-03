@@ -234,6 +234,29 @@ describe('VersionHistoryPanel selection and restore wiring (043 US7, FR-009)', (
     expect(onNavigateToDoc).not.toHaveBeenCalled();
   });
 
+  // Review 2026-08-03 LOW-4: the dialog is the single owner of a restore
+  // failure, so the hook signals one by throwing with the server's message
+  // instead of also raising the action-error banner behind the modal.
+  it('says WHY the restore failed, in the dialog, with nothing left behind it', async () => {
+    const onRestoreVersion = vi.fn().mockRejectedValue(new Error('Document is locked'));
+    renderPanel({
+      onRestoreVersion,
+      actionError: null, // the hook raises none for restore
+      userRole: 'editor',
+      hierarchicalVersions: oneMonth(versionRow()),
+    });
+
+    fireEvent.click(screen.getByTitle('Options'));
+    fireEvent.click(screen.getByText('Restore this version'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    });
+
+    expect(screen.getByText('Document is locked')).toBeTruthy();
+    // No second report to dismiss separately once the modal is closed.
+    expect(screen.queryByText("Couldn't restore that version.")).toBeNull();
+  });
+
   it('a viewer is offered no restore at all', () => {
     // The client gate is not the security boundary (the server is), but a
     // viewer being shown an action that will be refused is its own defect.
