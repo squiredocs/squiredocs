@@ -308,3 +308,150 @@ doc directly — which 049 makes exactly what they do. Not a discrepancy today;
 recorded so it cannot be missed. FR-014 requires both, plus the inline 048 block
 comments and the 048 note in `server/version-history.js:1046-1052`, to be
 corrected in the same effort.
+
+---
+
+## F. Plan-stage decisions and findings (2026-08-03, plan agent)
+
+Same rules as sections A–E: nothing decided silently, nothing under `design/`
+hand-edited, every contradiction reported rather than designed around. Sam may
+overturn any entry.
+
+### PD-049-1 — **RATIFIED-BY-DEFAULT (plan stage)** — The two-phase signature takes one function and accepts NO mutate-only form
+
+- **Question**: RBD-049-1 fixed the shape ("compute returns mutate") and
+  explicitly deferred "the exact parameter names and whether a plain function is
+  still accepted for a mutate-only caller".
+- **Decision**: `updateDocument(docGuid, computeMutation, { userId, agentName })`
+  where `computeMutation(ydoc)` may read, may throw, must not mutate, and returns
+  the mutate phase or a nullish value meaning "nothing to do". **A bare mutate
+  function is not accepted.** A title set reads
+  `() => (doc) => doc.getMap('meta').set('title', t)`.
+- **Rationale**: a plain function is indistinguishable from a compute phase that
+  returns nothing, and the ambiguity resolves in the dangerous direction — the
+  mutation runs *outside* the transaction, so yjs wraps it in an implicit one and
+  it broadcasts, persists and fans out **with no origin object**: an unattributed
+  row, the exact defect class RBD-049-2 cites. One shape, no overload, and the
+  compute-phase detectors catch a stale caller loudly rather than silently.
+- **Residual**: three extra characters at the simplest call sites. Accepted.
+
+### PD-049-2 — **RATIFIED-BY-DEFAULT (plan stage)** — The identity cache is keyed by the LIVE DOCUMENT OBJECT, which resolves a tension inside FR-006/US3
+
+- **Question**: FR-006 requires that "cache entries for a document MUST NOT
+  outlive the document's presence in the process", while US3 acceptance scenario
+  3 imagines the *same cached id* being reused after "a document that is unloaded
+  and later reloaded". In y-websocket an unload destroys the `Y.Doc` and a later
+  access constructs a **new** one, so the two cannot both hold literally.
+- **Decision**: `WeakMap<Y.Doc, …>`. Entries are released with the document by
+  construction, and a reload mints a fresh id.
+- **Rationale**: the anti-leak clause is the MUST, and RBD-049-4 records that
+  this exact shape has already leaked twice in this area (041 `peekSharedDoc`,
+  the pre-deploy H2 awareness timer) — both times because a release hook was not
+  called. A WeakMap has no release hook to forget. The property US3 AS3 is
+  actually protecting survives intact and is pinned by tests: the clock always
+  comes from the document's own store rather than a remembered counter, and no
+  `(clientId, clock)` pair is ever minted twice. What is given up is one extra
+  client id per document generation, which DEC-049-8 already accounts for
+  ("principals × process generations").
+- **Reported, not resolved away**: if Sam reads US3 AS3 as binding literally, the
+  alternative is a guid-keyed bounded LRU with an explicit release on document
+  destroy — strictly leakier, for one client id per reload.
+
+### PD-049-3 — **RATIFIED-BY-DEFAULT (plan stage)** — The ratified compute-phase detector is KEPT and STRENGTHENED, and it runs in production
+
+- **Finding (measured, not reasoned)**: RBD-049-2 ratified detecting a
+  compute-phase mutation by comparing the document's state vector before and
+  after. Probed against this repo's `yjs@13.6.30`, a **delete-only** mutation
+  leaves the state vector byte-identical — deletes mark items and record a delete
+  set, adding no struct to `store.clients`. So the ratified detector does not see
+  a compute phase that only deletes, and an escaped delete carries no origin,
+  which is precisely the unattributed-row failure the detector exists to catch.
+- **Decision**: keep the state-vector comparison exactly as ratified **and add**
+  an `update`-event tripwire armed for the duration of the compute phase (a bare
+  mutation fires the document update event synchronously — probed). Both are O(1)
+  in document size. This strengthens the ratified decision; it does not replace
+  it.
+- **Second decision**: detection is **enabled in production**, not test-only
+  (RBD-049-2 left this as a plan-phase call). It is what makes PD-049-1's single
+  shape safe against a stale caller, and it costs two constant-time samples on a
+  path that just became ~1000x cheaper.
+
+### PD-049-4 — **RATIFIED-BY-DEFAULT (plan stage)** — A mutate-phase throw is logged loudly by name and the ORIGINAL error is rethrown
+
+- **Question**: the contract says the mutate phase must not throw, and neither
+  shape can enforce it (RBD-049-1's recorded residual). What does the mechanism
+  do when it happens anyway?
+- **Decision**: log loudly and by name (naming the mechanism, the document and
+  the acting identity), then rethrow the **original** error object unchanged. No
+  compensation, no wrapping.
+- **Rationale**: error identity is part of the caller contract —
+  `ImportError.code` drives the HTTP status on the import routes, and FR-010
+  requires error surfaces to be unchanged. Compensation is design option (2),
+  rejected there on cost rather than doubt, and this feature does not reopen it.
+  The partial edit that escapes is the design's recorded residual; the log is
+  what stops it from being silent.
+
+### N-049-2 — NOTE (no decision required) — FR-005's inventory is the PRODUCTION inventory; eight test files also call `updateDocument` directly
+
+Verified with `grep -an` (never a plain `grep` in this repo):
+`server/__tests__/per-operation-doc.test.js`,
+`server/__tests__/document-service-capture.test.js` (15 calls),
+`server/__tests__/bindstate-failure.test.js`,
+`server/__tests__/live-fanout.test.js`,
+`server/__tests__/resupply-resolution.test.js`,
+`server/mcp/__tests__/tools/restore-document-version.test.js`,
+`server/mcp/__tests__/tools/read-document-version.test.js`,
+`server/mcp/__tests__/integration/undo-redo-workflow.test.js`.
+
+The signature change is breaking for every direct caller, so these migrate in the
+same change or the backend suite fails wholesale instead of usefully. Not a
+contradiction of the spec — FR-005 is explicitly about call *sites* in production
+paths — but it roughly doubles the migration surface and is recorded so the task
+list cannot miss it.
+
+### N-049-3 — NOTE (evidence for FR-008) — The borrow window was reproduced, not assumed
+
+A document-level `update` listener reading `doc.clientID` during transaction
+cleanup sees the **borrowed** id (probed, `yjs@13.6.30`). That is direct evidence
+for the spec's claim that the window covers persistence, broadcast, the Redis
+fan-out handler and the origin-scoped capture. It raises the stakes on FR-008
+rather than discharging any part of it: the verification remains scheduled as the
+first implementation work, with `clientid-reader-audit.md` as its artifact, and a
+live reader still stops the line.
+
+### E-049-D — The spec's sweep claim "no `.clientID` read on a document anywhere in `server/`" is FALSE (analyze stage, 2026-08-03)
+
+- **The claim** (§B, DEC-049-7, "This repo's server code"): *"no `.clientID` read
+  on a document anywhere in `server/` outside `server/mcp/sandbox/isolate-bundle.js`."*
+- **What is actually true**: `server/resupply-resolution.js:339`,
+  `learnLiveServerClient` — `if (doc && Number.isFinite(doc.clientID)) noteServerDocClient(docGuid, doc.clientID)`
+  — reads the client id off the **live shared document**. Found with `grep -a`.
+- **Why the sweep missed it**: `server/resupply-resolution.js` is one of the
+  NUL-bearing files a plain `grep` silently treats as binary. This is the
+  **fourth** finding this hazard has produced in this repo and the second in this
+  feature (see E-049-B, withdrawn for the same reason). The standing rule holds:
+  never conclude "X is not in file Y" from a plain `grep`.
+- **Is it a live reader during a borrow?** Traced during analysis: the only
+  caller is `computeOutcomes`, reached through `resolveForRows` from
+  version-history, docs-export, and the collab guardrail — and the guardrail runs
+  strictly **post-persist**, inside a `.then()` after an awaited DB write. The
+  borrow window is synchronous from install to restore with no awaits, so none of
+  these can execute inside it. **The mechanism is not at risk today.**
+- **Why it still matters**: if resupply resolution ever becomes reachable
+  synchronously from the document `update` event, it would record the **borrowed**
+  id as a shared-doc client id and poison it — making the resolver refuse
+  attribution for rows that are legitimately attributed. That is an accuracy loss,
+  never a wrong author, but it is exactly the kind of coupling FR-008's audit
+  exists to notice.
+- **Handling**: scheduled as task **T005a** — classified and reasoned about in
+  `clientid-reader-audit.md`, not waved through. Reported here rather than quietly
+  patched into the spec, which is committed and belongs to the spec stage.
+- **Orchestrator verification (2026-08-03)**: independently confirmed with
+  `grep -an '\.clientID' server/resupply-resolution.js`. Now at **line 340**, not
+  339 — the file gained a `telemetry/metrics` require in the same session. The
+  reachability argument was re-read and accepted: the borrow window is
+  synchronous from install to restore, and every path to `learnLiveServerClient`
+  crosses an await. Not stop-the-line, correctly classified. Note the shape of
+  this near-miss for the implementer: the sweep that missed it was looking for
+  exactly the right thing, in the right place, with a tool that lies about this
+  file. T005a must use `grep -a` or Read, and must state which it used.
