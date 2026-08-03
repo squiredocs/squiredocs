@@ -271,7 +271,12 @@ describe('redis-pubsub', () => {
 
       await tick();
 
-      expect(onAwareness).toHaveBeenCalledWith(expect.any(Buffer));
+      // The awareness handler takes a SECOND argument since the multi-replica
+      // review's M4 fix: the publishing instance's `{clientId: principal}`
+      // vouching map, or null when the message carries no ownership trailer —
+      // which is what a message from an instance running the previous build,
+      // and this hand-built one, look like.
+      expect(onAwareness).toHaveBeenCalledWith(expect.any(Buffer), null);
       expect(onUpdate).not.toHaveBeenCalled();
     });
 

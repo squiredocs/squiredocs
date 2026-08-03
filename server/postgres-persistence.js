@@ -91,6 +91,20 @@ class PostgresPersistence {
     }
     this.pool = new Pool(poolConfig);
 
+    // An IDLE pooled connection breaking is routine (Postgres restart, failover,
+    // an idle-timeout reaper, a network blip) and is NOT fatal: the pool discards
+    // the dead client and the next acquire dials a new one. But `pg-pool` removes
+    // its own error listener from a client while it is checked out and re-emits
+    // the failure on the POOL, and an EventEmitter 'error' with no listener
+    // throws — which reaches `uncaughtException` and exits the process
+    // (server/exception-notifier.js). One reset connection therefore killed the
+    // pod, and with several replicas sharing one database a single failover
+    // crash-looped ALL of them at once. Log and continue; every query path
+    // already has its own error handling and retry.
+    this.pool.on('error', (err) => {
+      console.error('[postgres] idle client error (pool recovers, not fatal):', err?.message || err);
+    });
+
     // Extract database name for safety checks on destructive operations
     if (poolConfig.connectionString) {
       // Parse database name from connection string (last path segment)

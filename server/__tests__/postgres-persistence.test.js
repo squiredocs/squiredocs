@@ -629,4 +629,33 @@ describe('PostgresPersistence', () => {
       }
     });
   });
+
+  describe('a broken idle connection is survivable, not fatal', () => {
+    // `pg-pool` strips its own error listener from a client while it is checked
+    // out and re-emits the failure on the POOL. An EventEmitter 'error' with no
+    // listener THROWS, which lands in uncaughtException and exits the process
+    // (server/exception-notifier.js) — so one reset connection killed the pod,
+    // and several replicas sharing one database all died on a single failover.
+    // Reproduced against a live pod during the 2026-08-03 two-pod review.
+    test('the pool has an error listener, so a dead idle client cannot throw', () => {
+      expect(persistence.pool.listenerCount('error')).toBeGreaterThan(0);
+    });
+
+    test('emitting a pool error neither throws nor takes the pool down', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        // Exactly what pg-pool does for a broken idle client.
+        expect(() => {
+          persistence.pool.emit('error', new Error('Connection terminated unexpectedly'));
+        }).not.toThrow();
+        expect(errSpy).toHaveBeenCalled();
+
+        // ...and the pool still serves queries afterwards.
+        const alive = await persistence.pool.query('SELECT 1 AS ok');
+        expect(alive.rows[0].ok).toBe(1);
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+  });
 });

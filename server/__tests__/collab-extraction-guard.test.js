@@ -152,4 +152,39 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
       /tokenMayWrite && documents\.ROLES\[userRole\] >= documents\.ROLES\['editor'\]/
     );
   });
+
+  // ── G8: the cross-instance ownership relay (multi-replica review M4) ───────
+  //
+  // The protocol-level suite for M4
+  // (__tests__/integration/awareness-spoof-block.test.js) has to REPRODUCE the
+  // relay, because index.js cannot be required from a test. That mirror is only
+  // honest while production still calls the same two functions the same way —
+  // which is exactly what a source grep, one level up from behavior, can say.
+  // Without this, index.js could stop vouching for its participants and every
+  // suite would stay green while a cross-pod reconnect went invisible again.
+
+  test('G8a: index.js vouches for its own participants when it publishes awareness', () => {
+    expect(indexSrc).toMatch(/localOwnersOf:\s*awarenessLocalOwnersOf/);
+    expect(indexCode).toMatch(
+      /publishAwareness\(\s*docId,\s*update,\s*awarenessLocalOwnersOf\(doc,\s*changedClients\)\s*\)/
+    );
+  });
+
+  test('G8b: index.js teaches the ledger BEFORE it applies a relayed frame', () => {
+    // Order is the whole point: the ledger's own listener stamps the "somebody
+    // remote" placeholder on ids that arrive with no connection behind them, so
+    // learning has to happen first or the upgrade is immediately re-buried.
+    expect(indexSrc).toMatch(/learnRelayedOwners:\s*awarenessLearnRelayedOwners/);
+    const learnAt = indexCode.indexOf('awarenessLearnRelayedOwners(doc, owners)');
+    const applyAt = indexCode.indexOf('applyAwarenessUpdate(');
+    expect(learnAt).toBeGreaterThan(-1);
+    expect(applyAt).toBeGreaterThan(learnAt);
+  });
+
+  test('G8c: index.js decides no ownership of its own — the guard owns that', () => {
+    // It carries the map between publisher and receiver and nothing more; a
+    // principal lookup re-inlined here would be the second ownership model
+    // feature 044 exists to prevent.
+    expect(indexCode).not.toMatch(/REMOTE_PRINCIPAL/);
+  });
 });

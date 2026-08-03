@@ -12,6 +12,7 @@
 const Y = require('yjs');
 const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
 const EventEmitter = require('events');
+const crypto = require('crypto');
 
 // Shared message bus to simulate Redis pub/sub across "instances"
 const sharedMessageBus = new EventEmitter();
@@ -513,5 +514,125 @@ describe('redisPubSub module', () => {
     const subscriber = MockRedis.instances.find((i) => i.subscriptions.size > 0);
     expect(subscriber.subscriptions.has('awareness:doc-456')).toBe(true);
     expect(subscriber.subscriptions.has('updates:doc-456')).toBe(true);
+  });
+
+  // ── M3: the subscription must follow the LIVE document instance ────────────
+  //
+  // A document is rebuilt under the same id while the process runs: a refused
+  // bind (feature 041) evicts and destroys it, its clients reconnect, and
+  // y-websocket builds a fresh one. Handlers close over ONE doc instance, so a
+  // duplicate subscribe that KEPT the old ones left the channels wired to the
+  // dead doc while the live one — already flagged `_redisSyncInitialized` —
+  // never re-subscribed. Reproduced against two real instances: that instance
+  // silently stopped applying every other instance's edits, while still
+  // publishing its own, so the divergence was one-way and invisible from the
+  // editing side.
+
+  /** Publish as if another instance had, so the routing is the real one. */
+  const publishAsPeer = (channel, payload) => {
+    const peer = new MockRedis();
+    peer.publish(channel, redisPubSub.encodeMessage(payload, crypto.randomUUID()));
+  };
+
+  test('M3: a duplicate subscribe REBINDS the handlers to the newest document', async () => {
+    const docId = 'doc-rebound';
+    const deadDoc = { onAwareness: jest.fn(), onUpdate: jest.fn() };
+    const liveDoc = { onAwareness: jest.fn(), onUpdate: jest.fn() };
+
+    await redisPubSub.subscribeToDocument(docId, deadDoc);
+    await redisPubSub.subscribeToDocument(docId, liveDoc);   // the rebuilt doc
+    await tick();
+
+    publishAsPeer(`updates:${docId}`, Buffer.from([1, 2, 3]));
+    publishAsPeer(`awareness:${docId}`, Buffer.from([4, 5, 6]));
+    await tick();
+
+    expect(liveDoc.onUpdate).toHaveBeenCalledTimes(1);
+    expect(liveDoc.onAwareness).toHaveBeenCalledTimes(1);
+    // The evicted document must receive NOTHING: it is destroyed, and anything
+    // applied to it is applied nowhere.
+    expect(deadDoc.onUpdate).not.toHaveBeenCalled();
+    expect(deadDoc.onAwareness).not.toHaveBeenCalled();
+  });
+
+  test('M3: rebinding does not disturb the channel subscriptions', async () => {
+    const docId = 'doc-rebound-channels';
+    await redisPubSub.subscribeToDocument(docId, { onAwareness: jest.fn(), onUpdate: jest.fn() });
+    await redisPubSub.subscribeToDocument(docId, { onAwareness: jest.fn(), onUpdate: jest.fn() });
+    await tick();
+
+    const subscriber = MockRedis.instances.find((i) => i.subscriptions.has(`updates:${docId}`));
+    expect(subscriber.subscriptions.has(`awareness:${docId}`)).toBe(true);
+    expect(redisPubSub.isSubscribed(docId)).toBe(true);
+  });
+
+  // ── M4: the awareness ownership trailer ───────────────────────────────────
+
+  test('M4: an awareness relay carries the publishing instance\'s owner map', async () => {
+    const docId = 'doc-owners';
+    const onAwareness = jest.fn();
+    await redisPubSub.subscribeToDocument(docId, { onAwareness, onUpdate: jest.fn() });
+    await tick();
+
+    const peer = new MockRedis();
+    const update = Buffer.from([9, 8, 7]);
+    peer.publish(
+      `awareness:${docId}`,
+      Buffer.concat([
+        Buffer.from(crypto.randomUUID() + ':'),
+        redisPubSub.encodeAwarenessMessage(update, { 4242: 'u-alice' }).slice(37),
+      ])
+    );
+    await tick();
+
+    const [receivedUpdate, owners] = onAwareness.mock.calls[0];
+    expect(Buffer.from(receivedUpdate)).toEqual(update);   // the bytes are untouched
+    expect(owners).toEqual({ 4242: 'u-alice' });
+  });
+
+  test('M4: a relay with no trailer still arrives, with no owners (old instance)', async () => {
+    const docId = 'doc-no-owners';
+    const onAwareness = jest.fn();
+    await redisPubSub.subscribeToDocument(docId, { onAwareness, onUpdate: jest.fn() });
+    await tick();
+
+    publishAsPeer(`awareness:${docId}`, Buffer.from([1, 1, 1]));
+    await tick();
+
+    const [receivedUpdate, owners] = onAwareness.mock.calls[0];
+    expect(Buffer.from(receivedUpdate)).toEqual(Buffer.from([1, 1, 1]));
+    expect(owners).toBe(null);
+  });
+
+  test('M4: an instance that knows nothing of the trailer still reads the awareness', async () => {
+    // The rolling-deploy half of the contract, and the reason the owner map is
+    // a TRAILER: `applyAwarenessUpdate` reads exactly the entries the update
+    // declares and ignores whatever follows, so the previous build applies a
+    // trailered message byte-identically.
+    const source = new awarenessProtocol.Awareness(new Y.Doc());
+    source.setLocalState({ user: { name: 'Alice' } });
+    const update = awarenessProtocol.encodeAwarenessUpdate(source, [source.clientID]);
+
+    const message = redisPubSub.encodeAwarenessMessage(update, { [source.clientID]: 'u-alice' });
+    const oldReaderPayload = redisPubSub.decodeMessage(message).data;   // pre-M4 decoding
+
+    const target = new awarenessProtocol.Awareness(new Y.Doc());
+    awarenessProtocol.applyAwarenessUpdate(target, new Uint8Array(oldReaderPayload), ORIGIN_REDIS);
+    expect(target.getStates().get(source.clientID)).toEqual({ user: { name: 'Alice' } });
+
+    source.destroy();
+    target.destroy();
+  });
+
+  test('M4: a payload that merely looks like a trailer is read as awareness bytes', () => {
+    for (const payload of [
+      Buffer.from('sqdOWNR1'),                                    // magic only
+      Buffer.concat([Buffer.from([1, 2]), Buffer.from('sqdOWNR1')]), // no length
+      Buffer.concat([                                              // absurd length
+        Buffer.from([1, 2]), Buffer.from([0xff, 0xff, 0xff, 0xff]), Buffer.from('sqdOWNR1'),
+      ]),
+    ]) {
+      expect(redisPubSub.splitAwarenessPayload(payload)).toEqual({ update: payload, owners: null });
+    }
   });
 });

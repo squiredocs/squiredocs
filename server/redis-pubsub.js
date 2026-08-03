@@ -90,6 +90,103 @@ function decodeMessage(buffer) {
 }
 
 /**
+ * ── THE AWARENESS OWNERSHIP TRAILER (multi-replica review M4) ────────────────
+ *
+ * An awareness relay message tells the receiving instance WHICH clientIDs
+ * changed, but not WHO they belong to — so `ws-awareness-guard` could only
+ * record them under the `REMOTE_PRINCIPAL` placeholder, and a participant who
+ * reconnected onto a DIFFERENT instance was then refused permission to speak as
+ * their own clientID (reproduced: presence invisible for up to ~5.5 minutes per
+ * cross-pod reconnect, with the legitimate user logged as a spoofer).
+ *
+ * The publishing instance DOES know: it authenticated that connection. So it
+ * vouches for its own participants, in the same message, as an OPTIONAL TRAILER
+ * appended after the awareness bytes:
+ *
+ *   [36-byte instance UUID][':'][awareness update][owners JSON][uint32BE len][MAGIC]
+ *
+ * WHY A TRAILER AND NOT A NEW ENVELOPE OR A SECOND CHANNEL:
+ *  - `y-protocols`' `applyAwarenessUpdate` reads exactly the entry count the
+ *    update declares and IGNORES anything after it (verified against
+ *    y-protocols/dist/awareness.cjs). An instance running the previous build
+ *    therefore keeps working byte-for-byte on these messages, which is what
+ *    makes a rolling deploy of two replicas safe in BOTH directions: old→new
+ *    messages simply carry no trailer, new→old messages are read as before.
+ *    A prefix or a length-framed envelope would break that; a second channel
+ *    would double the publish rate on the hottest cross-instance path and would
+ *    not reach an instance that joined the document after the announcement.
+ *  - Owners ride on EVERY awareness publish, not just the first, so an instance
+ *    that loads the document late still learns the mapping on the next cursor
+ *    move or 15 s presence heartbeat.
+ *
+ * TRUST: the trailer is only as trustworthy as the Redis channel itself, which
+ * is a server-to-server bus — anything able to publish here can already forge
+ * presence outright. Ownership learned this way is therefore trusted exactly as
+ * far as the relayed awareness bytes beside it, and no further: the guard still
+ * refuses a DIFFERENT local principal's attempt to assert a relayed id.
+ */
+const OWNERS_MAGIC = Buffer.from('sqdOWNR1', 'ascii');
+const OWNERS_FOOTER_BYTES = OWNERS_MAGIC.length + 4;
+
+/** Bound on a trailer we will parse — a sanity limit, not a security boundary. */
+const MAX_OWNERS_JSON_BYTES = 64 * 1024;
+
+/**
+ * Encode an awareness message, optionally vouching for the clientIDs it carries.
+ * @param {Buffer|Uint8Array} update - encoded awareness update
+ * @param {Object|null} owners - `{ [clientId]: principal }` for LOCAL participants only
+ * @returns {Buffer}
+ */
+function encodeAwarenessMessage(update, owners) {
+  const base = encodeMessage(update);
+  if (!owners) return base;
+  const keys = Object.keys(owners);
+  if (keys.length === 0) return base;
+
+  let json;
+  try {
+    json = Buffer.from(JSON.stringify(owners), 'utf8');
+  } catch {
+    return base; // never let a bad owners map cost us the awareness update
+  }
+  if (json.length > MAX_OWNERS_JSON_BYTES) return base;
+
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(json.length, 0);
+  return Buffer.concat([base, json, len, OWNERS_MAGIC]);
+}
+
+/**
+ * Split an awareness payload into the update bytes and the owners map.
+ * Total and throw-free: anything that is not exactly a well-formed trailer is
+ * treated as plain awareness bytes (which is also what a pre-trailer instance
+ * publishes).
+ * @param {Buffer} data - the payload after the instance-ID prefix
+ * @returns {{ update: Buffer, owners: Object|null }}
+ */
+function splitAwarenessPayload(data) {
+  if (!data || data.length < OWNERS_FOOTER_BYTES + 1) return { update: data, owners: null };
+  const magicAt = data.length - OWNERS_MAGIC.length;
+  if (!data.slice(magicAt).equals(OWNERS_MAGIC)) return { update: data, owners: null };
+
+  const jsonLen = data.readUInt32BE(magicAt - 4);
+  const jsonAt = magicAt - 4 - jsonLen;
+  if (jsonLen === 0 || jsonLen > MAX_OWNERS_JSON_BYTES || jsonAt <= 0) {
+    return { update: data, owners: null };
+  }
+  let owners;
+  try {
+    owners = JSON.parse(data.slice(jsonAt, magicAt - 4).toString('utf8'));
+  } catch {
+    return { update: data, owners: null };
+  }
+  if (!owners || typeof owners !== 'object' || Array.isArray(owners)) {
+    return { update: data, owners: null };
+  }
+  return { update: data.slice(0, jsonAt), owners };
+}
+
+/**
  * Initialize Redis pub/sub clients
  * Call this once when the server starts
  */
@@ -166,7 +263,11 @@ async function init() {
         const docId = channel.slice(AWARENESS_PREFIX.length);
         const sub = documentSubscriptions.get(docId);
         if (sub?.awarenessHandler) {
-          sub.awarenessHandler(decoded.data);
+          // The publishing instance may vouch for the clientIDs it is relaying
+          // (M4). Absent trailer ⇒ `owners` is null and the receiver falls back
+          // to the pre-existing REMOTE_PRINCIPAL placeholder.
+          const { update, owners } = splitAwarenessPayload(decoded.data);
+          sub.awarenessHandler(update, owners);
         }
       } else if (channel.startsWith(UPDATES_PREFIX)) {
         const docId = channel.slice(UPDATES_PREFIX.length);
@@ -254,10 +355,41 @@ function isEnabled() {
 }
 
 /**
- * Subscribe to Redis channels for a document
+ * Subscribe to Redis channels for a document.
+ *
+ * IDEMPOTENT BY DOCUMENT ID, AND THE HANDLERS ALWAYS WIN (multi-replica review
+ * M3). The handlers passed here close over ONE in-memory Y.Doc instance, and a
+ * document can be REBUILT under the same id while this instance is running: a
+ * refused bind (`refuseBind`, feature 041) evicts and destroys the doc, its
+ * clients reconnect, and y-websocket builds a fresh one. The caller cannot tell
+ * whether an existing subscription's handlers belong to the doc it is holding —
+ * only that some subscription exists.
+ *
+ * This function used to answer that with "Already subscribed" and KEEP the old
+ * handlers. Reproduced against two instances (a document load failed on one of
+ * them, the client reconnected before the evicted socket's lagging 'close'
+ * landed): the channels stayed wired to the DEAD doc, the fresh doc had
+ * `_redisSyncInitialized` set and so never re-subscribed, and that instance
+ * silently stopped applying every other instance's edits — while still
+ * publishing its own, so the divergence was one-way and invisible from the
+ * editing side.
+ *
+ * So a duplicate subscribe now REBINDS: the channels are already open (Redis
+ * SUBSCRIBE is per-channel, not per-handler, and re-issuing it would be a
+ * no-op), but the newest caller's handlers replace the old ones. The newest
+ * caller is by construction the doc the y-websocket registry currently holds —
+ * `server/index.js` resolves the doc from the registry and subscribes in the
+ * same synchronous turn, so these calls cannot interleave out of order.
+ *
+ * Tearing DOWN stays guarded on doc identity at the call site
+ * (`isCurrentDoc` in server/index.js), so a straggler close from the dead doc
+ * cannot unsubscribe the live one.
+ *
  * @param {string} docId - Document ID
  * @param {Object} handlers - Message handlers
  * @param {Function} handlers.onAwareness - Handler for awareness updates
+ *   `(buffer, owners)` — `owners` is the publishing instance's `{clientId:
+ *   principal}` vouching map, or null (see `publishAwareness`).
  * @param {Function} handlers.onUpdate - Handler for document updates
  * @returns {Promise<void>} Resolves when subscriptions are active
  */
@@ -266,18 +398,21 @@ async function subscribeToDocument(docId, { onAwareness, onUpdate }) {
     return;
   }
 
-  // Don't duplicate subscriptions
-  if (documentSubscriptions.has(docId)) {
-    console.log(`[RedisPubSub] Already subscribed to doc ${docId}`);
-    return;
-  }
+  const alreadySubscribed = documentSubscriptions.has(docId);
 
-  console.log(`[RedisPubSub] Subscribing to doc ${docId}`);
-
+  // Bind the handlers FIRST, so that even the rebind case leaves the newest
+  // caller's doc receiving, whatever happens to the SUBSCRIBE below.
   documentSubscriptions.set(docId, {
     awarenessHandler: onAwareness,
     updateHandler: onUpdate,
   });
+
+  if (alreadySubscribed) {
+    console.log(`[RedisPubSub] Rebinding handlers for doc ${docId} (channels already subscribed)`);
+    return;
+  }
+
+  console.log(`[RedisPubSub] Subscribing to doc ${docId}`);
 
   // Subscribe to both channels and wait for confirmation
   await Promise.all([
@@ -306,8 +441,11 @@ function unsubscribeFromDocument(docId) {
  * Publish an awareness update to Redis
  * @param {string} docId - Document ID
  * @param {Uint8Array|Buffer} update - Encoded awareness update
+ * @param {Object|null} [owners] - `{ [clientId]: principal }` for the LOCAL
+ *   participants this instance is vouching for (M4; see the trailer note above).
+ *   Omitting it publishes exactly the pre-M4 bytes.
  */
-function publishAwareness(docId, update) {
+function publishAwareness(docId, update, owners = null) {
   if (!isEnabled()) {
     return;
   }
@@ -319,7 +457,7 @@ function publishAwareness(docId, update) {
   // seeing success). The .catch keeps the existing log-and-swallow behavior so a
   // publish failure never crashes the app and never becomes an unhandled rejection.
   withSpan('collab.operation', { 'document.guid': docId, 'collab.operation': 'pubsub.awareness' }, () =>
-    publisherClient.publish(AWARENESS_PREFIX + docId, encodeMessage(update))
+    publisherClient.publish(AWARENESS_PREFIX + docId, encodeAwarenessMessage(update, owners))
   ).catch((err) => {
     console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
   });
@@ -465,6 +603,8 @@ module.exports = {
   // Expose encode/decode for testing and potential external use
   encodeMessage,
   decodeMessage,
+  encodeAwarenessMessage,
+  splitAwarenessPayload,
   // Expose for testing
   _reset: async () => {
     // Unsubscribe from all documents

@@ -35,6 +35,7 @@ const {
   AWARENESS_BLOCKED_EVENT,
   MAX_FRAME_ENTRIES,
   ownershipFor,
+  learnRelayedOwners,
 } = require('../../server/ws-awareness-guard');
 
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -774,6 +775,133 @@ describe('Awareness clientID spoofing (protocol-level)', () => {
         expect(blocks()).toHaveLength(0);
       } finally {
         carol.ws.close();
+      }
+    });
+  });
+
+  // ══ multi-replica review M4 — the relay says WHOSE clientID it is ══════════
+  //
+  // REPRODUCED against two real server instances before this existed: a user
+  // active on pod A was recorded on pod B (through the awareness relay) as
+  // REMOTE_PRINCIPAL; when their socket dropped and the load balancer put them
+  // on pod B, their own announcement of their own clientID hit rule 2, the
+  // recorded owner was a Symbol nothing can equal, and the frame was refused
+  // BEFORE apply — so the id never entered the new connection's controlled set
+  // and rule 1 never started passing either. Presence stayed invisible until
+  // the record expired (a removal relay plus the 5-minute retention), and every
+  // 15 s heartbeat in between was logged as a spoof naming the victim.
+  //
+  // The instance that authenticated the connection knows the principal, so it
+  // now vouches for it on the relay (server/redis-pubsub.js' ownership trailer).
+  // `relay()` below runs the two production calls in the order server/index.js
+  // runs them — the wiring itself is pinned in
+  // server/__tests__/collab-extraction-guard.test.js (G8).
+  describe('review M4: a participant who reconnects onto ANOTHER instance', () => {
+    /** The cross-instance apply, with the peer's owner map. */
+    const relay = (docGuid, entries, owners = null) => {
+      const doc = getYDoc(`s/${docGuid}`, true);
+      learnRelayedOwners(doc, owners);
+      awarenessProtocol.applyAwarenessUpdate(doc.awareness, awarenessUpdate(entries), ORIGIN_REDIS);
+    };
+
+    test('is allowed to speak as their own clientID here', async () => {
+      const docGuid = crypto.randomUUID();
+      const Calice = 6101;
+
+      // Alice is live on the other instance; this one learns her through the
+      // relay, WITH the peer vouching for her.
+      const carol = await connect(docGuid, 'user-carol');
+      try {
+        relay(docGuid, [[Calice, 1, userState('Alice (pod A)')]], { [Calice]: 'user-alice' });
+
+        // Her socket drops over there; the removal relays across.
+        relay(docGuid, [[Calice, 2, null]], { [Calice]: 'user-alice' });
+        expect(serverAwareness(docGuid).getStates().has(Calice)).toBe(false);
+
+        // The load balancer lands her reconnect HERE. Same clientID — her
+        // provider never lost it — and she is refused nothing.
+        const alice = await connect(docGuid, 'user-alice');
+        try {
+          await announce(alice.ws, docGuid, Calice, 'Alice', 3);
+          expect(stateOf(docGuid, Calice)).toEqual(userState('Alice'));
+          expect(blocks()).toHaveLength(0);
+          // ...and it fanned out to the other participant on this instance.
+          await waitFor(() => carol.idsSeenSince(0).includes(Calice), { label: 'presence fan-out' });
+        } finally {
+          alice.ws.close();
+        }
+      } finally {
+        carol.ws.close();
+      }
+    });
+
+    test('while a DIFFERENT user is still refused that vouched id (HIGH-2 intact)', async () => {
+      const docGuid = crypto.randomUUID();
+      const Calice = 6102;
+
+      const bob = await connect(docGuid, 'user-bob');
+      try {
+        relay(docGuid, [[Calice, 1, userState('Alice (pod A)')]], { [Calice]: 'user-alice' });
+
+        bob.ws.send(awarenessFrame([[Calice, 99, userState('MALLORY')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Calice)).toEqual(userState('Alice (pod A)'));
+        expect(blocks()).toHaveLength(1);
+        // The log now names the real owner instead of 'remote-instance', which
+        // is what an operator needs to tell a squat from a false positive.
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Calice, assertedBy: 'user-bob', heldBy: ['user-alice'] },
+        ]);
+      } finally {
+        bob.ws.close();
+      }
+    });
+
+    test('and a relayed id NOBODY vouched for stays refused to everyone', async () => {
+      // The fallback is the pre-M4 behavior, unchanged: an instance running the
+      // previous build sends no owner map, and its participants keep the
+      // placeholder.
+      const docGuid = crypto.randomUUID();
+      const Cunvouched = 6103;
+
+      const bob = await connect(docGuid, 'user-bob');
+      try {
+        relay(docGuid, [[Cunvouched, 1, userState('Someone (pod A)')]]);
+        bob.ws.send(awarenessFrame([[Cunvouched, 99, userState('MALLORY')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Cunvouched)).toEqual(userState('Someone (pod A)'));
+        expect(blocks()[0].conflicts).toEqual([
+          { clientId: Cunvouched, assertedBy: 'user-bob', heldBy: ['remote-instance'] },
+        ]);
+      } finally {
+        bob.ws.close();
+      }
+    });
+
+    test('a peer cannot use the owner map to take an id off a LOCAL participant', async () => {
+      // The map is trusted exactly as far as the relayed bytes beside it: it
+      // upgrades the "somebody remote" placeholder, and does nothing else.
+      const docGuid = crypto.randomUUID();
+      const Ca = 6104;
+
+      const alice = await connect(docGuid, 'user-alice');
+      const bob = await connect(docGuid, 'user-bob');
+      try {
+        await announce(alice.ws, docGuid, Ca, 'Alice');
+
+        // A peer instance claims Alice's live local id belongs to Bob.
+        relay(docGuid, [[Ca, 50, userState('Alice elsewhere')]], { [Ca]: 'user-bob' });
+
+        bob.ws.send(awarenessFrame([[Ca, 99, userState('MALLORY')]]));
+        await tick(150);
+
+        expect(stateOf(docGuid, Ca)).toEqual(userState('Alice elsewhere'));
+        expect(blocks()).toHaveLength(1);
+        expect(blocks()[0]).toMatchObject({ userId: 'user-bob', foreignIds: [Ca] });
+      } finally {
+        alice.ws.close(); bob.ws.close();
       }
     });
   });

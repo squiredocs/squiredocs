@@ -31,6 +31,8 @@ const {
   evaluateAwarenessFrame,
   createOwnershipLedger,
   ownershipFor,
+  localOwnersOf,
+  learnRelayedOwners,
   principalLabel,
   defaultPrincipalOf,
   createDropSuppressor,
@@ -976,6 +978,169 @@ describe('ws-awareness-guard: evaluateAwarenessFrame — the ledger (rule 2)', (
     expect(verdict.conflicts).toEqual([
       { clientId: 7001, assertedBy: 'u-alice', heldBy: ['u-mallory'] },
     ]);
+  });
+});
+
+// ─── cross-instance ownership relay (multi-replica review M4) ───────────────
+//
+// Reproduced against two real instances before these existed: a participant
+// relayed from another instance was recorded as REMOTE_PRINCIPAL, so when a
+// load balancer moved them here their OWN announcement hit rule 2, the recorded
+// owner was a Symbol nothing can equal, and the frame was refused — presence
+// invisible until the record expired, every heartbeat logged as a spoof by its
+// own owner. The peer instance knows who they are, so it now says so.
+
+describe('ws-awareness-guard: ledger.learnRemote (M4)', () => {
+  test('upgrades the REMOTE placeholder to the principal a peer vouched for', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);
+    expect(ledger.learnRemote(42, 'u-alice')).toBe(true);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+  });
+
+  test('records an id nobody has seen yet', () => {
+    const ledger = createOwnershipLedger();
+    expect(ledger.learnRemote(42, 'u-alice')).toBe(true);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+  });
+
+  test('refreshes and UN-LAPSES the same principal', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);
+    expect(ledger.learnRemote(42, 'u-alice')).toBe(true);
+    expect(ledger.entries().get(42).lapsedAt).toBe(null);
+  });
+
+  test('NEVER takes an id from a different live principal — the peer does not outrank us', () => {
+    // A local connection was allowed to speak as this id here. A relay message
+    // claiming otherwise is either a stale echo or an attack on the bus; either
+    // way the local record stands.
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, 'u-alice');
+    expect(ledger.learnRemote(42, 'u-bob')).toBe(false);
+    expect(ledger.ownerOf(42)).toBe('u-alice');
+  });
+
+  test('refuses junk: no principal, the placeholder itself, or a non-numeric id', () => {
+    const ledger = createOwnershipLedger();
+    expect(ledger.learnRemote(42, null)).toBe(false);
+    expect(ledger.learnRemote(42, REMOTE_PRINCIPAL)).toBe(false);
+    expect(ledger.learnRemote(Number.NaN, 'u-alice')).toBe(false);
+    expect(ledger.size()).toBe(0);
+  });
+
+  test('an expired record is replaceable by whoever the peer names', () => {
+    const clock = { t: 1_000_000 };
+    const ledger = createOwnershipLedger({ now: () => clock.t });
+    ledger.claim(42, 'u-alice');
+    ledger.lapse([42]);
+    clock.t += OWNERSHIP_RETENTION_MS + 1;
+    expect(ledger.learnRemote(42, 'u-bob')).toBe(true);
+    expect(ledger.ownerOf(42)).toBe('u-bob');
+  });
+});
+
+describe('ws-awareness-guard: the vouched id and rule 2 (M4)', () => {
+  test('the participant\'s own reconnect onto THIS instance is allowed', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);          // learned from the relay
+    ledger.learnRemote(42, 'u-alice');           // ...and then vouched for
+
+    const alice = makeConn('u-alice');
+    const conns = makeConns([[alice, []]]);      // rule 1 cannot help: not in her set
+    expect(evaluateAwarenessFrame({ conns, conn: alice, clientIds: [42], ledger }).allowed)
+      .toBe(true);
+  });
+
+  test('...and ANOTHER user is still refused, now naming the real owner (HIGH-2 intact)', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);
+    ledger.learnRemote(42, 'u-alice');
+
+    const bob = makeConn('u-bob');
+    const conns = makeConns([[bob, []]]);
+    const verdict = evaluateAwarenessFrame({ conns, conn: bob, clientIds: [42], ledger });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.conflicts).toEqual([
+      { clientId: 42, assertedBy: 'u-bob', heldBy: ['u-alice'] },
+    ]);
+  });
+
+  test('an UNVOUCHED relayed id is still refused to everyone — the placeholder still works', () => {
+    const ledger = createOwnershipLedger();
+    ledger.claim(42, REMOTE_PRINCIPAL);
+    const alice = makeConn('u-alice');
+    expect(evaluateAwarenessFrame({
+      conns: makeConns([[alice, []]]), conn: alice, clientIds: [42], ledger,
+    }).allowed).toBe(false);
+  });
+});
+
+describe('ws-awareness-guard: localOwnersOf / learnRelayedOwners (M4)', () => {
+  /** A WSSharedDoc-shaped stand-in, same shape the `ownershipFor` suite uses. */
+  function fakeDoc() {
+    const listeners = [];
+    const conns = new Map();
+    const awareness = {
+      states: new Map(),
+      meta: new Map(),
+      getStates: () => awareness.states,
+      on: (event, fn) => { if (event === 'update') listeners.push(fn); },
+      emitUpdate: (changes, origin) => listeners.forEach((fn) => fn(changes, origin)),
+    };
+    return { conns, awareness };
+  }
+
+  test('vouches for locally-owned ids only — relayed ids are not re-asserted', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    ledger.claim(1, 'u-alice');
+    ledger.claim(2, REMOTE_PRINCIPAL);
+    expect(localOwnersOf(doc, [1, 2, 3])).toEqual({ 1: 'u-alice' });
+  });
+
+  test('returns null when there is nothing to vouch for (pre-M4 bytes on the wire)', () => {
+    const doc = fakeDoc();
+    ownershipFor(doc).ledger.claim(2, REMOTE_PRINCIPAL);
+    expect(localOwnersOf(doc, [2, 3])).toBe(null);
+    expect(localOwnersOf(doc, [])).toBe(null);
+    expect(localOwnersOf(doc, null)).toBe(null);
+    expect(localOwnersOf(null, [1])).toBe(null);
+  });
+
+  test('learning a relayed map is what lets the owner reconnect here', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    doc.awareness.emitUpdate({ added: [7], updated: [], removed: [] }, 'redis');
+    expect(ledger.ownerOf(7)).toBe(REMOTE_PRINCIPAL);
+
+    expect(learnRelayedOwners(doc, { 7: 'u-alice' })).toBe(1);
+    expect(ledger.ownerOf(7)).toBe('u-alice');
+  });
+
+  test('a malformed or hostile map costs nothing and displaces nothing', () => {
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    ledger.claim(7, 'u-alice');
+
+    expect(learnRelayedOwners(doc, null)).toBe(0);
+    expect(learnRelayedOwners(doc, 'nope')).toBe(0);
+    expect(learnRelayedOwners(doc, { 7: 'u-mallory' })).toBe(0);   // live local record
+    expect(learnRelayedOwners(doc, { notanumber: 'u-x', 8: 42, 9: '' })).toBe(0);
+    expect(ledger.ownerOf(7)).toBe('u-alice');
+    expect(ledger.ownerOf(8)).toBe(null);
+    expect(ledger.ownerOf(9)).toBe(null);
+  });
+
+  test('teaching BEFORE the apply is what index.js does, and the apply keeps it', () => {
+    // Order matters: the ledger's own listener stamps REMOTE on ids that arrive
+    // with no connection behind them, so learning has to come first.
+    const doc = fakeDoc();
+    const { ledger } = ownershipFor(doc);
+    learnRelayedOwners(doc, { 7: 'u-alice' });
+    doc.awareness.emitUpdate({ added: [7], updated: [], removed: [] }, 'redis');
+    expect(ledger.ownerOf(7)).toBe('u-alice');
   });
 });
 

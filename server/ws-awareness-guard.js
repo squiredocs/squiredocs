@@ -59,6 +59,26 @@
  * APPLIES stay exempt from the gate (FR-008) — nothing about that changed; what
  * changed is that the relay now TEACHES the ledger.
  *
+ * ── AND THE PEER INSTANCE SAYS WHOSE THEY ARE (multi-replica review M4) ──────
+ * `REMOTE_PRINCIPAL` alone says "somebody else's, on another instance" — which
+ * is also what it says about YOUR OWN clientID once you have been relayed. With
+ * two replicas behind a load balancer that is not a corner case: drop the
+ * socket, get reconnected to the other instance, announce the clientID your
+ * provider has held all along, and rule 2 refuses it — unconditionally, because
+ * the recorded owner is a Symbol nothing can match. The frame is dropped BEFORE
+ * apply, so the id never enters the new connection's controlled set and rule 1
+ * never starts passing either; presence stays invisible until the record
+ * expires (a removal relay plus `OWNERSHIP_RETENTION_MS`), and every 15 s
+ * heartbeat in between is logged as a spoof by its own owner. Reproduced
+ * against two instances before it was fixed.
+ *
+ * The instance that authenticated the connection knows the principal, so it now
+ * SAYS SO: awareness relays carry an optional `{clientId: principal}` map (see
+ * the ownership-trailer note in server/redis-pubsub.js) and `learnRelayedOwners`
+ * upgrades the placeholder to the real principal. Rule 2 then does what it
+ * always did — same principal passes, anyone else is refused — across instances
+ * as well as within one. The placeholder remains for ids nobody vouched for.
+ *
  * ── WHY THIS DECODES VARINTS INSTEAD OF INDEXING BYTES (FR-003) ──────────────
  * The 038 lesson, one level deeper. lib0's `readVarUint` accepts NON-MINIMAL
  * encodings: `0x81 0x00` decodes to 1, so a guard that read `payload[0]` would
@@ -492,6 +512,53 @@ function createOwnershipLedger({
     },
 
     /**
+     * Record an owner a TRUSTED PEER INSTANCE vouched for (multi-replica review
+     * M4). Called only from the Redis awareness relay, with the principal the
+     * publishing instance authenticated for that clientID.
+     *
+     * WHY THIS IS NOT JUST `claim`: `claim` refuses to overwrite a live record,
+     * and the record it has to overwrite here is the `REMOTE_PRINCIPAL`
+     * placeholder this module writes when it knows an id came from elsewhere but
+     * not whose it is. Leaving that placeholder in place is what made a
+     * legitimate participant a "spoofer" the moment a load balancer moved them
+     * to another instance: rule 2 refused their own clientID unconditionally,
+     * the frame was dropped BEFORE apply so they never entered this connection's
+     * controlled set, and nothing but expiry (a removal relay plus the 5 minute
+     * retention) could ever release it.
+     *
+     * It UPGRADES a placeholder and refreshes the same principal; it never takes
+     * an id away from a DIFFERENT principal that a LOCAL connection was allowed
+     * to speak as. So the security property is unchanged — no local connection
+     * can assert an id belonging to another authenticated user — and the guard
+     * gets STRICTER, not looser: a relayed id is now owned by a named principal
+     * instead of a placeholder that also blocked its real owner.
+     *
+     * @param {number} clientId
+     * @param {*} principal - the remote instance's authenticated principal
+     * @returns {boolean} whether the ledger now records this owner
+     */
+    learnRemote(clientId, principal) {
+      if (principal == null || principal === REMOTE_PRINCIPAL || !Number.isFinite(clientId)) return false;
+      const at = now();
+      const existing = records.get(clientId);
+      if (existing !== undefined && !isExpired(existing, at)) {
+        if (existing.principal !== principal && existing.principal !== REMOTE_PRINCIPAL) return false;
+        existing.principal = principal;
+        existing.lapsedAt = null;
+        enforceQuota(principal);
+        return records.has(clientId);
+      }
+      records.delete(clientId);
+      if (records.size >= maxEntries) {
+        sweep(at);
+        if (records.size >= maxEntries) return false;
+      }
+      records.set(clientId, { principal, lapsedAt: null });
+      enforceQuota(principal);
+      return records.has(clientId);
+    },
+
+    /**
      * The awareness states for these ids are gone. The owner is REMEMBERED for
      * `retentionMs` (see OWNERSHIP_RETENTION_MS) so a reconnect matches itself
      * and a squatter does not win the gap.
@@ -611,6 +678,68 @@ function ownershipFor(doc) {
 }
 
 /**
+ * What this instance is willing to VOUCH FOR about the clientIDs it is relaying
+ * (multi-replica review M4): the ledger's own record of which authenticated
+ * principal was allowed to speak as each of them, as a JSON-able object for the
+ * cross-instance awareness message.
+ *
+ * Only ids this instance owns LOCALLY are included. An id whose recorded owner
+ * is `REMOTE_PRINCIPAL` was learned from somewhere else and this instance has
+ * nothing first-hand to say about it, so it is omitted rather than re-asserted —
+ * vouching travels one hop, from the instance that authenticated the connection.
+ *
+ * @param {*} doc - a y-websocket `WSSharedDoc`
+ * @param {Iterable<number>} clientIds - the ids the outgoing message carries
+ * @returns {Object|null} `{ [clientId]: principal }`, or null when there is
+ *   nothing to vouch for (callers then publish exactly the pre-M4 bytes)
+ */
+function localOwnersOf(doc, clientIds) {
+  if (!clientIds) return null;
+  const ownership = ownershipFor(doc);
+  if (!ownership) return null;
+  let owners = null;
+  for (const clientId of clientIds) {
+    const principal = ownership.ledger.ownerOf(clientId);
+    if (typeof principal !== 'string' || principal === '') continue;
+    if (owners === null) owners = {};
+    owners[clientId] = principal;
+  }
+  return owners;
+}
+
+/**
+ * Teach this document's ledger the owners a peer instance vouched for (M4).
+ *
+ * Call BEFORE applying the relayed awareness update: the ledger listener
+ * installed by `ownershipFor` stamps `REMOTE_PRINCIPAL` on ids it sees arrive
+ * with no local connection behind them, and learning first means the real
+ * principal is already recorded when that runs.
+ *
+ * Hostile-input rules apply even though the sender is a peer: ids and
+ * principals are validated, and the batch is capped, so a malformed map costs
+ * nothing and can never displace a live LOCAL record (see `learnRemote`).
+ *
+ * @param {*} doc - a y-websocket `WSSharedDoc`
+ * @param {Object|null} owners - `{ [clientId]: principal }` from the relay
+ * @returns {number} how many records were learned or refreshed
+ */
+function learnRelayedOwners(doc, owners) {
+  if (!owners || typeof owners !== 'object') return 0;
+  const ownership = ownershipFor(doc);
+  if (!ownership) return 0;
+  let learned = 0;
+  let seen = 0;
+  for (const key of Object.keys(owners)) {
+    if ((seen += 1) > MAX_LEDGER_ENTRIES) break;
+    const clientId = Number(key);
+    const principal = owners[key];
+    if (!Number.isFinite(clientId) || typeof principal !== 'string' || principal === '') continue;
+    if (ownership.ledger.learnRemote(clientId, principal)) learned += 1;
+  }
+  return learned;
+}
+
+/**
  * Render a principal for a log line. The remote sentinel is a Symbol, which
  * `JSON.stringify` drops silently — exactly the kind of hole that makes an
  * incident unreadable.
@@ -631,8 +760,11 @@ function principalLabel(principal) {
  *   1. the id is in the connection's OWN controlled-id set        → allow
  *   2. the LEDGER records an owner for it
  *        · same principal (non-null)                              → allow
- *          (reconnect / multi-tab / same user's second pod)
+ *          (reconnect / multi-tab / same user's second pod — the last of those
+ *           works because a peer instance vouches for its participants, M4)
  *        · anyone else, including REMOTE_PRINCIPAL                → foreign
+ *          (REMOTE_PRINCIPAL now means "relayed and UNVOUCHED", so it no longer
+ *           stands between a participant and their own id, see the header)
  *   3. no ledger record, and the id is held by NO other connection → allow
  *      (first-writer-wins: this is how a first announcement claims an id)
  *   4. no ledger record, and every holder has the SAME, non-null principal → allow
@@ -834,6 +966,8 @@ module.exports = {
   evaluateAwarenessFrame,
   createOwnershipLedger,
   ownershipFor,
+  localOwnersOf,
+  learnRelayedOwners,
   principalLabel,
   defaultPrincipalOf,
   createDropSuppressor,

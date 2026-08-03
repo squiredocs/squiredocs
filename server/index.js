@@ -98,7 +98,15 @@ const { installGate } = require('./ws-edit-gate');
 // Feature 044: the awareness guard's per-document ownership view. This file
 // resolves the handle and hands it over; it never parses a frame or decides an
 // ownership question itself.
-const { ownershipFor: awarenessOwnershipFor } = require('./ws-awareness-guard');
+// `localOwnersOf` / `learnRelayedOwners` are the two halves of the
+// cross-instance ownership relay (multi-replica review M4): this file only
+// carries the map between the awareness publisher and the awareness receiver —
+// which principal owns which clientID stays entirely the guard's judgement.
+const {
+  ownershipFor: awarenessOwnershipFor,
+  localOwnersOf: awarenessLocalOwnersOf,
+  learnRelayedOwners: awarenessLearnRelayedOwners,
+} = require('./ws-awareness-guard');
 // Feature 043 (X1): the y-websocket bindState and its update listener — the one
 // place a live edit's user_id / agent_name / via_sync are written. It lives in
 // its own module so tests can drive the real thing instead of mirroring it.
@@ -2119,8 +2127,17 @@ wss.on('connection', (ws, req) => {
         // Subscribe to Redis channels for this document
         redisPubSub.subscribeToDocument(docId, {
           // Handle awareness updates from other server instances
-          onAwareness: (buffer) => {
+          onAwareness: (buffer, owners) => {
             try {
+              // BEFORE the apply (multi-replica review M4): the publishing
+              // instance authenticated these participants and vouches for them,
+              // so the ledger records their real principal instead of the
+              // "somebody remote" placeholder. Without this, the same user
+              // reconnecting onto THIS instance is refused permission to speak
+              // as their own clientID and goes invisible. Teaching first means
+              // the record is already right when the apply fires the ledger's
+              // own listener.
+              awarenessLearnRelayedOwners(doc, owners);
               awarenessProtocol.applyAwarenessUpdate(
                 doc.awareness,
                 new Uint8Array(buffer),
@@ -2161,7 +2178,14 @@ wss.on('connection', (ws, req) => {
                 doc.awareness,
                 changedClients
               );
-              redisPubSub.publishAwareness(docId, update);
+              // Vouch for the ones that are OURS (multi-replica review M4), so
+              // the receiving instance can tell this user's own reconnect from
+              // a stranger asserting their clientID. Ids we only relayed are
+              // omitted; nothing else about the message changes, and an
+              // instance running the previous build reads it identically.
+              redisPubSub.publishAwareness(
+                docId, update, awarenessLocalOwnersOf(doc, changedClients)
+              );
             } catch (err) {
               console.error(`[RedisPubSub] Error publishing awareness for ${docId}:`, err.message);
             }
