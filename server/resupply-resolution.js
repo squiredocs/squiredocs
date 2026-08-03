@@ -93,19 +93,36 @@
  * `SERVER_DOC` — never binds, never resolves, always "Synced content". Three
  * sources, deliberately all read-side so no write path imports this module:
  *   1. the live doc, when one is loaded here (`init({ peekSharedDoc })`);
- *   2. any evidence row stamped with an identity that ONLY ever writes through
- *      the shared doc — today the chat assistant (`CHAT_AGENT_NAME`). This is
- *      the retroactive source: the stamp is durable, so rows written long
- *      before this fix are covered by their own recorded identity;
+ *   2. any evidence row stamped with an identity that writes through the shared
+ *      doc — today the chat assistant (`CHAT_AGENT_NAME`); see the corrected
+ *      account of WHICH of its paths do that at SHARED_DOC_WRITER_AGENTS below.
+ *      This is the retroactive source: the stamp is durable, so rows written
+ *      long before this fix are covered by their own recorded identity;
  *   3. the pre-existing 2+ identity ambiguity, unchanged.
- * RESIDUAL, recorded not hidden: a server-side write under a PLAIN user
- * identity (title set, document seed, restore, REST/MCP import) made by a pod
- * that has since died leaves a single-identity binding that the log cannot
- * distinguish from the legitimate case — a genuine offline edit whose author's
- * own prior rows bind their own client identity has a byte-identical shape.
- * Closing it fully means giving server-side writes per-identity docs the way
- * MCP agent sessions already have them (research R12), which is a feature, not
- * a review fix.
+ *
+ * ── RESIDUALS, recorded not hidden (ledger RBD-045-12, formerly N-045-2) ────
+ * R1. A server-side write under a PLAIN user identity (title set, document seed,
+ *     restore, REST/MCP import) leaves a single-identity binding the log cannot
+ *     distinguish from the legitimate case — a genuine offline edit whose
+ *     author's own prior rows bind their own client identity has a
+ *     byte-identical shape.
+ * R2. ALL THREE SOURCES ABOVE ARE PROCESS-LOCAL, so two pods can disagree and
+ *     one of them can be confidently wrong WITH EVERY POD ALIVE (feature 047,
+ *     NF-5). The live peek only ever sees THIS instance's shared doc, and each
+ *     pod's shared-doc client identity is known only to itself: pod A refuses an
+ *     identity it recognises as its own, while pod B binds that same identity
+ *     from an evidence row and credits whoever was stamped on it. This was
+ *     previously described as needing "a pod that has since died"; it does not.
+ *     It only needs the reader not to be the writer's pod.
+ *
+ * Cross-instance propagation of learned identities was considered and REJECTED
+ * (it misses the cases that matter, and it would make a memoized outcome
+ * invalidatable asynchronously by any pod, so one row could render as a named
+ * author on one read and "Synced content" on the next). Closing both residuals
+ * properly means giving server-side writes per-identity docs the way MCP agent
+ * sessions already have them (research R12) — a feature, not a review fix, and a
+ * precondition for running more than one replica. Production is single-replica
+ * today, so R2 is latent. The full argument is in the ledger entry.
  *
  * ── Configuration ──────────────────────────────────────────────────────────
  *  RESUPPLY_EVIDENCE_MAX_ROWS  (20000) evidence rows decoded for ONE document
@@ -137,14 +154,37 @@ const AMBIGUOUS = Symbol('ambiguous');
 const SERVER_DOC = Symbol('server-doc');
 
 /**
- * Stamped identities that write ONLY through the shared server doc.
+ * Stamped identities whose rows are treated as naming a shared-server-doc client
+ * identity.
  *
- * The chat assistant has no Y.Doc of its own: every edit it makes runs through
- * `documentService.updateDocument`, i.e. on the live `WSSharedDoc` (contrast
- * MCP agent sessions, which each open their own doc and therefore carry their
- * own client identity — research R12). A durable row stamped with this agent
- * name is proof that the client identities in its payload are a shared doc's,
- * whenever it was written.
+ * ── WHAT THE CHAT ASSISTANT ACTUALLY DOES (corrected by feature 047, NF-4) ──
+ * This used to say "the chat assistant has no Y.Doc of its own: every edit it
+ * makes runs through `documentService.updateDocument`". That is FALSE, and the
+ * correction matters because the false version made this rule look narrower and
+ * cleaner than it is.
+ *
+ * The assistant's document edits dispatch through
+ * `toolRegistry.executeTool('modify', …)` (`server/api/chat-tools.js`), and the
+ * `modify` tool writes through an agent-presence session holding its OWN
+ * `new Y.Doc()` over a real WebsocketProvider (`server/mcp/agent-presence.js`).
+ * So those edits carry their own per-session client identity, exactly like an
+ * MCP agent's — NOT the shared doc's.
+ *
+ * What genuinely writes on the shared `WSSharedDoc` under this agent name is the
+ * REST of the chat surface: the image insert and the empty-import anchor
+ * paragraph, both plain `documentService.updateDocument` calls in
+ * `chat-tools.js`. Those are what make a row stamped with this name proof that
+ * its payload's client identities are a shared doc's — so the rule is still
+ * sound and still covers the HIGH-1 scenario, just by a different route.
+ *
+ * ── THE COST, ACCEPTED DELIBERATELY ────────────────────────────────────────
+ * Both paths stamp the identical `(user_id, CHAT_AGENT_NAME)` pair, so a durable
+ * row cannot say which one wrote it. This set therefore ALSO poisons chat
+ * session-doc identities, and assistant-authored content returning via resupply
+ * can never resolve to the assistant. That is an accuracy cost, never a
+ * correctness one: the result is "Synced content", never a wrong person. Feature
+ * 047 looked for a stamp-level discriminator, found none, and left the safe
+ * over-refusal in place. See ledger RBD-045-12 (formerly N-045-2).
  */
 const SHARED_DOC_WRITER_AGENTS = new Set([CHAT_AGENT_NAME]);
 

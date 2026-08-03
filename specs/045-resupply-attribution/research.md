@@ -291,10 +291,12 @@ content. Systematic, not a coincidence, and precisely the outcome this feature e
 prevent.
 
 The refusal is therefore now EXPLICIT rather than hoped for: a client identity known to be a
-shared server doc's is poisoned and never binds (ledger N-045-2, and "The shared server doc" in
-`contracts/resupply-resolution.md`). The residual — a server-side write under a plain user
-identity from a pod that has since died — is recorded there; the log genuinely cannot tell it
-from the legitimate case.
+shared server doc's is poisoned and never binds (ledger RBD-045-12, formerly N-045-2, and
+"The shared server doc" in `contracts/resupply-resolution.md`). Two residuals are recorded
+there: a server-side write under a plain user identity from a pod that has since died (the log
+genuinely cannot tell it from the legitimate case), and — added by the 047 audit, NF-5 — the
+same wrong-author outcome WITH EVERY POD ALIVE, because the poisoning knowledge is
+process-local, so the pod that reads may not be the pod that wrote.
 
 **Alternatives considered**: relying on 2+ identity ambiguity alone (rejected above — it is
 the assumption that was wrong); stamping server writes in the row (rejected: needs a migration

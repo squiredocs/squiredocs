@@ -96,7 +96,12 @@ function makeInterleavingReader(rowsByDoc, users = {}) {
 
 const DOC = 'doc-045';
 
-/** The chat assistant writes ONLY through the shared server doc (N-045-2). */
+/** Rows stamped with the chat assistant name are treated as naming a shared
+ *  server doc's client identity (ledger RBD-045-12, formerly N-045-2). Feature
+ *  047 (NF-4) corrected WHY: the assistant's `modify` calls run on their own
+ *  agent-presence Y.Doc, but its image insert and empty-import anchor write on
+ *  the shared doc under this same stamp, and the two are indistinguishable in
+ *  the log — so the rule stands and deliberately over-refuses. */
 const { CHAT_AGENT_NAME } = require('../agent-identity');
 
 beforeEach(() => resolution._resetForTest());
@@ -195,6 +200,33 @@ describe('the shared server doc never binds an identity (045-review HIGH-1, N-04
       origins: [{ userId: 'user-A', agentName: 'claude' }],
       unresolved: false,
     });
+  });
+
+  // ── Feature 047, NF-4 ─────────────────────────────────────────────────────
+  // The rule above was justified in the module docs, the contract and the
+  // ledger by "the chat assistant has no Y.Doc of its own: every edit runs
+  // through documentService.updateDocument". That was FALSE, and it went
+  // unnoticed because nothing pinned it. These guards pin the CORRECTED
+  // premise, so the docs cannot quietly drift back to the comfortable story.
+  test('the corrected premise: chat modify writes through its OWN session doc', () => {
+    const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+
+    // The assistant's document edits go through the shared MCP tool registry...
+    expect(read('api/chat-tools.js')).toMatch(/toolRegistry\.executeTool\(name, args, syntheticAgentToken\)/);
+    // ...which writes on an agent-presence SESSION's doc, not the shared doc.
+    expect(read('mcp/tools/modify.js')).toMatch(/agentPresence\.getOrCreateSession/);
+    expect(read('mcp/tools/modify.js')).toMatch(/session\.provider\.doc/);
+    expect(read('mcp/agent-presence.js')).toMatch(/new Y\.Doc\(\)/);
+  });
+
+  test('what DOES write on the shared doc under the assistant stamp', () => {
+    // The image insert and the empty-import anchor: plain updateDocument calls
+    // carrying the same (userId, agentName) stamp. These are why the rule is
+    // still sound, and why the two paths cannot be told apart from a row.
+    const chatTools = fs.readFileSync(path.join(__dirname, '../api/chat-tools.js'), 'utf8');
+    const sharedDocWrites = chatTools.match(/documentService\.updateDocument\(/g) || [];
+    expect(sharedDocWrites.length).toBeGreaterThanOrEqual(2);
+    expect(chatTools).toMatch(/\{ userId, agentName \}/);
   });
 });
 

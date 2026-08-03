@@ -19,7 +19,7 @@ async function resolveForRows(reader, docGuid, rows) -> {
 const EMPTY_RESOLUTION;
 
 // Wiring, called once at startup: a READ-ONLY probe for the live shared doc, so the
-// resolver can recognise this instance's own shared-doc client identity (N-045-2).
+// resolver can recognise this instance's own shared-doc client identity (RBD-045-12).
 // The probe must never create a document.
 function init({ peekSharedDoc });
 
@@ -92,7 +92,7 @@ Evidence-scan state (`byClient`, `scannedThroughClock`) is retained per document
 higher-clock targets extend the fold. A needed target BELOW `scannedThroughClock` (reachable
 only after memo eviction) restarts the fold from the document's first row.
 
-## The shared server doc (N-045-2)
+## The shared server doc (RBD-045-12, formerly N-045-2)
 
 Every server-side write path transacts on the ONE live `WSSharedDoc`, so all content it
 creates carries that doc's single Yjs client identity while rows are stamped with whichever
@@ -102,18 +102,37 @@ poisoned (`SERVER_DOC`): it never binds, never resolves, always renders "Synced 
 Three read-side sources, so no write path imports the resolver:
 
 1. the live doc, when one is loaded on this instance (`init({ peekSharedDoc })`);
-2. an evidence row stamped with an identity that ONLY ever writes through the shared doc —
-   today the chat assistant (`CHAT_AGENT_NAME`). This is the RETROACTIVE source: the stamp is
-   durable, so rows written long before this rule existed are covered by their own recorded
-   identity;
+2. an evidence row stamped with an identity that writes through the shared doc — today the
+   chat assistant (`CHAT_AGENT_NAME`). This is the RETROACTIVE source: the stamp is durable,
+   so rows written long before this rule existed are covered by their own recorded identity;
 3. the pre-existing 2+ identity ambiguity.
 
-**Residual, recorded not hidden.** A server-side write under a plain user identity (title set,
-document seed, restore, REST/MCP import) made by a pod that has since died leaves a
-single-identity binding the log cannot distinguish from the legitimate case — a genuine
-offline edit whose author's own prior rows bind their own client identity has a byte-identical
-shape. Closing it means giving server-side writes per-identity docs the way MCP agent sessions
-already have them (research R12); that is a feature, not a review fix.
+**Correction (047 NF-4).** Source 2 used to be justified by "the chat assistant has no Y.Doc
+of its own — every edit runs through `documentService.updateDocument`". That is false. The
+assistant's document edits dispatch through `toolRegistry.executeTool('modify', …)`, and
+`modify` writes through an agent-presence session with its OWN `new Y.Doc()` over a real
+WebsocketProvider — its own client identity, like an MCP agent. What genuinely writes on the
+shared doc under that agent name is the image insert and the empty-import anchor paragraph in
+`chat-tools.js`. The rule still covers the HIGH-1 scenario, by that route. Because both paths
+stamp the identical `(user_id, CHAT_AGENT_NAME)` pair, the poisoning also catches chat
+session-doc identities, so assistant-authored content returning via resupply can never resolve
+to the assistant — an accuracy cost, never a wrong person, and left in place deliberately.
+
+**Residual 1 — a since-dead pod.** A server-side write under a plain user identity (title set,
+document seed, restore, REST/MCP import) leaves a single-identity binding the log cannot
+distinguish from the legitimate case — a genuine offline edit whose author's own prior rows
+bind their own client identity has a byte-identical shape.
+
+**Residual 2 — two live pods disagreeing (047 NF-5).** All three sources above are
+PROCESS-LOCAL, so this happens with every pod alive: pod A holds the doc and refuses an
+identity it recognises as its own shared doc, while pod B binds that same identity from an
+evidence row and confidently credits whoever was stamped on it — then memoizes it. The earlier
+"a pod that has since died" framing was too narrow; it only needs the reader not to be the
+writer's pod. Cross-instance propagation was considered and rejected (it misses the cases that
+matter and makes memoized outcomes asynchronously invalidatable by any pod). Closing both
+residuals means giving server-side writes per-identity docs the way MCP agent sessions already
+have them (research R12) — a feature, not a review fix, and a precondition for running more
+than one replica. Production is single-replica today, so Residual 2 is latent.
 
 ## Deletion payloads, precisely (045-review LOW-5)
 
