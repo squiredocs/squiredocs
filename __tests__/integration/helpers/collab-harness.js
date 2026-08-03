@@ -198,50 +198,22 @@ function rejectUpdateMatching(persistence, predicate) {
       // Rejecting here models persistence that has already exhausted its
       // transient retries: the listener's terminal `.catch` sees exactly the
       // rejected promise it would see in production.
-      return SelfHandledRejection.reject(new Error('injected persistence failure (US3)'));
+      //
+      // A PLAIN rejected promise (feature 046, NEW-4). This used to be a
+      // Promise subclass whose `.finally()` swallowed its own derived
+      // rejection, because the listener's `writePromise.finally(...)` left that
+      // branch unhandled and every terminal failure raised a process-level
+      // `unhandledRejection` on top of its own page. The listener handles it
+      // now, so the workaround is gone and this suite exercises the real
+      // promise shape production sees. If an `unhandledRejection` ever
+      // reappears here, the listener regressed.
+      return Promise.reject(new Error('injected persistence failure (US3)'));
     }
     return original(docGuid, update, ...rest);
   };
 
   handle.restore = () => { persistence.storeUpdate = original; };
   return handle;
-}
-
-/**
- * A Promise whose `.finally()` branch handles its own rejection.
- *
- * ── WHY THIS EXISTS (a real defect, found by US3) ───────────────────────────
- * `server/collab-bind-state.js:186-189` does:
- *
- *     const writePromise = persistenceProvider.storeUpdate(...);
- *     pendingWrites.add(writePromise);
- *     writePromise.finally(() => pendingWrites.delete(writePromise));  // <-- 188
- *     writePromise.then(...).catch(...);                              // handled
- *
- * `.finally()` returns a NEW promise that rejects with the same reason, and
- * nothing ever handles THAT one. So every terminal persistence failure emits a
- * process-level `unhandledRejection` in addition to the listener's own
- * `notifyException({source:'persistence'})`.
- *
- * VERIFIED, not assumed: production installs a NON-EXITING handler
- * (`setupProcessHandlers`, server/exception-notifier.js:150-154 — it logs and
- * notifies, and only `uncaughtException` calls `process.exit`). So this does
- * NOT kill the pod and is NOT a durability event. It is an ops-signal defect:
- * every terminal write failure pages TWICE, once as `persistence` and once as
- * `unhandledRejection`, which dilutes alerting exactly when it matters.
- *
- * This feature may not fix it — production changes here are limited to X1
- * (move-only), and the line is byte-for-byte what index.js already ran. The
- * finding is recorded in promotion-notes.md for the convergence round. Until
- * then, the injected rejection handles the derived branch itself, so the US3
- * suite characterizes the LOSS path rather than dying on this side effect.
- */
-class SelfHandledRejection extends Promise {
-  finally(onFinally) {
-    const derived = super.finally(onFinally);
-    derived.catch(() => {});
-    return derived;
-  }
 }
 
 /** Do two byte arrays match exactly? The identity test for a specific update. */

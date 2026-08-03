@@ -185,7 +185,20 @@ function createUpdateListener(deps, docGuid, ydoc) {
     // ordering, retry policy and drain behavior below are byte-identical.
     const writePromise = persistenceProvider.storeUpdate(docGuid, update, userId, agentName, null, null, { meaningful, viaSync });
     pendingWrites.add(writePromise);
-    writePromise.finally(() => pendingWrites.delete(writePromise));
+    // Feature 046 (NEW-4): `.finally()` returns a NEW promise that rejects with
+    // the same reason, and that derived promise had no handler. So every
+    // terminal persistence failure raised a process-level `unhandledRejection`
+    // ON TOP OF the `.catch` below — two pages for one failure, burning 2 of the
+    // 10-per-5-minute notification budget (exactly when the budget matters most,
+    // since a database outage fails many writes at once) and printing the stack
+    // twice. The trailing `.catch` handles the derived branch and nothing else:
+    // the real reporting stays where it belongs, in the `.catch` at the end of
+    // the chain below.
+    //
+    // Draining is unaffected. `pendingWrites` holds the ORIGINAL promise, and
+    // the deletion still hangs off the same settle, so the graceful-shutdown
+    // flush sees precisely what it saw before (FR-006).
+    writePromise.finally(() => pendingWrites.delete(writePromise)).catch(() => {});
     writePromise
       .then(async () => {
         logPerf('DB_PERSIST', { docGuid, duration: Date.now() - persistStart, size: update.byteLength, userId, agentName });
