@@ -358,7 +358,12 @@ Redis client stays connected after the suite finishes, so plain `npx jest` never
 exits on its own. Interactively that looks like a hang; piped or captured (as an
 agent runs it) the command blocks indefinitely and returns nothing, which reads
 like a broken test run rather than a finished one. If you need to run a single
-suite, keep the flags: `npx jest path/to/file.test.js --runInBand --forceExit`.
+suite, keep the flags AND the Redis host the npm script sets for you:
+`REDIS_HOST=localhost npx jest path/to/file.test.js --runInBand --forceExit`.
+Without `REDIS_HOST` the Redis-touching suites hang with **no output at all**
+rather than failing, which reads like a code regression and is not one. Note
+also that `npm run test:server -- path/to/file.test.js` does NOT work: the
+positional lands after `--reporters=` and jest rejects it as a custom reporter.
 Backend tests are serial-only against one database — never run two suites
 concurrently against the same `DATABASE_URL`; they delete each other's fixture
 rows and fail with confusing foreign-key errors. Use a per-worktree database
@@ -1000,6 +1005,28 @@ server: {
 - All API, auth, MCP, and OAuth routes are proxied to the Express backend
 
 ## Troubleshooting
+
+### Searching the code: some files are invisible to plain `grep`
+
+A few source files contain NUL bytes (they hold binary-ish literals), so `file`
+reports them as `data` and `grep`/`git grep` treat them as binary and **silently
+report no matches**. Known today: `server/markdown-sync.js` and
+`server/resupply-resolution.js`.
+
+A negative `grep` on one of these is indistinguishable from a genuine absence,
+and that has repeatedly produced confident wrong conclusions — three separate
+agents have reported a function "missing" from `markdown-sync.js` when it was
+sitting there the whole time (`applySyncPush` at L1063, the pinned sync-push
+`clientID` at L1111).
+
+Use `grep -a` (or read the file) before concluding something is not there:
+
+```bash
+grep -an "applySyncPush" server/markdown-sync.js   # finds it
+grep -n  "applySyncPush" server/markdown-sync.js   # silently finds nothing
+```
+
+Never state "X is not in file Y" on the strength of a plain `grep` alone.
 
 ### Pod Not Starting
 
