@@ -70,7 +70,7 @@ function resetPageThrottle() {
  * @param {Map|null} [args.docs] - y-websocket's `docs` registry
  * @param {Function|null} [args.notify] - `notifyException`
  * @param {number} [args.now] - injectable clock (tests)
- * @returns {{ paged: boolean, evicted: boolean, closedConnections: number }}
+ * @returns {{ paged: boolean, evicted: boolean, closedConnections: number, destroyed: boolean }}
  */
 function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null, now = Date.now() }) {
   // 1. Mark the doc. The update listener checks this and drops persist attempts,
@@ -124,7 +124,31 @@ function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null,
     if (typeof conns.clear === 'function') conns.clear();
   }
 
-  return { paged, evicted, closedConnections };
+  // 6. Destroy the doc this refusal orphaned. Steps 4+5 together make
+  //    y-websocket's own destroy path unreachable for it: closeConn only ever
+  //    destroys through its `doc.conns.has(conn)` branch, and `conns.clear()`
+  //    guarantees that check fails when the closed sockets' events land. An
+  //    undestroyed WSSharedDoc is pinned forever by the awareness heartbeat
+  //    interval its constructor started (cleared only via awareness.destroy(),
+  //    which hangs off the doc 'destroy' event) — and each 1013 retry cycle
+  //    during an outage rebuilds the doc, receives the client's full catch-up
+  //    state into it, fails the bind and strands another copy. Destroy is
+  //    guarded on the doc being confirmed OUT of the registry: destroying a doc
+  //    a future connection could still be handed would be worse than the leak,
+  //    so when we cannot verify eviction (no registry passed) we leave it.
+  let destroyed = false;
+  const outOfRegistry = evicted ||
+    (docs && typeof docs.get === 'function' && docs.get(docName) !== ydoc);
+  if (outOfRegistry && ydoc && typeof ydoc.destroy === 'function') {
+    try {
+      ydoc.destroy();
+      destroyed = true;
+    } catch (destroyErr) {
+      console.error(`[bindState] failed destroying the refused doc for ${docGuid}:`, destroyErr?.message || destroyErr);
+    }
+  }
+
+  return { paged, evicted, closedConnections, destroyed };
 }
 
 /**

@@ -87,7 +87,13 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     expect(docs.has('s/doc-1')).toBe(false);
     expect(connA.close).toHaveBeenCalledWith(BIND_FAILED_CLOSE_CODE, expect.any(String));
     expect(connB.close).toHaveBeenCalledWith(BIND_FAILED_CLOSE_CODE, expect.any(String));
-    expect(result).toEqual({ paged: true, evicted: true, closedConnections: 2 });
+    expect(result).toEqual({ paged: true, evicted: true, closedConnections: 2, destroyed: true });
+
+    // Destroyed, not just evicted: closeConn's own destroy branch is
+    // unreachable after conns.clear(), and an undestroyed WSSharedDoc is
+    // pinned forever by its awareness heartbeat interval — a sustained outage
+    // would leak one full doc copy per 1013 retry cycle (review H2).
+    expect(ydoc.isDestroyed).toBe(true);
 
     // Error-level log, never the info-level NEW DOC line.
     expect(errorSpy).toHaveBeenCalled();
@@ -111,6 +117,31 @@ describe('041 FR-010: bind refusal on document load failure', () => {
 
     expect(result.evicted).toBe(false);
     expect(docs.get('s/doc-1')).toBe(fresh);
+
+    // The stale doc is out of the registry either way, so it is still
+    // destroyed; the live replacement must never be.
+    expect(result.destroyed).toBe(true);
+    expect(stale.isDestroyed).toBe(true);
+    expect(fresh.isDestroyed).toBe(false);
+  });
+
+  test('never destroys a doc it cannot confirm is out of the registry', () => {
+    // No `docs` handed in (the callers that only want the marking + close
+    // behavior): the doc may still be what the registry serves to the next
+    // connection, and handing out a destroyed doc is worse than the leak.
+    const ydoc = makeDoc([makeConn()]);
+
+    const result = refuseBind({
+      docName: 's/doc-1',
+      docGuid: 'doc-1',
+      ydoc,
+      error: new Error('boom'),
+      notify: jest.fn(),
+    });
+
+    expect(result.destroyed).toBe(false);
+    expect(ydoc.isDestroyed).toBe(false);
+    expect(ydoc._bindFailed).toBe(true);
   });
 
   test('a sustained outage pages once per document per window, never unbounded', () => {

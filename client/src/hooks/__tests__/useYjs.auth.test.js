@@ -281,16 +281,45 @@ describe('useYjs auth error detection', () => {
       const { result } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
 
       await waitFor(() => expect(result.current.provider).toBeDefined());
+      await waitFor(() => expect(mockProvider.connect).toHaveBeenCalled());
+      // The mount-time connect must not be what satisfies this test — that is
+      // exactly how the dead-Retry regression stayed green.
+      mockProvider.connect.mockClear();
 
       act(() => {
         result.current.forceReconnect();
       });
 
       expect(mockProvider.disconnect).toHaveBeenCalled();
+      // Real y-websocket semantics (mirrored by the mock): disconnect() has
+      // just cleared shouldConnect, so a continuation gated on that flag can
+      // never fire. The reconnect must happen anyway.
+      expect(mockProvider.shouldConnect).toBe(false);
 
       await waitFor(() => {
         expect(mockProvider.connect).toHaveBeenCalled();
-      }, { timeout: 200 });
+      }, { timeout: 300 });
+      expect(mockProvider.shouldConnect).toBe(true);
+    });
+
+    it('never connects a provider whose hook was cleaned up during the retry window', async () => {
+      const { result, unmount } = renderHook(() => useYjs(TEST_DOC_GUID, TEST_ACCESS_TOKEN));
+
+      await waitFor(() => expect(result.current.provider).toBeDefined());
+      await waitFor(() => expect(mockProvider.connect).toHaveBeenCalled());
+      mockProvider.connect.mockClear();
+
+      act(() => {
+        result.current.forceReconnect();
+      });
+      // The doc closes inside the 100ms gate window: the continuation must see
+      // the nulled providerRef and leave the destroyed provider alone — a
+      // revived socket here would have no listeners and no owner.
+      unmount();
+
+      await act(async () => { await new Promise((r) => setTimeout(r, 150)); });
+      expect(mockProvider.connect).not.toHaveBeenCalled();
+      expect(mockProvider.destroy).toHaveBeenCalled();
     });
 
     it('clears authError on forceReconnect', async () => {

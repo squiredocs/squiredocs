@@ -135,6 +135,12 @@ export function useYjs(docGuid, accessToken, user = null) {
   const [authError, setAuthError] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
   const [provider, setProvider] = useState(null);
+  // The hook's LIVE provider instance. `forceReconnect`'s gated continuation
+  // cannot use `shouldConnect` as its liveness check (its own `disconnect()`
+  // call clears that flag — see below), so it compares against this ref, which
+  // the lifecycle effect nulls in cleanup BEFORE destroy(): a destroyed
+  // provider can never match and so can never be reconnected.
+  const providerRef = useRef(null);
   const lastForceReconnectRef = useRef(0);
   // Store current values in refs so callbacks always have them
   const userRef = useRef(user);
@@ -154,6 +160,7 @@ export function useYjs(docGuid, accessToken, user = null) {
       // Token is sent via HttpOnly cookie, not URL params
     });
     setProvider(newProvider);
+    providerRef.current = newProvider;
 
     const handleStatus = ({ status }) => {
       setConnectionState(status);
@@ -238,7 +245,15 @@ export function useYjs(docGuid, accessToken, user = null) {
         // attributed to whoever happened to open the tab. See
         // whenLocalStateLoaded.
         localLoaded.then(() => {
-          if (isMounted) newProvider.connect();
+          if (!isMounted) return;
+          // Re-checked at fire time, not just above: the gate can hold this
+          // continuation for up to LOCAL_LOAD_TIMEOUT_MS, and a token that
+          // expired inside that window has already made the token effect
+          // disconnect proactively and set authError — connecting here would
+          // open a doomed socket the server closes with 4401.
+          if (accessTokenRef.current && !isTokenExpired(accessTokenRef.current)) {
+            newProvider.connect();
+          }
         });
       } else {
         setConnectionState('disconnected');
@@ -248,6 +263,7 @@ export function useYjs(docGuid, accessToken, user = null) {
 
     return () => {
       isMounted = false;
+      providerRef.current = null;
       clearTimeout(connectTimeout);
       newProvider.off('status', handleStatus);
       newProvider.off('sync', handleSync);
@@ -367,14 +383,20 @@ export function useYjs(docGuid, accessToken, user = null) {
     lastForceReconnectRef.current = now;
     // Reset error state and allow reconnection
     setAuthError(false);
-    provider.shouldConnect = true;
     setReconnectCount(c => c + 1);
     provider.disconnect();
     // Gated like every other connect (NF-1). In practice this fires long after
     // the local state loaded, so it is a microtask; gating it anyway means NO
     // path in this hook can open the socket ahead of IndexedDB.
+    //
+    // The liveness check is providerRef, NOT `shouldConnect`: the disconnect()
+    // above just cleared that flag (y-websocket's disconnect() always does), so
+    // gating on it would make this continuation a no-op — a dead Retry button
+    // that also cancelled any in-flight auto-retry. providerRef is nulled in
+    // the lifecycle cleanup before destroy(), so a provider that died inside
+    // this window can never be revived; connect() re-sets shouldConnect itself.
     setTimeout(() => localLoaded.then(() => {
-      if (provider.shouldConnect) provider.connect();
+      if (providerRef.current === provider) provider.connect();
     }), 100);
   }, [provider, accessToken, localLoaded]);
 

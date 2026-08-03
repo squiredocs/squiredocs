@@ -55,9 +55,11 @@ describe('useYjs IndexedDB connect gate (NF-1)', () => {
     on: vi.fn(),
     off: vi.fn(),
     once: vi.fn(),
-    destroy: vi.fn(),
-    disconnect: vi.fn(),
-    connect: vi.fn(),
+    // Mirror y-websocket's flag semantics (see createControllableMockProvider):
+    // an inert disconnect() is what masked the dead forceReconnect path.
+    destroy: vi.fn(function () { this.shouldConnect = false; }),
+    disconnect: vi.fn(function () { this.shouldConnect = false; }),
+    connect: vi.fn(function () { this.shouldConnect = true; }),
   });
 
   beforeEach(() => {

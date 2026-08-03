@@ -1791,6 +1791,7 @@ const wss = new WebSocket.Server({
 // Handle upgrade requests - mount WebSocket at /s/* to support document-specific paths
 // y-websocket clients append document names: /s/default-doc, /s/my-doc, etc.
 server.on('upgrade', async (request, socket, head) => {
+  try {
   // Refuse new upgrades while draining (feature 010, US1/FR-001): the pod is
   // shutting down, so clients should fail over to a healthy replica rather than
   // attach to a session that's about to close.
@@ -1867,6 +1868,21 @@ server.on('upgrade', async (request, socket, head) => {
     const wrappedWs = wsSimulator.simulateFlakyConnection(ws);
     wss.emit('connection', wrappedWs, request);
   });
+  } catch (err) {
+    // A thrown lookup here (extractUser / can.view against a down database)
+    // must answer the socket, not die as an unhandledRejection. Since 046
+    // closes degraded editors with 1013, an outage sends every one of them
+    // back through this handler on ~2.5s retry loops — unguarded, that is one
+    // page per attempt through the process-level handler (draining the shared
+    // notification budget the per-doc throttles protect) and a TCP socket left
+    // dangling until the client's own timeout. 503 keeps the client backing
+    // off and retrying, the same contract as the drain refusal above.
+    console.error('[WS] upgrade failed:', err?.message || err);
+    try {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+    } catch { /* socket may already be gone */ }
+    socket.destroy();
+  }
 });
 
 // Presence cleanup note (feature 038 US5): this file used to hand-parse clientIds

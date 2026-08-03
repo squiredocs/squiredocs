@@ -146,7 +146,9 @@ export function createControllableMockProvider(options = {}) {
   const mockProvider = {
     doc: options.doc || new Y.Doc(),
     awareness: mockAwareness,
-    shouldConnect: true,
+    // Mirrors a real provider constructed with `connect: false` — y-websocket
+    // only sets shouldConnect true inside connect().
+    shouldConnect: false,
     synced: options.synced ?? false,
     wsconnected: options.wsconnected ?? false,
     wsUnsuccessful: 0,
@@ -175,10 +177,14 @@ export function createControllableMockProvider(options = {}) {
       mockProvider.on(event, wrapper);
     }),
 
-    // Actions
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    destroy: vi.fn(),
+    // Actions. These MUST mirror y-websocket 1.5.4's flag semantics —
+    // connect() sets shouldConnect, disconnect()/destroy() clear it. A bare
+    // vi.fn() here is exactly what masked the dead forceReconnect path (the
+    // hook cleared its own gate flag via disconnect() and the inert mock let
+    // the test pass anyway).
+    connect: vi.fn(() => { mockProvider.shouldConnect = true; }),
+    disconnect: vi.fn(() => { mockProvider.shouldConnect = false; }),
+    destroy: vi.fn(() => { mockProvider.shouldConnect = false; }),
 
     // === Test utilities for emitting events ===
 
