@@ -280,6 +280,15 @@ async function startCollabServer(opts = {}) {
 
   const notifyException = (err, ctx) => { notifications.push({ err, ctx }); };
 
+  /**
+   * Per-connection edit-capability controls (feature 046), keyed by the opaque
+   * label `connect()` puts on the query string. A label rather than "the most
+   * recent connection" so a test with several sockets open cannot address the
+   * wrong one, and so the mapping survives out-of-order upgrades.
+   */
+  const serverConnControls = new Map();
+  let nextConnLabel = 0;
+
   // H1: the REAL bindState from X1. No hand-written update listener exists in
   // this file; the only occurrences of that call anywhere in this harness are
   // the two in prose above, describing its absence.
@@ -334,6 +343,9 @@ async function startCollabServer(opts = {}) {
           request.docId = docId;
           // H3: the SECOND authorization axis, same predicate as production.
           request.tokenMayWrite = !Array.isArray(user.scopes) || user.scopes.includes('documents:write');
+          // Test-only correlation handle (046) — never read by any production
+          // module, only by the harness's own connection handler below.
+          request.connLabel = url.searchParams.get('connLabel');
 
           wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
@@ -353,7 +365,29 @@ async function startCollabServer(opts = {}) {
         // server/__tests__/collab-extraction-guard.test.js, so a change to
         // either predicate fails there rather than drifting silently here.
         const tokenMayWrite = req.tokenMayWrite !== false;
-        const currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
+        let currentCanEdit = tokenMayWrite && documents.ROLES[userRole] >= documents.ROLES['editor'];
+
+        // Feature 046 (NEW-1). Production's 60 s role re-check lives in
+        // index.js and cannot be reached from here, so the harness models the
+        // TWO STATES it can leave a connection in — and nothing else:
+        //   failRoleRecheck()     → error-induced fail-closed (degraded)
+        //   downgradeToViewer()   → a genuine verdict that the role changed
+        // Both write the same two variables the real re-check writes, and both
+        // are read through the SAME `installGate` handlers production passes,
+        // so the behavior under test is the shipped gate's, not a model of it.
+        let editCapabilityDegraded = false;
+        const control = {
+          failRoleRecheck: () => {
+            const believedCapable = currentCanEdit || editCapabilityDegraded;
+            currentCanEdit = false;
+            editCapabilityDegraded = believedCapable;
+          },
+          downgradeToViewer: () => {
+            currentCanEdit = false;
+            editCapabilityDegraded = false;
+          },
+        };
+        serverConnControls.set(req.connLabel, control);
 
         // H4: connection identity from X2. Never a literal.
         const wsIdentity = identityFromPrincipal(req.user);
@@ -363,6 +397,7 @@ async function startCollabServer(opts = {}) {
         // H5: the REAL gate, installed the real way, BEFORE setupWSConnection.
         installGate(ws, {
           canEdit: () => currentCanEdit,
+          editCapabilityDegraded: () => editCapabilityDegraded,
           onBlocked: (event, info = {}) => {
             blockedEvents.push({ event, userId: ws.userId, docId, role: userRole, ...info });
           },
@@ -384,10 +419,19 @@ async function startCollabServer(opts = {}) {
    * @param {string} token - a real session JWT or sk_sqd_ token
    */
   async function connect(docGuid, token) {
-    const ws = new WebSocket(`ws://localhost:${port}/s/${docGuid}?token=${encodeURIComponent(token)}`);
+    const connLabel = `c${nextConnLabel += 1}`;
+    const ws = new WebSocket(
+      `ws://localhost:${port}/s/${docGuid}`
+      + `?token=${encodeURIComponent(token)}&connLabel=${connLabel}`
+    );
     const received = [];
     /** A client-side doc fed by whatever the server sends (read path). */
     const clientDoc = new Y.Doc();
+    /** Close code/reason the SERVER sent, or null while still open (046). */
+    let closedWith = null;
+    ws.on('close', (code, reason) => {
+      closedWith = { code, reason: reason ? reason.toString() : '' };
+    });
 
     ws.on('message', (data) => {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -416,6 +460,15 @@ async function startCollabServer(opts = {}) {
       ws,
       clientDoc,
       received,
+      /** null while open; `{ code, reason }` once the socket has closed (046). */
+      closedWith: () => closedWith,
+      /** Is this socket still usable for sending? (046) */
+      isOpen: () => ws.readyState === WebSocket.OPEN,
+      /**
+       * Drive THIS connection's server-side edit capability (046). See the
+       * `control` object in the connection handler for what each does.
+       */
+      serverControl: () => serverConnControls.get(connLabel),
       sendUpdate: (update) => ws.send(updateFrame(update)),
       sendStep2: (doc) => ws.send(step2FrameFrom(doc)),
       sendStep1: (doc) => ws.send(step1FrameFrom(doc)),

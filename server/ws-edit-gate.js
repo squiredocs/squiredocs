@@ -75,6 +75,24 @@ const SYNC_UPDATE = 2; // Send an update (edit)
 const STEP2_ORIGIN_FLAG = '_applyingSyncStep2';
 
 /**
+ * Close code used when an edit frame is refused because this connection's edit
+ * capability is DEGRADED (fail-closed after an error) rather than genuinely
+ * absent. See the "silent divergence" note on `installGate` below.
+ *
+ * 1013 "Try Again Later" is chosen deliberately: y-websocket's provider treats
+ * every close except the app's own auth codes (4401/4403, see
+ * client/src/hooks/useYjs.js `handleClose`) as non-fatal and reconnects with
+ * backoff, and the reconnect handshake re-sends everything the client holds.
+ * A code in the 4xxx app range would need a matching client change to get the
+ * same behavior; 1013 gets it from the existing client untouched.
+ */
+const DEGRADED_CLOSE_CODE = 1013;
+
+/** Reason string sent with `DEGRADED_CLOSE_CODE`. Kept short — the close reason
+ *  is capped at 123 bytes by the protocol. */
+const DEGRADED_CLOSE_REASON = 'Edit capability unavailable, reconnect';
+
+/**
  * The awareness ownership guard (feature 044), resolved on FIRST USE.
  *
  * The two modules reference each other by design: the guard reuses the protocol
@@ -182,9 +200,40 @@ function viaSyncFromOrigin(origin) {
  *  - edit frame from a connection that may NOT edit ⇒ DROPPED: `onBlocked` fires
  *    and emit returns false. No document mutation, no row, no rebroadcast, no
  *    reply. The connection STAYS OPEN and is not notified (D4, matching the
- *    pre-existing WS_EDIT_BLOCKED policy).
+ *    pre-existing WS_EDIT_BLOCKED policy) — UNLESS the capability is degraded,
+ *    see immediately below.
+ *  - edit frame dropped while `editCapabilityDegraded()` is true ⇒ same drop,
+ *    then the socket is CLOSED with 1013 so the client reconnects and re-supplies.
  *  - step2 frame from a connection that MAY edit ⇒ applied inside the step2 flag
  *    window (see below) so the rows it produces are marked via_sync.
+ *
+ * ── WHY A DEGRADED DROP MUST CLOSE THE SOCKET (feature 046, NEW-1) ────────────
+ * Silently dropping an edit frame is correct for a VIEWER: they never had a
+ * write channel, nothing they hold is expected to reach the server, and the
+ * dropped frame is the whole of the loss.
+ *
+ * It is CATASTROPHIC for an EDITOR. `server/index.js`'s 60 s role re-check fails
+ * closed — ANY transient error (pool exhaustion, failover, statement timeout)
+ * sets `canEdit = false`. Frames dropped in that window are gone, and y-websocket
+ * only re-sends state on RECONNECT: when the re-check recovers, the client does
+ * not resend. Every SUBSEQUENT frame then references structs the server doc never
+ * received, so Yjs parks them as PENDING — they never integrate, never fire the
+ * doc `update` event, and therefore never reach the persistence listener. From
+ * the blip onward the editor types into a document nobody else sees and no row
+ * records, with no CRITICAL log (the write is never attempted) and no UI signal.
+ * Close the tab and the work exists only in that browser's IndexedDB.
+ *
+ * Closing converts unbounded silent divergence into a sub-second reconnect: the
+ * provider's handshake re-supplies everything the client holds, 038's via_sync
+ * marking records that it arrived over the sync channel, and 045's resolver
+ * keeps the re-supplied content attributed to its real author rather than the
+ * relayer. The drop still happens first — the degraded connection never writes.
+ *
+ * A GENUINE downgrade (a real editor→viewer role change, verified against the
+ * DB) is NOT degraded: it keeps the existing drop-and-stay-open policy, because
+ * there the user legitimately may not write and dropping is the whole answer.
+ * `editCapabilityDegraded` is what separates the two, and only the caller that
+ * owns the re-check can know which happened.
  *
  * ── via_sync CONTRACT (FR-015), stated where the flag is SET ─────────────────
  * A via_sync row proves the content reached the server THROUGH this client —
@@ -228,9 +277,17 @@ function viaSyncFromOrigin(origin) {
  *   awareness frames that assert ids FAIL CLOSED (see the drop table below).
  * @param {function(*): (string|null)} [handlers.principalOf] - OPTIONAL (044).
  *   The same-user tie-break input; defaults to reading `conn.userId`.
+ * @param {function(): boolean} [handlers.editCapabilityDegraded] - OPTIONAL (046).
+ *   "Is this connection's CURRENT inability to edit the result of an ERROR
+ *   rather than a role verdict?" Read only when an edit frame is actually
+ *   dropped. True ⇒ close with 1013 after the drop. Omitted ⇒ every drop is
+ *   treated as a genuine refusal and the socket stays open, which is exactly the
+ *   pre-046 behavior for every caller that does not pass it.
  * @returns {function} The original (unwrapped) `ws.emit`, bound to `ws`.
  */
-function installGate(ws, { canEdit, onBlocked, getOwnership, principalOf } = {}) {
+function installGate(ws, {
+  canEdit, onBlocked, getOwnership, principalOf, editCapabilityDegraded,
+} = {}) {
   const originalEmit = ws.emit.bind(ws);
 
   // Per-connection log suppression for awareness drops (feature 044, FR-007),
@@ -284,7 +341,35 @@ function installGate(ws, { canEdit, onBlocked, getOwnership, principalOf } = {})
       const { kind } = classifyFrame(buffer);
 
       if (kind !== null && !canEdit()) {
-        if (onBlocked) onBlocked(blockedEventFor(kind), { kind });
+        // Ask WHY this connection cannot edit only now — one predicate call per
+        // dropped frame, never on the honest path.
+        let degraded = false;
+        if (typeof editCapabilityDegraded === 'function') {
+          // A throwing predicate must not take the connection down or let the
+          // frame through: treat "cannot tell" as a genuine refusal (the
+          // pre-046 behavior) rather than closing sockets on a caller bug.
+          try { degraded = editCapabilityDegraded() === true; } catch { degraded = false; }
+        }
+
+        // Dropped either way — a degraded connection still writes nothing.
+        // `degraded` is added to the payload ONLY when true, so an ordinary
+        // viewer block reports the exact shape it reported before 046.
+        if (onBlocked) onBlocked(blockedEventFor(kind), degraded ? { kind, degraded } : { kind });
+
+        if (degraded) {
+          // Close AFTER the drop, and only once: `ws.close()` on an already
+          // closing/closed socket is a no-op in `ws`, so a burst of frames
+          // inside the close handshake cannot stack close frames. Everything
+          // this client holds — including the frames dropped here — comes back
+          // on the reconnect handshake.
+          try {
+            ws.close(DEGRADED_CLOSE_CODE, DEGRADED_CLOSE_REASON);
+          } catch (closeErr) {
+            // Never let a teardown-time failure escape into the message
+            // dispatch; the frame is already dropped and the socket is going.
+            console.error('[ws-edit-gate] failed to close degraded connection:', closeErr.message);
+          }
+        }
         return false;
       }
 
@@ -370,6 +455,8 @@ module.exports = {
   SYNC_STEP2,
   SYNC_UPDATE,
   STEP2_ORIGIN_FLAG,
+  DEGRADED_CLOSE_CODE,
+  DEGRADED_CLOSE_REASON,
   classifyFrame,
   isEditMessage,
   blockedEventFor,
