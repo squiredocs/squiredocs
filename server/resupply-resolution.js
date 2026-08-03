@@ -177,6 +177,7 @@
  */
 const Y = require('yjs');
 const { CHAT_AGENT_NAME } = require('./agent-identity');
+const metrics = require('./telemetry/metrics');
 
 /** Sticky marker for a client identity bound to more than one identity pair. */
 const AMBIGUOUS = Symbol('ambiguous');
@@ -444,6 +445,12 @@ function snapshotOutcome(target, byClient, docGuid) {
 function memoize(docGuid, clock, outcome) {
   outcomeMemo.set(`${docGuid}:${clock}`, outcome);
   evictTo(outcomeMemo, envInt('RESUPPLY_CACHE_MAX_OUTCOMES', DEFAULT_CACHE_MAX_OUTCOMES));
+  // The one place a NEWLY COMPUTED outcome is recorded, which makes it the
+  // honest place to count them: a memo hit is the same answer re-read, and
+  // counting those would inflate the ratio without adding information. The
+  // resolved-vs-refused split is how the feature's promise gets observed in
+  // production rather than asserted (display-only, so this cannot affect it).
+  metrics.recordResupplyResolution(outcome.unresolved ? 'unresolved' : 'resolved');
   return outcome;
 }
 

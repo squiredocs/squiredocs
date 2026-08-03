@@ -36,6 +36,29 @@ function getInstruments() {
       description:
         'Client-reported collaborative-editor render skips (feature 021, DR-3) by node type and error class.',
     }),
+    // ── The 041-048 safety counters ────────────────────────────────────────
+    // Each of these should sit at or near zero. They are not activity metrics;
+    // they are the first symptom of the failure modes that train was built to
+    // close, and every one of them was previously reachable only by reading pod
+    // logs. Two are additionally rate-suppressed at the source, so counting log
+    // LINES undercounts them by design — which is the other half of why they
+    // need to be counters.
+    bindRefusals: meter.createCounter('collab.bind.refusals', {
+      description:
+        'Document loads that failed and refused the collaboration bind (feature 041, FR-010). A rising rate means the database is failing reads, and clients are being told to retry rather than served an empty document.',
+    }),
+    editCapabilityDegraded: meter.createCounter('collab.edit.degraded_closes', {
+      description:
+        'Editor connections closed with 1013 because a role re-check failed rather than denied (feature 046). This is the signal that a database blip is interrupting people mid-edit; 046 assumes it is rare.',
+    }),
+    awarenessBlocked: meter.createCounter('collab.awareness.blocked', {
+      description:
+        'Awareness frames refused for asserting a clientID the connection does not own (feature 044), by reason. Counts frames DROPPED, including those suppressed from the logs.',
+    }),
+    resupplyResolutions: meter.createCounter('collab.resupply.resolutions', {
+      description:
+        'Authorship resolutions attempted for sync-relayed rows (feature 045), by outcome: resolved to an author, or honestly refused. The ratio is how the attribution promise is observed rather than asserted.',
+    }),
   };
   return instruments;
 }
@@ -129,6 +152,69 @@ function recordCollabRenderSkip(nodeType, errorName, count = 1) {
 }
 
 /**
+ * Count one refused collaboration bind (feature 041, FR-010).
+ *
+ * Deliberately unlabelled by document: the useful question is "is this
+ * happening at all, and is it rising", and a docGuid label would be unbounded
+ * cardinality on the one metric most likely to fire in a storm.
+ */
+function recordBindRefusal() {
+  try {
+    getInstruments().bindRefusals.add(1);
+  } catch {
+    /* swallow — a metrics fault must never add a failure mode to the refusal path */
+  }
+}
+
+/**
+ * Count one editor connection closed because its edit capability was DEGRADED —
+ * a role re-check that errored rather than denied (feature 046).
+ *
+ * Separate from an ordinary permission denial on purpose: a denial is the
+ * system working, this is the system failing safe, and conflating them would
+ * hide the signal inside normal traffic.
+ */
+function recordEditCapabilityDegraded() {
+  try {
+    getInstruments().editCapabilityDegraded.add(1);
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * Count awareness frames dropped by the ownership guard (feature 044).
+ *
+ * Takes the DROPPED COUNT, not one per log line: the guard suppresses repeated
+ * logs per connection and carries the real volume in its payload, so counting
+ * calls here would undercount exactly when it matters most. `reason` is a small
+ * fixed set from the guard, never user input.
+ */
+function recordAwarenessBlocked(reason, dropped = 1) {
+  try {
+    getInstruments().awarenessBlocked.add(Number.isFinite(dropped) && dropped > 0 ? dropped : 1, {
+      'awareness.reason': typeof reason === 'string' && reason ? reason : 'unknown',
+    });
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * Count one authorship resolution for a sync-relayed row (feature 045).
+ * @param {'resolved'|'unresolved'} outcome
+ */
+function recordResupplyResolution(outcome) {
+  try {
+    getInstruments().resupplyResolutions.add(1, {
+      'resupply.outcome': outcome === 'resolved' ? 'resolved' : 'unresolved',
+    });
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
  * Register observable PG pool gauges (total/idle/waiting). Reads the live pool
  * counts on each metric collection interval. Safe to call once at startup.
  * @param {object} opts
@@ -179,6 +265,10 @@ module.exports = {
   httpMetricsMiddleware,
   recordRateLimitRejection,
   recordCollabRenderSkip,
+  recordBindRefusal,
+  recordEditCapabilityDegraded,
+  recordAwarenessBlocked,
+  recordResupplyResolution,
   init,
   // Exposed for tests
   statusClass,

@@ -2027,6 +2027,11 @@ wss.on('connection', (ws, req) => {
         logPerf(event, {
           connId, userId, docId, role: userRole, reason, foreignIds, conflicts, dropped, sinceLastLog,
         });
+        // `dropped`, not 1: this line is rate-suppressed per connection, so
+        // counting calls would undercount precisely during a flood. After the
+        // cross-pod vouching fix this should fall to roughly zero — if it does
+        // not, legitimate reconnects are still being refused.
+        telemetryMetrics.recordAwarenessBlocked(reason, dropped);
         console.log(
           `✗ Awareness frame blocked (${reason}): user ${userId} asserted clientIds [${foreignIds}] `
           + `it does not control on doc ${docId} (held by `
@@ -2078,6 +2083,9 @@ wss.on('connection', (ws, req) => {
       editCapabilityDegraded = believedCapable;
       if (believedCapable) {
         logPerf('WS_EDIT_CAPABILITY_DEGRADED', { connId, userId, docId, role: userRole });
+        // 046 is built on the assumption that this is rare. Counting it is how
+        // that assumption gets checked instead of trusted.
+        telemetryMetrics.recordEditCapabilityDegraded();
       }
     }
   }, ROLE_RECHECK_INTERVAL);

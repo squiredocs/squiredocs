@@ -22,6 +22,7 @@ const { viaSyncFromOrigin } = require('./ws-edit-gate');
 const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
 const { refuseBind } = require('./bind-failure');
 const { retryWithBackoff } = require('./retry');
+const telemetryMetrics = require('./telemetry/metrics');
 
 // Helper to extract clean UUID from y-websocket doc name
 // y-websocket extracts doc name from URL path like /s/uuid, giving us "s/uuid"
@@ -320,6 +321,10 @@ function createBindState(deps) {
       // own new edits). Refuse instead; clients retry. See server/bind-failure.js.
       refuseBind({ docName, docGuid, ydoc, error, docs, notify: notifyException });
       logPerf('BIND_STATE_REFUSED', { docGuid, totalDuration: Date.now() - startTime });
+      // Counted as well as logged: this is a database-health canary, and a
+      // storm of it is the shape of an outage. logPerf is a console line, so
+      // without this the rate is only recoverable by grepping pod logs.
+      telemetryMetrics.recordBindRefusal();
     }
   };
 }
