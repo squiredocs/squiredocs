@@ -26,17 +26,22 @@
  * numbers `server/ws-edit-gate.js` already exports) and the frame helpers that
  * used them.
  *
- * ── What still owes coverage ────────────────────────────────────────────────
+ * ── Where the end-to-end coverage lives ─────────────────────────────────────
  * The end-to-end version of this scenario — two authenticated clients, agent
- * first, human second, both editing, every persisted row's identity asserted —
- * is specified as feature 043 US1/FR-001 and is NOT yet implemented. It needs
- * the bindState update listener to be importable (extraction X1), which was
- * stopped and reported rather than forced: X1 collides with feature 041's
- * structural pins in server/__tests__/bindstate-failure.test.js, and editing
- * another feature's shipped guard is outside this feature's extraction budget
- * (ledger D9). See specs/043-version-history-test-hardening/promotion-notes.md.
- * The tests below are honest about their scope: the token claims the fix reads,
- * and the derivation it installed. Nothing here claims to cover the wire.
+ * first, human second, both editing, every persisted row's identity asserted,
+ * in both connection orders — is `__tests__/integration/attribution-e2e.test.js`
+ * (feature 043 US1/FR-001). It drives the real connection path through the
+ * shared harness, so breaking `identityFromPrincipal` fails it.
+ *
+ * (An earlier revision of this header said US1 was blocked by extraction X1
+ * colliding with feature 041's pins in
+ * server/__tests__/bindstate-failure.test.js. That blocker was ratified and
+ * cleared — the pins were repointed, not relaxed, and X1 landed; see
+ * specs/043-version-history-test-hardening/promotion-notes.md §1a.)
+ *
+ * The tests below stay honest about their own narrower scope: the token claims
+ * the fix reads, and the derivation it installed. Nothing HERE claims to cover
+ * the wire.
  */
 const jwt = require('jsonwebtoken');
 const { identityFromPrincipal } = require('../agent-identity');

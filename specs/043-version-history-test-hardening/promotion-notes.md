@@ -7,7 +7,9 @@
 `af0a78e7`. The blocker described in §1 was ratified and cleared; X1, the shared
 harness and US1-US4 all landed. §1 is kept as the historical record, with its
 resolution at the top. New material: §1a (how the blocker was cleared), §1b (the
-US2 verdict) and §1c (a NEW DEFECT this work discovered).
+US2 verdict), §1c (a NEW DEFECT this work discovered), §1d (a deliberate drop)
+and §1e (a spec-vs-merged-behavior divergence, recorded per ledger D5 during the
+post-merge review).
 
 ---
 
@@ -150,6 +152,40 @@ on purpose:
 
 Recommended, not urgent: fold it into `collab-harness.js` in a future pass, and
 delete its local `extractDocGuid` and frame constants at the same time.
+
+---
+
+## 1e. RECORDED DIVERGENCE (D5): US4 acceptance 1 asserts LOG survival, not DOCUMENT survival
+
+**Where**: `__tests__/integration/restore-concurrency.test.js:157-160` (US4
+acceptance 1, FR-005 "no loss of the concurrent edit").
+
+**The spec's phrasing** reads as though the concurrently-typed content must
+still be in the document after the restore. **The test asserts something
+weaker**: the concurrent edit survives in the durable log, under its own author
+(`concurrentRows.length >= 1` plus `assertEveryRowAttributed`), and the restore
+landed (`serverXml` contains the target's content). It deliberately asserts
+nothing either way about the concurrent text being *present in the document*.
+
+**Why the weakening is correct, not a shortcut.** Under feature 041's
+restore-to-target semantics the restore transacts the live doc to the target
+version's content. Whether the co-editor's paragraph survives that is purely a
+function of interleaving: an edit that lands *before* the restore transacts is
+legitimately reverted by it — that is what restoring means — while one that
+lands after is additive. Asserting document survival would therefore name a race
+winner, which ledger D2 forbids for exactly this suite ("INVARIANTS ONLY.
+Nothing here may name a race winner"), and would flake on ordering rather than
+detect a defect.
+
+What is genuinely interleaving-independent, and is what the test pins, is that
+the append-only log never loses the edit or its attribution. The user-visible
+promise is intact: the content is recoverable from history whichever way the
+race went.
+
+**Precedent**: spec Assumptions — "If 041's merged restore/error-state semantics
+differ from the deep-dive description used here, 041's merged behavior wins and
+the affected acceptance scenarios (US4, US7) are read against it." This entry is
+that reading, made explicit per D5.
 
 ---
 
