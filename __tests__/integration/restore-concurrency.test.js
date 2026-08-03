@@ -105,6 +105,20 @@ describe('US4: restore under concurrency', () => {
     return { docGuid, client, clientDoc, timeline };
   }
 
+  /**
+   * Is this `storeUpdate` call the RESTORE's own durable write?
+   *
+   * Both restore and the bindState persistence listener call the same method.
+   * The listener always passes `viaSync` in its options object (feature 038);
+   * restore passes `{ meaningful: true }` and nothing else. That is the cheapest
+   * honest discriminator, and it is asserted rather than assumed by the
+   * store-then-broadcast ordering test below.
+   */
+  const isRestoreStore = (args) => {
+    const opts = args[6];
+    return !!opts && opts.meaningful === true && !('viaSync' in opts);
+  };
+
   /** C7: no row this suite produces goes unchecked. */
   function assertEveryRowAttributed(rows) {
     expect(rows.length).toBeGreaterThan(0);
@@ -223,6 +237,148 @@ describe('US4: restore under concurrency', () => {
 
       assertEveryRowAttributed(rows);
     } finally {
+      await client.close();
+    }
+  }, 40000);
+
+
+  // ── Feature 048 (RBD-048-2): the two accepted consequences of store-then-apply
+  //
+  // Restore used to transact on the live document and broadcast before the
+  // durable write. It now computes on a throwaway doc, commits, and only then
+  // broadcasts. Both consequences below were accepted with the design rather
+  // than fixed, so they are pinned here — if either ever changes, that is a
+  // decision someone has to make again, not a silent drift.
+
+  test('048 AS3 — an edit landing during the store await MERGES with the restore; neither is lost', async () => {
+    const { docGuid, client, clientDoc, timeline } = await buildFixture();
+    const target = timeline.versions[0]; // ALPHA only
+    const otherClient = await harness.connect(docGuid, other.token);
+
+    // Hold the store open so the concurrent edit is guaranteed to land inside
+    // the await, rather than hoping the scheduler cooperates.
+    const realStore = harness.persistence.storeUpdate.bind(harness.persistence);
+    let releaseStore;
+    let announceGateEntered;
+    const storeReached = new Promise((resolve) => { releaseStore = resolve; });
+    const gateEntered = new Promise((resolve) => { announceGateEntered = resolve; });
+    let gatedOnce = false;
+    const spy = jest.spyOn(harness.persistence, 'storeUpdate').mockImplementation(
+      async (...args) => {
+        // Gate ONLY the restore's own write. The bindState listener persists
+        // every normal edit through this same method and passes `viaSync` in its
+        // options; restore passes `{ meaningful: true }` alone. Gating both would
+        // deadlock the very edit this test needs to land.
+        if (!gatedOnce && isRestoreStore(args)) {
+          gatedOnce = true;
+          announceGateEntered();
+          await storeReached;
+        }
+        return realStore(...args);
+      }
+    );
+
+    try {
+      const restorePromise = versionHistory.restoreVersion(
+        harness.persistence, docGuid, target.id, owner.userId, { getSharedDoc }
+      );
+
+      // Wait until the restore is INSIDE its durable write before typing. The
+      // restore computes its delta before it stores, so an edit sent earlier
+      // could be part of the seed and get replaced — a legitimate outcome, but
+      // a different one. This is specifically the store-await window.
+      await gateEntered;
+
+      otherClient.sendUpdate(appendParagraph(clientDoc, 'DURING the store await'));
+      await waitFor(async () => {
+        const rows = await harness.rowsFor(docGuid);
+        return rows.some((r) => r.user_id === other.userId);
+      }, { label: 'the concurrent edit persisted while the store was open' });
+
+      releaseStore();
+      const result = await restorePromise;
+      expect(result.success).toBe(true);
+      await Promise.allSettled([...harness.pendingWrites]);
+
+      // NEITHER is lost. The restore row is durable under the restorer...
+      const rows = await harness.rowsFor(docGuid);
+      const restoreRow = rows.find((r) => r.clock === result.newClock);
+      expect(restoreRow).toBeDefined();
+      expect(restoreRow.user_id).toBe(owner.userId);
+
+      // ...the co-editor's row is durable under the co-editor...
+      expect(rows.filter((r) => r.user_id === other.userId).length).toBeGreaterThanOrEqual(1);
+
+      // ...and the live document carries BOTH, which is the merge: the restore
+      // did not replace an edit it never saw. This is the semantic the durable
+      // path and every cross-pod restore always had; it is simply uniform now.
+      const xml = harness.serverXml(docGuid);
+      expect(xml).toContain('ALPHA first');
+      expect(xml).toContain('DURING the store await');
+
+      assertEveryRowAttributed(rows);
+    } finally {
+      spy.mockRestore();
+      await otherClient.close();
+      await client.close();
+    }
+  }, 40000);
+
+  test('048 AS4 — the restore is durable BEFORE it is broadcast, so losing the broadcast loses nothing', async () => {
+    const { docGuid, client, timeline } = await buildFixture();
+    const target = timeline.versions[0]; // ALPHA only
+
+    // The crash window is "after commit, before broadcast". Rather than kill the
+    // process, observe the ordering directly and then prove the durable row
+    // stands on its own — which is exactly what a restarted pod would find.
+    const liveDoc = getSharedDoc(docGuid);
+    let broadcasts = 0;
+    const watchBroadcast = () => { broadcasts += 1; };
+    liveDoc.on('update', watchBroadcast);
+
+    let broadcastsWhenStoreResolved = null;
+    const realStore = harness.persistence.storeUpdate.bind(harness.persistence);
+    const spy = jest.spyOn(harness.persistence, 'storeUpdate').mockImplementation(
+      async (...args) => {
+        const clock = await realStore(...args);
+        if (isRestoreStore(args) && broadcastsWhenStoreResolved === null) {
+          broadcastsWhenStoreResolved = broadcasts;
+        }
+        return clock;
+      }
+    );
+
+    try {
+      const result = await versionHistory.restoreVersion(
+        harness.persistence, docGuid, target.id, owner.userId, { getSharedDoc }
+      );
+      expect(result.success).toBe(true);
+      await Promise.allSettled([...harness.pendingWrites]);
+
+      // ORDERING: the durable write completed with the broadcast still to come.
+      // Everything after this point is recoverable; a crash here loses only the
+      // notification, never the content.
+      expect(broadcastsWhenStoreResolved).toBe(0);
+      expect(broadcasts).toBeGreaterThan(0); // it did eventually broadcast
+
+      // The row is durable and attributed.
+      const rows = await harness.rowsFor(docGuid);
+      const restoreRow = rows.find((r) => r.clock === result.newClock);
+      expect(restoreRow).toBeDefined();
+      expect(restoreRow.user_id).toBe(owner.userId);
+
+      // REPLAY: rebuilding from the log alone — what a restarted pod does —
+      // yields the restored content, with no help from the broadcast.
+      const rebuilt = await harness.persistence.getYDoc(docGuid);
+      const rebuiltXml = rebuilt.get('default', Y.XmlFragment).toString();
+      rebuilt.destroy();
+      expect(rebuiltXml).toContain('ALPHA first');
+      expect(rebuiltXml).not.toContain('GAMMA third');
+
+      assertEveryRowAttributed(rows);
+    } finally {
+      spy.mockRestore();
+      liveDoc.off('update', watchBroadcast);
       await client.close();
     }
   }, 40000);
