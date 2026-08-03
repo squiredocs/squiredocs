@@ -455,3 +455,77 @@ live reader still stops the line.
   this near-miss for the implementer: the sweep that missed it was looking for
   exactly the right thing, in the right place, with a tool that lies about this
   file. T005a must use `grep -a` or Read, and must state which it used.
+
+---
+
+## G. Implementation-stage findings (2026-08-03, implement agent)
+
+### N-049-4 — NOTE (T001/T002) — The inventory and the versions are unchanged
+
+Re-verified with `grep -arn "updateDocument(" server/ __tests__/`. All **7
+production call sites** are at the lines `research.md` §R7 states
+(`document-service.js:383`, `markdown-import.js:321`, `chat-tools.js:60` and
+`:108`, `docs-import.js:341`, `create-document.js:197`,
+`set-document-title.js:79`), and exactly **8 test files** call `updateDocument`
+directly. No drift. Installed versions match the plan exactly: `yjs@13.6.30`,
+`y-protocols@1.0.7`, `y-websocket@1.5.4`.
+
+### F-049-1 — REFINEMENT to E-049-D's reachability argument — the decisive barrier is a microtask, not an `await`
+
+The record (orchestrator note on E-049-D) accepted T005a on the grounds that
+"every path to `learnLiveServerClient` crosses an await". **That argument is
+weaker than it looks, and it is not the one the audit rests on.**
+
+`learnLiveServerClient` is the **first statement of `computeOutcomes`, before any
+`await`** (`resupply-resolution.js:589`). The synchronous prefix of an `async`
+function runs synchronously at the call. So "the caller awaits it" does not by
+itself keep the read out of a synchronous window — if `computeOutcomes` were ever
+*invoked* from inside the borrow window, the `doc.clientID` read would execute
+inside it.
+
+What actually settles it: `computeOutcomes` is invoked **only** through
+`withFoldSlot` (`resolveForRows:658`), which dispatches as `prev.then(task, task)`.
+A `.then()` callback always runs in a microtask, never in the calling synchronous
+frame. The borrow window is one synchronous frame and restores `doc.clientID`
+before any microtask runs. Verified empirically (probe P6).
+
+This is recorded as a refinement rather than a contradiction — the conclusion
+(not stop-the-line) is unchanged. It matters because the barrier that holds is a
+**structural** property of the dispatch that a new caller inherits automatically,
+whereas the `await` argument would have to be re-checked against every future
+caller. Full reasoning in `clientid-reader-audit.md` §5.
+
+### F-049-2 — NEW FINDING (T003) — yjs stamps SUBDOCUMENTS with the live `doc.clientID` inside the borrow window
+
+Not previously flagged at any stage. `yjs.cjs:3402`, inside transaction cleanup
+and therefore **inside the borrow window**:
+
+```js
+subdocsAdded.forEach(subdoc => { subdoc.clientID = doc.clientID; … })
+```
+
+This is a genuine **live** read. A subdocument created by a mutate phase would be
+stamped with the **borrowed** id **permanently** — the borrow is restored, the
+subdocument's id is not, and nothing later repairs it.
+
+**Not stop-the-line**: it is unreachable today. A NUL-safe sweep of `server/` for
+`new Y.Doc()` finds 17 sites, all standalone documents; none is inserted into
+another document's type, so `subdocsAdded` is always empty for our transactions.
+
+**Disposition**: this is exactly the hazard T018a's JSDoc prohibition names, and
+it is now backed by a located line rather than by contract prose. It is
+unenforceable by shape — hence written into the signature's documentation. **If a
+future caller creates a subdocument in a mutate phase, the FR-008 GO verdict no
+longer covers it.**
+
+### F-049-3 — CONFIRMED MECHANICALLY (T003, analyze F4) — yjs's client-id self-heal can never fire for a 049 write
+
+`yjs.cjs:3379` guards the self-heal with `!transaction.local && …`. 048's
+merge-back used `Y.applyUpdate`, which yjs runs **non-local**, so the self-heal
+could fire. 049's `doc.transact` is **local**, so the condition short-circuits
+and `doc.clientID` is not even evaluated (probe P2).
+
+Recorded because it upgrades FR-007 from a precaution to a **requirement with a
+located mechanical cause**: a borrowed id receives no protection from yjs's own
+duplicate-id repair, and caching stretches that exposure across the process
+lifetime. The manual clock re-check is the only thing standing in for it.
