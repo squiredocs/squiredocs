@@ -252,24 +252,33 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     }
   });
 
-  // ── PIN: the wiring in server/index.js ────────────────────────────────────
-  // index.js boots a live server on require, so its bindState catch is pinned by
-  // source inspection: the NEW DOC framing must be gone and the persist path
-  // must be gated on the failure marker.
-  describe('PIN: server/index.js bindState wiring', () => {
+  // ── PIN: the bindState wiring ─────────────────────────────────────────────
+  // These pins exist because index.js boots a live server on require, so its
+  // bindState catch could only be checked by source inspection: the NEW DOC
+  // framing must be gone and the persist path must be gated on the failure
+  // marker.
+  //
+  // Feature 043 (X1) MOVED that code out of server/index.js into
+  // server/collab-bind-state.js so it could be driven directly. The pins follow
+  // the code to its new home — same regexes, byte for byte, read from the file
+  // that now contains the subject. Nothing is relaxed: drift protection tracks
+  // the code, not the filename. The absence pin below reads BOTH files, so a
+  // re-inlined NEW DOC branch fails wherever it reappears.
+  describe('PIN: bindState wiring (server/collab-bind-state.js after 043 X1)', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const bindStateSource = fs.readFileSync(path.join(__dirname, '..', 'collab-bind-state.js'), 'utf8');
 
     test('the bind failure path no longer logs NEW DOC or BIND_STATE_NEW_DOC', () => {
-      expect(source).not.toMatch(/BIND_STATE_NEW_DOC/);
-      expect(source).not.toMatch(/\[bindState\] NEW DOC/);
+      expect(source + bindStateSource).not.toMatch(/BIND_STATE_NEW_DOC/);
+      expect(source + bindStateSource).not.toMatch(/\[bindState\] NEW DOC/);
     });
 
     test('the catch refuses the bind with the notifier and the y-websocket docs map', () => {
-      expect(source).toMatch(/refuseBind\(\{\s*docName,\s*docGuid,\s*ydoc,\s*error,\s*docs,\s*notify: notifyException\s*\}\)/);
+      expect(bindStateSource).toMatch(/refuseBind\(\{\s*docName,\s*docGuid,\s*ydoc,\s*error,\s*docs,\s*notify: notifyException\s*\}\)/);
     });
 
     test('the update listener drops updates on a doc whose bind failed', () => {
-      expect(source).toMatch(/if \(ydoc\._bindFailed\) return;/);
+      expect(bindStateSource).toMatch(/if \(ydoc\._bindFailed\) return;/);
     });
 
     test('the close-time Redis cleanup is identity-checked against the registry (review M1)', () => {
