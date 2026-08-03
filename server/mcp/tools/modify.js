@@ -12,6 +12,8 @@ const { toMarkdown, loadYDoc } = require('../yjs/serialization');
 const documents = require('../../documents');
 // Feature 040 (FR-015): the one shared "is this row mine?" predicate.
 const { isSameIdentity } = require('../../agent-identity');
+const { resolveForRows } = require('../../resupply-resolution');
+const { distinctForeignEditors, splitEditors } = require('../../relayed-editors');
 const { computeChatDiff } = require('../diff-utils');
 const { queryAndSerialize } = require('./read-helpers');
 const { validateMermaidBlocks, validateSvgBlocks } = require('../diagram-validate');
@@ -343,21 +345,45 @@ async function handlerImpl(args, agentToken) {
       }
 
       if (contentDiverged) {
-        const editedBy = [...new Set(
-          foreign.map(u => u.userName || u.agentName || 'another collaborator')
-        )];
+        // Feature 047 (NF-3): name the AUTHORS, not the relayers. A `via_sync`
+        // row's stamp is the channel the content came back on, so building
+        // `editedBy` from it told the agent — and through it the user — that a
+        // reconnecting bystander had edited words they may never have written.
+        // The classification is shared with the chat staleness note
+        // (server/relayed-editors.js) so the two claims cannot drift.
+        // Resolution is free when nothing was relayed.
+        //
+        // ⚠️ DISPLAY ONLY, inside a write tool (045 guarantee 5). Whether to
+        // REFUSE is still decided entirely by `contentDiverged` and the
+        // stamp-based `foreign` filter above; the resolution only decides whom
+        // the refusal NAMES. A forensic inference must never become the reason
+        // an edit is accepted or rejected — that is replay-affecting, and this
+        // module's output is explicitly not admissible there.
+        const resolution = await resolveForRows(persistenceProvider, docGuid, recentUpdates);
+        const { names: editedBy, hasUnattributed } = splitEditors(
+          distinctForeignEditors(recentUpdates, baseClock, agentToken, { resolution })
+        );
+        const syncedClause = hasUnattributed
+          ? ' Some changes arrived over a sync reconnect, and their author could not be determined.'
+          : '';
+        const whoChanged = editedBy.length > 0
+          ? `This document was edited by ${editedBy.join(', ')} since you last read it.${syncedClause}`
+          : `This document changed since you last read it.${syncedClause}`;
         const conflict = {
           changed: false,
           conflict: true,
           editedBy,
           clock: currentClock,
-          message: `This document was edited by ${editedBy.join(', ')} since you last read it. `
+          message: `${whoChanged} `
             + 'Your change was NOT applied, to avoid overwriting their edits. '
             + (echoContent
               ? 'The current document content is included below. Read it, fold in their changes, '
                 + 'then retry your modify.'
               : 'Re-read the document with read_document, fold in their changes, then retry your modify.'),
         };
+        // Additive signal so a caller can distinguish "someone else edited" from
+        // "changes appeared whose author we will not guess at".
+        if (hasUnattributed) conflict.unattributedChanges = true;
         if (echoContent) {
           try {
             const serialized = queryAndSerialize(xmlFragment, undefined, 'structured');

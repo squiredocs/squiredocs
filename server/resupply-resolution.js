@@ -34,10 +34,18 @@
  *     `clearDoc`, called by `clearDocument` when a document is deleted. Its
  *     importers are `server/version-history.js`,
  *     `server/mcp/tools/read-document.js`, `server/collab-guardrail.js`,
- *     `server/api/docs-export.js` (all display surfaces), plus the two wiring
- *     sites (`server/index.js` for `init`, `server/postgres-persistence.js` for
- *     `clearDoc`) — asserted by a test, because a display-only inference must
- *     never reach replay, undo derivation, permissions, restore or diff.
+ *     `server/api/docs-export.js`, and — added by feature 047, NF-3 — the two
+ *     surfaces that make an "edited by X" CLAIM in prose to a model:
+ *     `server/api/chat.js` (the staleness note) and `server/mcp/tools/modify.js`
+ *     (the conflict refusal). Plus the two wiring sites (`server/index.js` for
+ *     `init`, `server/postgres-persistence.js` for `clearDoc`) — asserted by a
+ *     test, because a display-only inference must never reach replay, undo
+ *     derivation, permissions, restore or diff.
+ *
+ *     `modify.js` is a WRITE tool and is nonetheless a legitimate importer: the
+ *     decision to refuse the edit is made entirely from the row stamps and the
+ *     content comparison, and the resolution only decides whom that refusal
+ *     NAMES. Nothing about what gets written depends on it.
  *  6. Never throws into a display path: every internal failure degrades the
  *     affected target to `unresolved: true`.
  *  7. One fold at a time per document: every resolution for a document runs in

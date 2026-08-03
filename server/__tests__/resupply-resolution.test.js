@@ -613,6 +613,11 @@ describe('scope guard (FR-010)', () => {
       // The REST export's front-matter `lastModifiedBy` is the sixth author
       // surface and the only DURABLE one (045-review MEDIUM-3).
       'server/api/docs-export.js',
+      // Feature 047 (NF-3): the two surfaces that make an "edited by X" claim
+      // in prose to a model. `modify.js` is a write tool, but the resolution
+      // only decides whom its conflict refusal NAMES — never whether to refuse.
+      'server/api/chat.js',
+      'server/mcp/tools/modify.js',
     ];
     for (const file of consumers) {
       expect({ file, imports: importsResolver(file) }).toEqual({ file, imports: true });

@@ -365,4 +365,76 @@ describe('modify conflict detection (content-aware gating)', () => {
     // The truncated-description hint is appended exactly once
     expect(error.message.split('get_tool_documentation').length - 1).toBe(1);
   }, 30000);
+
+  // ── Feature 047, NF-3 ─────────────────────────────────────────────────────
+  // The conflict refusal used to build `editedBy` from each foreign row's
+  // stamped `userName || agentName`. For a `via_sync` row that stamp is the
+  // CHANNEL the content came back on, not its author (038), so a user who
+  // merely reconnected was named to the agent — and through it to the user — as
+  // the editor of words they may never have written.
+  test('a sync-relayed foreign edit never names the relayer as the editor', async () => {
+    const modify = toolRegistry.getTool('modify');
+    const { docGuid, baseClock } = await seedDoc('Relayed Conflict Test');
+
+    // A user who only RELAYED the content back after a reconnect.
+    const relayer = await pool.query(
+      `INSERT INTO users (id, google_id, email, name)
+         VALUES (uuid_generate_v4(), 'google-relayer-047', 'relayer-047@test.local', 'Rita Relayer')
+         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id`
+    );
+    const relayerId = relayer.rows[0].id;
+
+    // Content authored by a client this document has never seen attributed, so
+    // resolution has no evidence and must REFUSE rather than fall back to a
+    // stamp. Applied to the live doc (so the content genuinely diverges) under
+    // an origin parseOrigin ignores, so the bindState listener does not persist
+    // a second, differently-stamped row for the same bytes.
+    const stranger = new Y.Doc();
+    stranger.clientID = 470047;
+    stranger.transact(() => {
+      const frag = stranger.get('default', Y.XmlFragment);
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'words the relayer did not write');
+      p.insert(0, [t]);
+      frag.insert(frag.length, [p]);
+    });
+    const relayedBytes = Y.encodeStateAsUpdate(stranger);
+    Y.applyUpdate(documentService.getSharedDoc(docGuid), relayedBytes, 'test-relay-no-persist');
+
+    // The durable row as a reconnect writes it: stamped with the RELAYER, marked
+    // via_sync.
+    await persistence.storeUpdate(
+      docGuid, relayedBytes, relayerId, null, null, null, { viaSync: true }
+    );
+    await flushPersistence();
+
+    const result = await modify.handler({
+      docGuid,
+      _baseClock: baseClock,
+      script: `
+        export default function edit(doc) {
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'agent-overwrite');
+          p.insert(0, [t]);
+          doc.insert(doc.length, [p]);
+        }
+      `,
+    }, agentToken());
+
+    try {
+      expect(result.conflict).toBe(true);
+      // Pre-fix this was ['Rita Relayer'].
+      expect(result.editedBy).not.toContain('Rita Relayer');
+      expect(result.message).not.toContain('Rita Relayer');
+      // ...and the refusal says what actually happened.
+      expect(result.unattributedChanges).toBe(true);
+      expect(result.message).toContain('arrived over a sync reconnect');
+      expect(result.message).toContain('could not be determined');
+    } finally {
+      await pool.query('DELETE FROM users WHERE id = $1', [relayerId]);
+    }
+  }, 30000);
 });

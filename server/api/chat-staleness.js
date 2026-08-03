@@ -11,8 +11,10 @@
  * Pure functions only — the database read lives in the chat endpoint.
  */
 
-// Feature 040 (FR-015): the one shared "is this row mine?" predicate.
-const { isSameIdentity } = require('../agent-identity');
+// Feature 047 (NF-3): the one shared "who may be NAMED as having edited this
+// row" classification, shared with the modify conflict refusal so a relayed row
+// can never be credited to its relayer on one surface and resolved on the other.
+const { distinctForeignEditors, splitEditors } = require('../relayed-editors');
 
 // Tool calls whose results reflect the *current* document (not a historical
 // version) and therefore advance the agent's baseline view.
@@ -102,28 +104,22 @@ function getRevertedDocs(messages) {
  * carries a null agentName, and other users carry their own userId — all of
  * those count as foreign.
  *
- * @param {Array} updates - [{ clock, userId, agentName, userName }]
+ * Feature 047 (NF-3): a `via_sync` row is judged by the author its payload
+ * resolves to, never by the relayer stamped on it. That classification is SHARED
+ * with the `modify` conflict refusal (server/relayed-editors.js) so the two
+ * "edited by …" claims in this codebase cannot drift apart.
+ *
+ * Still pure: the caller resolves and hands the context in (the 045
+ * `{ resolution }` idiom), so the database read stays in the chat endpoint.
+ *
+ * @param {Array} updates - [{ clock, userId, agentName, userName, viaSync }]
  * @param {number} sinceClock
  * @param {{ userId: string, agentName: string }} agent
- * @returns {Array<{ name: string, isAgent: boolean }>} distinct foreign editors
+ * @param {{resolution?: {outcomes: Map, directory: Map}}} [opts]
+ * @returns {Array<{ name: string, isAgent: boolean, isSynced?: boolean }>} distinct foreign editors
  */
-function foreignEditsSince(updates, sinceClock, agent) {
-  const editors = new Map(); // dedup key -> editor
-  for (const u of updates) {
-    if (typeof u.clock !== 'number' || u.clock <= sinceClock) continue;
-    // The one shared identity predicate (see server/agent-identity.js) —
-    // behavior-identical to the raw comparison it replaces.
-    const isOwnAgent = isSameIdentity(u, agent);
-    if (isOwnAgent) continue;
-    const key = u.agentName ? `${u.userId}:${u.agentName}` : (u.userId || 'unknown');
-    if (!editors.has(key)) {
-      editors.set(key, {
-        name: u.userName || u.agentName || 'another collaborator',
-        isAgent: !!u.agentName,
-      });
-    }
-  }
-  return [...editors.values()];
+function foreignEditsSince(updates, sinceClock, agent, { resolution } = {}) {
+  return distinctForeignEditors(updates, sinceClock, agent, { resolution });
 }
 
 /**
@@ -140,8 +136,18 @@ function buildStalenessNote(entries) {
     if (e.reverted && (!e.editors || e.editors.length === 0)) {
       return `- ${label}: your earlier edit was undone by the user and is no longer in the document.`;
     }
-    const names = e.editors.map(ed => ed.name).join(', ');
-    return `- ${label} was edited by ${names} since you last read it.`;
+    // Feature 047 (NF-3): changes whose author could not be recovered are
+    // reported as TRANSPORT, in their own clause. Folding them into the
+    // "edited by" list would need a name, and the only name on hand is the
+    // relayer's — which is the lie this fix exists to stop.
+    const { names, hasUnattributed } = splitEditors(e.editors);
+    const syncedClause = hasUnattributed
+      ? ' Some changes arrived over a sync reconnect, and their author could not be determined.'
+      : '';
+    if (names.length === 0) {
+      return `- ${label} changed since you last read it.${syncedClause}`;
+    }
+    return `- ${label} was edited by ${names.join(', ')} since you last read it.${syncedClause}`;
   });
   return '[System note: these documents changed outside this conversation]\n'
     + lines.join('\n') + '\n'

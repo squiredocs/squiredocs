@@ -163,3 +163,100 @@ describe('buildStalenessNote', () => {
     expect(note).toContain('Silently re-read');
   });
 });
+
+// ── Feature 047, NF-3 ───────────────────────────────────────────────────────
+// A `via_sync` row's stamped identity is the CHANNEL the content came back on,
+// never a claim that the stamped user wrote it (038). These helpers used to read
+// that stamp straight into "edited by X", so a user who merely reconnected was
+// named as the editor of content they may never have written — and the model
+// repeats that claim to the user in prose.
+describe('relayed rows are never credited to their relayer (NF-3)', () => {
+  const RELAYER = 'relayer-user';
+  const AUTHOR = 'author-user';
+
+  /** A row that a reconnecting RELAYER carried back for someone else. */
+  const relayedRow = (clock) => ({
+    clock,
+    userId: RELAYER,
+    agentName: null,
+    userName: 'Rita Relayer',
+    viaSync: true,
+  });
+
+  const resolvedTo = (clock, userId, userName, agentName = null) => ({
+    outcomes: new Map([[clock, { origins: [{ userId, agentName }], unresolved: false }]]),
+    directory: new Map([[userId, { userName, userEmail: null, userPicture: null }]]),
+  });
+
+  const unresolvable = (clock) => ({
+    outcomes: new Map([[clock, { origins: [], unresolved: true }]]),
+    directory: new Map(),
+  });
+
+  it('names the RECOVERED author, not the relayer', () => {
+    const editors = foreignEditsSince(
+      [relayedRow(7)], 0, AGENT, { resolution: resolvedTo(7, AUTHOR, 'Ada Author') }
+    );
+
+    expect(editors.map(e => e.name)).toEqual(['Ada Author']);
+    expect(editors.map(e => e.name)).not.toContain('Rita Relayer');
+  });
+
+  it('refuses to name anyone when the author cannot be recovered', () => {
+    const editors = foreignEditsSince([relayedRow(7)], 0, AGENT, { resolution: unresolvable(7) });
+
+    expect(editors).toEqual([{ name: 'an unidentified author', isAgent: false, isSynced: true }]);
+    expect(JSON.stringify(editors)).not.toContain('Rita Relayer');
+  });
+
+  it('reports an unrecoverable relay as TRANSPORT, never as a named editor', () => {
+    const editors = foreignEditsSince([relayedRow(7)], 0, AGENT, { resolution: unresolvable(7) });
+    const note = buildStalenessNote([{ docGuid: 'A', title: 'Plan', editors }]);
+
+    expect(note).toContain('arrived over a sync reconnect');
+    expect(note).toContain('their author could not be determined');
+    expect(note).not.toContain('Rita Relayer');
+    // The unattributable bucket must never leak into an "edited by" claim, not
+    // even under its own placeholder name.
+    expect(note).not.toContain('edited by');
+    expect(note).not.toContain('an unidentified author');
+  });
+
+  it('keeps a named author and flags the leftover relay separately', () => {
+    const both = {
+      outcomes: new Map([
+        [7, { origins: [{ userId: AUTHOR, agentName: null }], unresolved: false }],
+        [8, { origins: [], unresolved: true }],
+      ]),
+      directory: new Map([[AUTHOR, { userName: 'Ada Author', userEmail: null, userPicture: null }]]),
+    };
+    const editors = foreignEditsSince([relayedRow(7), relayedRow(8)], 0, AGENT, { resolution: both });
+    const note = buildStalenessNote([{ docGuid: 'A', title: 'Plan', editors }]);
+
+    expect(note).toContain('was edited by Ada Author since you last read it.');
+    expect(note).toContain('their author could not be determined');
+    expect(note).not.toContain('Rita Relayer');
+  });
+
+  it('a relayed row is judged by its AUTHOR, not by whose stamp it carries', () => {
+    // Stamped with the agent's own identity, but carrying someone else's words.
+    // The stamp-based self-check used to swallow this row entirely, so the agent
+    // was never told its cached content was stale.
+    const stampedAsAgent = { clock: 7, userId: AGENT.userId, agentName: AGENT.agentName, userName: 'Me', viaSync: true };
+
+    const editors = foreignEditsSince(
+      [stampedAsAgent], 0, AGENT, { resolution: resolvedTo(7, AUTHOR, 'Ada Author') }
+    );
+
+    expect(editors.map(e => e.name)).toEqual(['Ada Author']);
+  });
+
+  it('rows that are not relayed are untouched (pre-047 baseline)', () => {
+    const plain = { clock: 7, userId: 'someone', agentName: null, userName: 'Plain Pat' };
+
+    // Identical with a resolution present and with none at all.
+    expect(foreignEditsSince([plain], 0, AGENT, { resolution: unresolvable(7) }))
+      .toEqual([{ name: 'Plain Pat', isAgent: false }]);
+    expect(foreignEditsSince([plain], 0, AGENT)).toEqual([{ name: 'Plain Pat', isAgent: false }]);
+  });
+});
