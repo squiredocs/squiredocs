@@ -228,6 +228,21 @@ describe('US2: reconnect catch-up produces honest attribution', () => {
       );
       const preFixAuthors = unresolved.flatMap((v) => v.authors || []);
       expect(preFixAuthors.some((a) => a.id === relayer.userId)).toBe(true);
+
+      // (d) COMPOSITION, not just components. (a)-(c) prove the resolver and the
+      //     single-slot collapse behave; they say nothing about the relayed row
+      //     still being IN the timeline. If `getVersionTimeline` regressed to
+      //     filter via_sync rows out of its grouping input entirely, every
+      //     assertion above would still pass — the author's credit would come
+      //     from their DIRECT row, and the relayer would be absent because the
+      //     row vanished rather than because 045 resolved it. So pin the
+      //     timeline version whose (inclusive) clock range covers the relayed
+      //     row: it must exist, and it must credit the author.
+      const coveringVersion = timeline.versions.find(
+        (v) => v.clockStart <= syncRow.clock && syncRow.clock <= v.clockEnd
+      );
+      expect(coveringVersion).toBeDefined();
+      expect(coveringVersion.authors.map((a) => a.id)).toContain(author.userId);
     } finally {
       await relayerClient.close();
     }
@@ -259,12 +274,27 @@ describe('US2: reconnect catch-up produces honest attribution', () => {
       // So the relayer, whose ONLY rows in this document are the relayed ones,
       // has nothing derivable to undo: the guard refuses rather than inverting
       // content they merely relayed.
-      const relayerRange = deriveLegacyRange(
-        rows,
-        { userId: relayer.userId, agentName: null },
-        { freshnessMs: 0 }
-      );
+      //
+      // BOTH recency guards are neutralized deliberately. `freshnessMs: 0` alone
+      // is not enough: the refusal is `now - newest < Math.max(gapMs,
+      // freshnessMs)` (server/undo/legacy.js:133), so the 10s segmentation gap
+      // still applies, and these rows were written milliseconds ago. With only
+      // freshness zeroed this assertion would keep passing on the recency guard
+      // even if the viaSync run-break at legacy.js:62 were deleted — i.e. it
+      // could not catch the regression it narrates. Moving `now` forward an hour
+      // clears recency without disturbing segmentation, leaving the channel
+      // guard as the only reason left to refuse.
+      const relayerIdentity = { userId: relayer.userId, agentName: null };
+      const wellAfterTheWrites = { freshnessMs: 0, now: Date.now() + 3_600_000 };
+      const relayerRange = deriveLegacyRange(rows, relayerIdentity, wellAfterTheWrites);
       expect(relayerRange).toBeNull();
+
+      // ...and the positive control that proves the refusal is the CHANNEL
+      // guard and nothing else: the identical rows with the sync marker cleared
+      // DO yield a range for the same identity under the same options.
+      const asIfNotRelayed = rows.map((r) => ({ ...r, viaSync: false }));
+      const withoutTheChannelGuard = deriveLegacyRange(asIfNotRelayed, relayerIdentity, wellAfterTheWrites);
+      expect(withoutTheChannelGuard).not.toBeNull();
 
       // 041 FR-014: the pending-recording guard EXCLUDES via_sync rows, so a
       // routine reconnect no longer wedges the relayer's undo with "still being
