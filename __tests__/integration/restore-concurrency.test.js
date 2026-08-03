@@ -125,6 +125,14 @@ describe('US4: restore under concurrency', () => {
     const otherClient = await harness.connect(docGuid, other.token);
 
     try {
+      // The bytes are produced on the OWNER's replica and sent over the
+      // CO-EDITOR's connection. That is deliberate and sound for what is under
+      // test: attribution comes from the connection (`ws.userId`), never from
+      // the update's embedded Yjs clientID, so the row lands under the
+      // co-editor exactly as a real second browser's would. What it does not
+      // reproduce is a genuinely divergent replica — a real co-editor has its
+      // own clientID and its own state vector. No assertion here depends on
+      // that; if one ever does, give this client its own Y.Doc.
       const concurrentUpdate = appendParagraph(clientDoc, 'CONCURRENT edit by the co-editor');
 
       // Genuine overlap: the restore is in flight when the edit frame is sent.

@@ -55,6 +55,19 @@ const {
   crypto,
 } = require('./helpers/collab-harness');
 
+const decoding = require('lib0/decoding');
+// H7: frame constants come from the gate module, never re-declared here.
+const { MESSAGE_SYNC, MESSAGE_AWARENESS } = require('../../server/ws-edit-gate');
+
+/** The leading message-type varint of a received frame, or null if undecodable. */
+function frameMessageType(buffer) {
+  try {
+    return decoding.readVarUint(decoding.createDecoder(buffer));
+  } catch {
+    return null;
+  }
+}
+
 describe('US3: a live edit whose durable write fails (characterization)', () => {
   let harness;
   let editor;
@@ -105,6 +118,8 @@ describe('US3: a live edit whose durable write fails (characterization)', () => 
         label: 'the control edit persisted',
       });
 
+      // Everything the editor's socket receives from here on is inspected below.
+      const framesBefore = editorClient.received.length;
       editorClient.sendUpdate(doomedUpdate);
 
       // The failure is observable through the injected notifier, which is the
@@ -137,6 +152,17 @@ describe('US3: a live edit whose durable write fails (characterization)', () => 
       // there is no observable condition for "an error did not arrive".
       await new Promise((r) => setTimeout(r, 150));
       expect(editorClient.ws.readyState).toBe(1); // OPEN
+      // An open socket is only half the claim — an error frame can arrive on
+      // one. So inspect what actually came back after the doomed edit: the
+      // ordinary protocol traffic (y-websocket echoes the update to every
+      // connection, this one included, and may relay awareness) and nothing
+      // else. Any frame carrying some other message type would be the server
+      // telling the editor something, which is exactly what it does not do.
+      const framesAfter = editorClient.received.slice(framesBefore);
+      const messageTypes = [...new Set(framesAfter.map(frameMessageType))];
+      for (const type of messageTypes) {
+        expect([MESSAGE_SYNC, MESSAGE_AWARENESS]).toContain(type);
+      }
     } finally {
       injection.restore();
       await editorClient.close();
