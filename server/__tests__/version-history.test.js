@@ -19,7 +19,7 @@ const {
   DEFAULT_INACTIVITY_THRESHOLD,
 } = require('../version-history');
 const Y = require('yjs');
-const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('./helpers/db');
 const editRecords = require('../undo/edit-records');
 const undoService = require('../undo/undo-service');
 
@@ -2452,9 +2452,12 @@ describe('version-history module', () => {
       doc.destroy();
     }
 
+    // Feature 043 (FR-010, ledger D3): this suite was already compliant; the
+    // update-log half now runs through the ONE definition of the convention so
+    // there is nothing left to drift from. See server/__tests__/helpers/db.js.
     const cleanupDoc = async (docGuid) => {
       await pool.query('DELETE FROM agent_edits WHERE doc_guid = $1', [docGuid]);
-      await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
+      await cleanupDocRows(pool, docGuid);
     };
 
     // A human web-UI restore is attributed to the human in the update log and

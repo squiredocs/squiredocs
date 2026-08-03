@@ -191,11 +191,20 @@ describe('deriveLegacyRange — freshness horizon covers the background recordin
 describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () => {
   const { randomUUID } = require('crypto');
   const Y = require('yjs');
-  const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('../../__tests__/helpers/db');
+  const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('../../__tests__/helpers/db');
   const undoService = require('../undo-service');
 
   let pool, persistence, userId;
   const AGENT = 'Squire Docs Assistant';
+
+  // Feature 043 (FR-010, ledger D3): every guid this suite writes update-log
+  // rows under, deleted in afterAll. See server/__tests__/helpers/db.js.
+  const createdDocGuids = [];
+  const newDocGuid = () => {
+    const guid = randomUUID();
+    createdDocGuids.push(guid);
+    return guid;
+  };
 
   beforeAll(async () => {
     pool = createPool();
@@ -204,6 +213,7 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
   });
 
   afterAll(async () => {
+    await cleanupDocRows(pool, createdDocGuids);
     await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
     await cleanupTestUser(pool, userId);
     await persistence.destroy();
@@ -213,7 +223,7 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
   test('a pre-016 edit (rows only, no record) undoes via derivation and inserts the agent_edits row enabling native redo', async () => {
     // Fabricate a pre-016 history: base paragraph by a human, then an agent
     // edit — plain aged log rows, NO agent_edits record.
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const doc = new Y.Doc();
     const payloads = [];
     doc.on('update', (u) => payloads.push(u));
@@ -267,7 +277,7 @@ describe('legacy undo end-to-end: derivation feeds the native chain (DB)', () =>
 
   test('an ambiguous legacy history refuses honestly — no partial range, nothing applied (SC-011)', async () => {
     // The log tail is foreign: no trailing identity run to derive.
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const doc = new Y.Doc();
     const payloads = [];
     doc.on('update', (u) => payloads.push(u));

@@ -59,6 +59,43 @@ describe('021 gap-tolerant getYDoc', () => {
     );
   }
 
+  /**
+   * Feature 043 US8 (FR-011, ledger D4) — assert the behavior, not the clock.
+   *
+   * This suite used to prove "no retry wait happened" with wall-clock bounds
+   * (a sub-300ms bound on `Date.now() - start`) after setting a long retry
+   * delay. That is a proxy, and a bad one: on a loaded CI runner a 300ms budget
+   * fails for reasons that have nothing to do with retries, so the guard turns
+   * into noise and gets ignored — and a flaky guard is worse than none.
+   *
+   * The proxied fact is directly observable. `_fetchRowsWithGapRetry` is the one
+   * choke point every log-rebuild reader funnels through, and it RETURNS its
+   * retry count. Tests that call it directly just assert `retries`. Tests that
+   * go through a public reader (`getYDoc`) wrap the call in this probe, which
+   * reports the highest retry count any inner fetch performed. Zero retries is
+   * the actual claim; it is now asserted rather than inferred from elapsed time.
+   *
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<{value: T, retries: number}>} highest retries observed
+   */
+  async function withRetryProbe(fn) {
+    let retries = 0;
+    // Capture the real method BEFORE replacing it, so the wrapper delegates to
+    // the production implementation and not back into itself.
+    const real = persistence._fetchRowsWithGapRetry;
+    persistence._fetchRowsWithGapRetry = async function (...args) {
+      const out = await real.apply(this, args);
+      retries = Math.max(retries, out.retries || 0);
+      return out;
+    };
+    try {
+      const value = await fn();
+      return { value, retries };
+    } finally {
+      persistence._fetchRowsWithGapRetry = real;
+    }
+  }
+
   const docText = (ydoc) => ydoc.getXmlFragment('default').toString();
 
   const gapLogs = () =>
@@ -145,14 +182,13 @@ describe('021 gap-tolerant getYDoc', () => {
     const updates = buildUpdateChain(3);
     for (let i = 0; i < 3; i++) await insertRow(docGuid, i, updates[i]);
 
-    // Make any accidental retry obvious in elapsed time.
+    // A long delay is still configured, so a retry would be unmistakable — but
+    // the claim is asserted directly rather than inferred from elapsed time.
     process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
 
-    const start = Date.now();
-    const ydoc = await persistence.getYDoc(docGuid);
-    const elapsed = Date.now() - start;
+    const { value: ydoc, retries } = await withRetryProbe(() => persistence.getYDoc(docGuid));
 
-    expect(elapsed).toBeLessThan(300); // no retry wait on the hot path
+    expect(retries).toBe(0); // no retry wait on the hot path
     const text = docText(ydoc);
     expect(text).toContain('para-0');
     expect(text).toContain('para-2');
@@ -168,9 +204,8 @@ describe('021 gap-tolerant getYDoc', () => {
     await insertRow(docGuid, 7, updates[2]);
 
     process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
-    const start = Date.now();
-    const ydoc = await persistence.getYDoc(docGuid);
-    expect(Date.now() - start).toBeLessThan(300);
+    const { value: ydoc, retries } = await withRetryProbe(() => persistence.getYDoc(docGuid));
+    expect(retries).toBe(0); // a free first clock is not a gap, so nothing retries
     expect(docText(ydoc)).toContain('para-2');
     expect(gapLogs()).toHaveLength(0);
   });
@@ -196,19 +231,17 @@ describe('021 gap-tolerant getYDoc', () => {
     const emptyGuid = newDocGuid();
     process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
 
-    let start = Date.now();
-    const emptyDoc = await persistence.getYDoc(emptyGuid);
-    expect(Date.now() - start).toBeLessThan(300);
-    expect(docText(emptyDoc)).toBe('');
+    const empty = await withRetryProbe(() => persistence.getYDoc(emptyGuid));
+    expect(empty.retries).toBe(0); // zero rows is complete, not gapped
+    expect(docText(empty.value)).toBe('');
 
     const singleGuid = newDocGuid();
     const [only] = buildUpdateChain(1);
     await insertRow(singleGuid, 9, only); // arbitrary clock, single row
 
-    start = Date.now();
-    const singleDoc = await persistence.getYDoc(singleGuid);
-    expect(Date.now() - start).toBeLessThan(300);
-    expect(docText(singleDoc)).toContain('para-0');
+    const single = await withRetryProbe(() => persistence.getYDoc(singleGuid));
+    expect(single.retries).toBe(0); // one row cannot be non-contiguous
+    expect(docText(single.value)).toContain('para-0');
     expect(gapLogs()).toHaveLength(0);
   });
 });
@@ -286,9 +319,9 @@ describe('023 _fetchRowsWithGapRetry choke point', () => {
     for (let i = 0; i < 3; i++) await insertRow(docGuid, i);
     process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
 
-    const start = Date.now();
+    // `retries` is returned; the elapsed-time proxy that used to stand here said
+    // strictly less than the assertion below already does.
     const out = await persistence._fetchRowsWithGapRetry(client, SQL, [docGuid], `probe ${docGuid}`);
-    expect(Date.now() - start).toBeLessThan(300);
     expect(out.gapped).toBe(false);
     expect(out.retries).toBe(0);
   });
@@ -319,10 +352,9 @@ describe('023 _fetchRowsWithGapRetry choke point', () => {
     process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
 
     const descSql = 'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock DESC';
-    const start = Date.now();
     const out = await persistence._fetchRowsWithGapRetry(client, descSql, [docGuid], `desc ${docGuid}`, { descending: true });
-    expect(Date.now() - start).toBeLessThan(300); // no false gap => no retry wait
     expect(out.gapped).toBe(false);
+    expect(out.retries).toBe(0); // no false gap => no retry wait
     expect(gapLogs()).toHaveLength(0);
   });
 });
@@ -544,15 +576,16 @@ describe('023 gap tolerance across every reader', () => {
       const docGuid = newDocGuid();
       process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500'; // any retry would be obvious
 
-      const start = Date.now();
       const { value: res, queries } = await countQueries(() =>
         persistence.getUpdateRowsUpTo(docGuid, 100)
       );
 
       expect(res.gapped).toBe(false);
       expect(res.rows).toHaveLength(0);
+      // One query IS "no retry": every retry re-runs the full fetch, so the
+      // query count is a stronger statement than the elapsed-time bound that
+      // used to sit here, and it does not care how loaded the runner is.
       expect(queries).toBe(1);
-      expect(Date.now() - start).toBeLessThan(300);
       expect(gapLogs()).toHaveLength(0);
     });
 
@@ -592,17 +625,15 @@ describe('023 gap tolerance across every reader', () => {
       // Make any accidental retry impossible to miss.
       process.env.COLLAB_READ_GAP_RETRY_DELAYS_MS = '500,500';
 
-      const start = Date.now();
       const { value: res, queries } = await countQueries(() =>
         persistence.getUpdateRowsUpTo(docGuid, MAX_CLOCK)
       );
-      const elapsed = Date.now() - start;
 
       // If expectedTailClock were ever DERIVED from `clock`, this read would be
       // permanently "incomplete" (last clock 2 < 2147483647): full retry budget
       // burned on EVERY document in the backfill, plus a false warning each.
+      // The query count is the direct evidence of that — one fetch, no retries.
       expect(queries).toBe(1);
-      expect(elapsed).toBeLessThan(300);
       expect(res.gapped).toBe(false);
       expect(gapLogs()).toHaveLength(0);
     });

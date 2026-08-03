@@ -15,7 +15,18 @@
  */
 const { randomUUID } = require('crypto');
 const Y = require('yjs');
-const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('../../__tests__/helpers/db');
+const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('../../__tests__/helpers/db');
+// Feature 043 (FR-010, ledger D3): this suite writes `yjs_updates` rows under
+// ad-hoc guids. Every guid it mints is recorded here and deleted in `afterAll`,
+// so the global reindexStale scan can never find this suite's orphans. See the
+// convention block in server/__tests__/helpers/db.js.
+const createdDocGuids = [];
+const newDocGuid = () => {
+  const guid = randomUUID();
+  createdDocGuids.push(guid);
+  return guid;
+};
+
 const editRecords = require('../edit-records');
 const undoService = require('../undo-service');
 const { toMarkdown } = require('../../mcp/yjs/serialization');
@@ -43,6 +54,7 @@ describe('undo-service (post-merge review pins)', () => {
   });
 
   afterAll(async () => {
+    await cleanupDocRows(pool, createdDocGuids);
     await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
     await cleanupTestUser(pool, userId);
     await persistence.destroy();
@@ -90,7 +102,7 @@ describe('undo-service (post-merge review pins)', () => {
     }
 
     test('shared doc WITHOUT a redis update handler: the committed inverse is published exactly once', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       // A doc obtained via getSharedDoc on the undo path: loaded, but no WS
@@ -119,7 +131,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('shared doc WITH a live redis update handler: no explicit second publish (the handler already fans out)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const liveDoc = await persistence.getYDoc(docGuid);
@@ -139,7 +151,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('no shared doc at all (restart posture): the inverse is still published for other pods', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const pubSub = mockPubSub();
@@ -151,7 +163,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('redis disabled: no publish attempted, undo still succeeds', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const pubSub = mockPubSub(false);
@@ -164,7 +176,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('redo fans out the same way', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const undoRes = await undoService.performUndo(identity(docGuid), {
@@ -189,7 +201,7 @@ describe('undo-service (post-merge review pins)', () => {
       // Two same-identity modify calls interleave: B rows at clocks 1 and 3,
       // A rows at clocks 2 and 4 — each call's [min,max] range spans a row of
       // the other. The recorded clock SETS keep the undos surgical.
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       const doc = new Y.Doc();
       const payloads = [];
       doc.on('update', (u) => payloads.push(u));
@@ -264,7 +276,7 @@ describe('undo-service (post-merge review pins)', () => {
     }
 
     test('refuses honestly while the newest edit\'s rows are unrecorded — the OLDER edit stays untouched', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid); // recorded edit A (aged)
       // Edit B's row just landed; its agent_edits record does not exist yet.
       await appendPendingEditRow(docGuid, 'B-PENDING');
@@ -284,7 +296,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('once the newest edit IS recorded, undo proceeds and targets it (not the older one)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
       const clock = await appendPendingEditRow(docGuid, 'B-RECORDED');
       await editRecords.recordEdit(persistence, {
@@ -299,7 +311,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('unrecorded rows OLDER than the background wait bound never wedge undo', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
       // An anomaly: an identity row that was never recorded and never will be
       // (background recording failed) — aged past the wait bound.
@@ -402,7 +414,7 @@ describe('undo-service (post-merge review pins)', () => {
     }
 
     test('successful undo carries diff deep-equal to computeChatDiff over the revert bracket (C1/C2/C5)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const res = await undoService.performUndo(identity(docGuid), {
@@ -434,7 +446,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('successful redo carries the re-application diff the same way', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
       const deps = { persistence, getSharedDoc: () => null };
 
@@ -455,7 +467,7 @@ describe('undo-service (post-merge review pins)', () => {
 
     test('honest-empty family carries NO diff key and keeps exact 016 result values (FR-003/FR-004)', async () => {
       // Variant 1: nothing recorded (empty doc, no legacy rows either).
-      const emptyGuid = randomUUID();
+      const emptyGuid = newDocGuid();
       const nothing = await undoService.performUndo(identity(emptyGuid), {
         persistence, getSharedDoc: () => null,
       });
@@ -468,7 +480,7 @@ describe('undo-service (post-merge review pins)', () => {
       });
 
       // Variant 2: pending-recording refusal (M2 seed — fresh unrecorded row).
-      const pendingGuid = randomUUID();
+      const pendingGuid = newDocGuid();
       await seedDocWithAgentEdit(pendingGuid);
       await appendPendingRow(pendingGuid);
       const pending = await undoService.performUndo(identity(pendingGuid), {
@@ -483,7 +495,7 @@ describe('undo-service (post-merge review pins)', () => {
       });
 
       // Variant 3: concurrent loser (M3/H1 pattern — the claim CAS loses).
-      const loserGuid = randomUUID();
+      const loserGuid = newDocGuid();
       await seedDocWithAgentEdit(loserGuid);
       const claimSpy = jest.spyOn(editRecords, 'finalizeClaim')
         .mockResolvedValue({ claimed: false, clock: null });
@@ -504,7 +516,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('formatting-only revert yields a diff with formatAnnotations — not dropped by the non-empty guard (RBD-4)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithFormatOnlyEdit(docGuid);
 
       const res = await undoService.performUndo(identity(docGuid), {
@@ -520,7 +532,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('best-effort: computeChatDiff failure leaves the revert standing sans diff (FR-006, RBD-3)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const diffSpy = jest.spyOn(diffUtils, 'computeChatDiff').mockImplementation(() => {
@@ -545,7 +557,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('truncation: an over-limit revert diff is bounded and flagged; the revert completes (FR-005, SC-006)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithHugeAgentEdit(docGuid);
 
       const res = await undoService.performUndo(identity(docGuid), {
@@ -565,7 +577,7 @@ describe('undo-service (post-merge review pins)', () => {
   // any claim — no agent_edits transition, no inverse row derived from a torn read.
   describe('T011: gapped loadLog aborts undo before any claim', () => {
     test('still-gapped log => undone:false, row stays active, no inverse appended', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       // A persistence whose loadLog (getUpdatesInRange withGap) reports a torn
@@ -612,7 +624,7 @@ describe('undo-service (post-merge review pins)', () => {
   // are untouched.
   describe('041 FR-015: undone/redoneRecordRange on success results', () => {
     test('a successful undo carries the claimed record\'s ORIGINAL edit range', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid); // recorded edit at clock 1
 
       const res = await undoService.performUndo(identity(docGuid), {
@@ -624,7 +636,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('a successful redo carries the SAME original range (the card stores that, not the inverse\'s)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await seedDocWithAgentEdit(docGuid);
 
       const undo = await undoService.performUndo(identity(docGuid), { persistence, getSharedDoc: () => null });
@@ -637,7 +649,7 @@ describe('undo-service (post-merge review pins)', () => {
     });
 
     test('every honest-empty result omits the range field entirely', async () => {
-      const docGuid = randomUUID(); // nothing recorded, nothing in the log
+      const docGuid = newDocGuid(); // nothing recorded, nothing in the log
 
       const undo = await undoService.performUndo(identity(docGuid), { persistence, getSharedDoc: () => null });
       expect(undo.undone).toBe(false);

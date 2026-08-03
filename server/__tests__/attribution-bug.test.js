@@ -1,38 +1,49 @@
 /**
- * Test for the attribution bug where human edits are incorrectly attributed to AI agents.
+ * The historical misattribution bug: a human's edits credited to an AI agent.
  *
- * The bug occurs when:
- * 1. An agent connects first and broadcasts awareness with isAgent: true
- * 2. A human connects later
- * 3. The human's connection captures the agent's clientId as its own connectionClientId
- * 4. When human edits, the server sees "connectionClientId matches agent awareness" and misattributes
+ * WHAT WENT WRONG. Attribution used to be inferred from awareness. A connection
+ * captured `connectionClientId` from the FIRST awareness message it saw — but an
+ * awareness message can be a broadcast ABOUT other clients, not FROM this one.
+ * So when an agent connected first and announced `isAgent: true`, the next human
+ * connection captured the agent's clientId as its own, and every edit that human
+ * made was recorded under the agent's name.
  *
- * Root cause: connectionClientId is captured from the first awareness MESSAGE received,
- * which might be a broadcast ABOUT other clients (the agent), not FROM the new connection.
+ * HOW IT WAS FIXED. Agent tokens already carry `isAgent` and `agentName`, so the
+ * identity is read from the AUTHENTICATED PRINCIPAL at connection time and
+ * awareness-based detection was deleted outright. That derivation now lives in
+ * `identityFromPrincipal` (server/agent-identity.js, feature 043 X2); that
+ * production uses it rather than a private copy is pinned structurally by
+ * server/__tests__/collab-extraction-guard.test.js (G4a/G4b).
+ *
+ * ── Why this file shrank (feature 043, FR-002/SC-001) ───────────────────────
+ * It used to contain two tests whose entire body was a comment block proposing
+ * a fix, followed by a tautology asserting that true is true. They said nothing about the
+ * server; they passed before the bug was fixed and would pass again if it came
+ * back. A test that cannot fail is worse than no test, because it reports
+ * coverage that does not exist — and this was the flagship scenario of the
+ * product's attribution promise. Both blocks are gone, along with the locally
+ * re-declared y-websocket protocol constants they needed (a fourth copy of
+ * numbers `server/ws-edit-gate.js` already exports) and the frame helpers that
+ * used them.
+ *
+ * ── What still owes coverage ────────────────────────────────────────────────
+ * The end-to-end version of this scenario — two authenticated clients, agent
+ * first, human second, both editing, every persisted row's identity asserted —
+ * is specified as feature 043 US1/FR-001 and is NOT yet implemented. It needs
+ * the bindState update listener to be importable (extraction X1), which was
+ * stopped and reported rather than forced: X1 collides with feature 041's
+ * structural pins in server/__tests__/bindstate-failure.test.js, and editing
+ * another feature's shipped guard is outside this feature's extraction budget
+ * (ledger D9). See specs/043-version-history-test-hardening/promotion-notes.md.
+ * The tests below are honest about their scope: the token claims the fix reads,
+ * and the derivation it installed. Nothing here claims to cover the wire.
  */
-const WebSocket = require('ws');
-const http = require('http');
-const express = require('express');
-const Y = require('yjs');
 const jwt = require('jsonwebtoken');
-const { createPersistence } = require('./helpers/db');
-const awarenessProtocol = require('y-protocols/dist/awareness.cjs');
-const encoding = require('lib0/encoding');
-const decoding = require('lib0/decoding');
+const { identityFromPrincipal } = require('../agent-identity');
 
-// y-websocket protocol constants
-const MESSAGE_SYNC = 0;
-const MESSAGE_AWARENESS = 1;
-const SYNC_STEP1 = 0;
-const SYNC_STEP2 = 1;
-const SYNC_UPDATE = 2;
-
-// JWT secret for testing (matches server config)
 const TEST_JWT_SECRET = 'test-jwt-secret-for-testing-only';
 
-/**
- * Create a test JWT token
- */
+/** A test JWT shaped like the agent tokens the fix reads. */
 function createTestToken(userId, options = {}) {
   const payload = {
     userId,
@@ -48,133 +59,71 @@ function createTestToken(userId, options = {}) {
   });
 }
 
-/**
- * Send a Yjs sync update over WebSocket
- */
-function sendSyncUpdate(ws, update) {
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, MESSAGE_SYNC);
-  encoding.writeVarUint(encoder, SYNC_UPDATE);
-  encoding.writeVarUint8Array(encoder, update);
-  const buffer = encoding.toUint8Array(encoder);
-  ws.send(buffer);
-}
-
-/**
- * Send an awareness update over WebSocket
- */
-function sendAwarenessUpdate(ws, awareness, clientId, state) {
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
-  // Awareness update format: numClients, then for each: clientId, clock, stateLen, state
-  encoding.writeVarUint(encoder, 1); // one client
-  encoding.writeVarUint(encoder, clientId);
-  encoding.writeVarUint(encoder, 1); // clock
-  const stateJson = JSON.stringify(state);
-  const stateBytes = new TextEncoder().encode(stateJson);
-  encoding.writeVarUint(encoder, stateBytes.length);
-  encoding.writeVarUint8Array(encoder, stateBytes);
-  const buffer = encoding.toUint8Array(encoder);
-  ws.send(buffer);
-}
-
-describe('Attribution Bug', () => {
-  let server;
-  let app;
-  let persistence;
-  let port;
-
-  beforeAll(async () => {
-    // This test needs a more complete server setup
-    // For now, we'll document the test scenario
-  });
-
-  afterAll(async () => {
-    // Cleanup
-  });
-
-  describe('Bug reproduction scenario', () => {
-    test('connectionClientId should only be captured from messages this connection SENDS', () => {
-      /**
-       * The fix should ensure:
-       *
-       * 1. connectionClientId is set from the Y.Doc's clientId that this connection creates
-       *    - NOT from awareness messages received (which could be about other clients)
-       *
-       * 2. Alternatively: Detect agents from the token at connection time
-       *    - If token has isAgent: true, register as agent immediately
-       *    - Don't rely on awareness detection at all for attribution
-       *
-       * The simpler architectural fix:
-       * - Agent tokens already contain isAgent and agentName
-       * - Extract these at WebSocket upgrade time
-       * - Pass to registerDocumentUser() immediately
-       * - Remove awareness-based agent detection entirely (or make it UI-only)
-       */
-      expect(true).toBe(true);
-    });
-  });
-
-  describe('Simplified architecture proposal', () => {
-    test('agent info should come from token, not awareness', () => {
-      /**
-       * Current flow (buggy):
-       * 1. WebSocket upgrade - extract user from token
-       * 2. Register connection without agent info
-       * 3. Later: detect agent from awareness states (race conditions!)
-       *
-       * Proposed flow (simpler):
-       * 1. WebSocket upgrade - extract user AND isAgent/agentName from token
-       * 2. Register connection WITH agent info if present
-       * 3. Done - no awareness-based detection needed
-       *
-       * Changes needed:
-       * - permissions.extractUser() should return isAgent and agentName from agent tokens
-       * - WebSocket upgrade handler should pass agentName to registerDocumentUser()
-       * - Remove checkAwareness() function (or keep only for UI presence)
-       * - Remove connectionClientId tracking (not needed if agent info is in token)
-       */
-      expect(true).toBe(true);
-    });
-  });
-});
-
-describe('Token-based agent detection', () => {
-  test('agent tokens contain isAgent and agentName fields', () => {
-    // Agent tokens should have these fields
-    const agentToken = createTestToken('user-123', {
+describe('token-based agent detection: the claims the fix reads', () => {
+  test('agent tokens carry isAgent and agentName', () => {
+    const decoded = jwt.decode(createTestToken('user-123', {
       isAgent: true,
       agentName: 'Claude Test Agent',
-    });
+    }));
 
-    const decoded = jwt.decode(agentToken);
     expect(decoded.isAgent).toBe(true);
     expect(decoded.agentName).toBe('Claude Test Agent');
   });
 
-  test('human tokens have isAgent: false', () => {
-    const humanToken = createTestToken('user-456', {
-      isAgent: false,
-    });
+  test('human tokens carry isAgent: false and no agent name', () => {
+    const decoded = jwt.decode(createTestToken('user-456', { isAgent: false }));
 
-    const decoded = jwt.decode(humanToken);
     expect(decoded.isAgent).toBe(false);
     expect(decoded.agentName).toBe(null);
   });
+});
 
-  test('agent detection from token is deterministic', () => {
-    // Unlike awareness-based detection which has race conditions,
-    // token-based detection is deterministic
-    const agentToken = createTestToken('user-123', {
+describe('the derivation the bug fix installed', () => {
+  // These drive the REAL production derivation, so reintroducing
+  // awareness-based detection — or mishandling a non-agent principal — fails
+  // here instead of passing a tautology.
+
+  test('an agent principal is recorded under the agent name', () => {
+    const principal = jwt.decode(createTestToken('user-123', {
       isAgent: true,
-      agentName: 'Agent',
+      agentName: 'Claude Test Agent',
+    }));
+
+    expect(identityFromPrincipal(principal)).toEqual({
+      userId: 'user-123',
+      agentName: 'Claude Test Agent',
     });
+  });
 
-    // Decode multiple times - always same result
-    const decoded1 = jwt.decode(agentToken);
-    const decoded2 = jwt.decode(agentToken);
+  test('a human principal is recorded with NO agent name — the bug, inverted', () => {
+    const principal = jwt.decode(createTestToken('user-456', { isAgent: false }));
 
-    expect(decoded1.isAgent).toBe(decoded2.isAgent);
-    expect(decoded1.agentName).toBe(decoded2.agentName);
+    // The exact assertion the original bug would have failed: the human keeps
+    // their own id and picks up no agent name from anywhere.
+    expect(identityFromPrincipal(principal)).toEqual({
+      userId: 'user-456',
+      agentName: null,
+    });
+  });
+
+  test('a principal carrying an agentName but not isAgent is still a human', () => {
+    // Being an agent is the TOKEN'S claim, not the presence of a name field.
+    // The awareness-era code effectively decided this the other way round.
+    expect(identityFromPrincipal({ userId: 'u1', agentName: 'Impostor' }))
+      .toEqual({ userId: 'u1', agentName: null });
+  });
+
+  test('identity comes from the principal alone — connection order cannot reach it', () => {
+    const agent = jwt.decode(createTestToken('agent-user', { isAgent: true, agentName: 'A' }));
+    const human = jwt.decode(createTestToken('human-user', { isAgent: false }));
+
+    // Derive in both orders. The old code path made the SECOND connection
+    // inherit the FIRST one's identity; a pure function of the principal cannot.
+    const agentFirst = [identityFromPrincipal(agent), identityFromPrincipal(human)];
+    const humanFirst = [identityFromPrincipal(human), identityFromPrincipal(agent)];
+
+    expect(agentFirst[1]).toEqual({ userId: 'human-user', agentName: null });
+    expect(humanFirst[0]).toEqual({ userId: 'human-user', agentName: null });
+    expect(agentFirst[0]).toEqual(humanFirst[1]);
   });
 });

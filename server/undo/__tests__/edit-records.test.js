@@ -8,7 +8,18 @@
  */
 const { randomUUID } = require('crypto');
 const Y = require('yjs');
-const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('../../__tests__/helpers/db');
+const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('../../__tests__/helpers/db');
+// Feature 043 (FR-010, ledger D3): this suite writes `yjs_updates` rows under
+// ad-hoc guids. Every guid it mints is recorded here and deleted in `afterAll`,
+// so the global reindexStale scan can never find this suite's orphans. See the
+// convention block in server/__tests__/helpers/db.js.
+const createdDocGuids = [];
+const newDocGuid = () => {
+  const guid = randomUUID();
+  createdDocGuids.push(guid);
+  return guid;
+};
+
 const editRecords = require('../edit-records');
 
 function makeUpdate(text) {
@@ -35,6 +46,7 @@ describe('edit-records', () => {
   });
 
   afterAll(async () => {
+    await cleanupDocRows(pool, createdDocGuids);
     await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
     await cleanupTestUser(pool, userId);
     await persistence.destroy();
@@ -46,7 +58,7 @@ describe('edit-records', () => {
   }
 
   test('recordEdit inserts an active row with undo_target = edit range; duplicate insert is a no-op', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 5, clockEnd: 8, clocks: [5, 8],
     });
@@ -61,7 +73,7 @@ describe('edit-records', () => {
     // Without a clock set (legacy callers) the column stays null — the
     // spanning-range fallback.
     const noClocks = await editRecords.recordEdit(persistence, {
-      docGuid: randomUUID(), userId, agentName: AGENT, clockStart: 1, clockEnd: 2,
+      docGuid: newDocGuid(), userId, agentName: AGENT, clockStart: 1, clockEnd: 2,
     });
     expect(noClocks.undoTargetClocks).toBeNull();
 
@@ -77,7 +89,7 @@ describe('edit-records', () => {
   });
 
   test('latestEdit and nextUndoTarget: most recent by edit_clock_start, LIFO stepping skips undone', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     await editRecords.recordEdit(persistence, { docGuid, userId, agentName: AGENT, clockStart: 1, clockEnd: 2 });
     await editRecords.recordEdit(persistence, { docGuid, userId, agentName: AGENT, clockStart: 4, clockEnd: 6 });
     await editRecords.recordEdit(persistence, { docGuid, userId, agentName: AGENT, clockStart: 9, clockEnd: 9 });
@@ -102,7 +114,7 @@ describe('edit-records', () => {
   });
 
   test('nextRedoTarget picks the most-recently-undone row (last_undone_at DESC)', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     await editRecords.recordEdit(persistence, { docGuid, userId, agentName: AGENT, clockStart: 1, clockEnd: 1 });
     await editRecords.recordEdit(persistence, { docGuid, userId, agentName: AGENT, clockStart: 3, clockEnd: 3 });
     // Undo clock-3 first, then clock-1 — redo must pick clock-1 (most recent undo).
@@ -119,7 +131,7 @@ describe('edit-records', () => {
   });
 
   test('finalizeClaim(undo) commits claim + inverse row + redo target atomically', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
     });
@@ -148,7 +160,7 @@ describe('edit-records', () => {
   });
 
   test('T005: finalizeClaim composes with a burst of ordinary storeUpdate calls (no deadlock, ordering holds)', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     // Seed an ordinary update so the recorded edit inverts a real row.
     const seedClock = await persistence.storeUpdate(docGuid, makeUpdate('seed'), userId, null);
     const rec = await editRecords.recordEdit(persistence, {
@@ -196,7 +208,7 @@ describe('edit-records', () => {
   });
 
   test('at-most-once: two concurrent undo claims — exactly one wins, exactly one inverse row', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
     });
@@ -217,7 +229,7 @@ describe('edit-records', () => {
   });
 
   test('claim CAS covers the target range too (M3): a stale range never commits', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
     });
@@ -269,7 +281,7 @@ describe('edit-records', () => {
   });
 
   test('redo claim is symmetric (WHERE state=\'undone\'); loser reports honestly', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
     });
@@ -303,7 +315,7 @@ describe('edit-records', () => {
   });
 
   test('legacy first-undo: INSERT ... ON CONFLICT DO NOTHING arbitrates concurrent attempts', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const legacyEdit = { docGuid, userId, agentName: AGENT, clockStart: 2, clockEnd: 4 };
     const attempt = () => editRecords.finalizeClaim(persistence, {
       mode: 'legacy-undo', legacyEdit,
@@ -345,7 +357,7 @@ describe('edit-records', () => {
     ];
 
     test.each(badIdentities)('rejects agentName = %s without touching the database', async (_label, agentName) => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       // A persistence double whose pool would throw if it were ever reached:
       // proves the guard runs BEFORE any query, not after a failed insert.
       let queried = false;
@@ -364,7 +376,7 @@ describe('edit-records', () => {
     });
 
     test('the message names the missing identity, the document and the user — and is never a Postgres constraint string', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       let thrown = null;
       try {
         await editRecords.recordEdit(persistence, {
@@ -390,7 +402,7 @@ describe('edit-records', () => {
     });
 
     test('a real agent name is still accepted, unchanged', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       const rec = await editRecords.recordEdit(persistence, {
         docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
       });
@@ -400,7 +412,7 @@ describe('edit-records', () => {
   });
 
   test('rollback atomicity: a failed inverse insert leaves the claim untaken and the log untouched', async () => {
-    const docGuid = randomUUID();
+    const docGuid = newDocGuid();
     const rec = await editRecords.recordEdit(persistence, {
       docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
     });
@@ -434,7 +446,7 @@ describe('edit-records', () => {
     const FRESHNESS_MS = 60000;
 
     test('a fresh via_sync row does NOT report a pending recording', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       // A recorded edit at clock 0, fully accounted for.
       await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT);
       await editRecords.recordEdit(persistence, {
@@ -448,7 +460,7 @@ describe('edit-records', () => {
     });
 
     test('a genuine fresh UNRECORDED edit still reports pending (the guard keeps its teeth)', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT);
       await editRecords.recordEdit(persistence, {
         docGuid, userId, agentName: AGENT, clockStart: 0, clockEnd: 0,
@@ -461,7 +473,7 @@ describe('edit-records', () => {
     });
 
     test('via_sync = NULL (every pre-038 row and every normal write) still counts', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await persistence.storeUpdate(docGuid, makeUpdate('edit'), userId, AGENT, null, null, { viaSync: null });
 
       const pending = await editRecords.hasPendingRecording(persistence, identity(docGuid), FRESHNESS_MS);
@@ -469,7 +481,7 @@ describe('edit-records', () => {
     });
 
     test('a sync row does not mask an OLDER unrecorded real edit', async () => {
-      const docGuid = randomUUID();
+      const docGuid = newDocGuid();
       await persistence.storeUpdate(docGuid, makeUpdate('real'), userId, AGENT);            // clock 0, unrecorded
       await persistence.storeUpdate(docGuid, makeUpdate('resupplied'), userId, AGENT, null, null, { viaSync: true }); // clock 1
 

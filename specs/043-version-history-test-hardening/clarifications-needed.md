@@ -1,5 +1,87 @@
 # Clarifications Ledger: 043-version-history-test-hardening
 
+---
+
+## Re-verification against merged main (T001-T012), 2026-08-02
+
+Base: `main` at **ddcb6ca9**. Merge SHAs confirmed present before any work:
+
+| Feature | Merge SHA |
+|---|---|
+| 041-version-history-truth | `e6340ce0` |
+| 042-version-history-simplification | `ee52edd3` |
+| 044-presence-awareness-guard | `e39d9481` |
+| 045-resupply-attribution | `c4083f1d` |
+
+Baseline before any change: **242 suites, 4367 tests, all green.**
+
+### Divergences found, all resolved in 041/042/044/045's favor (D5)
+
+1. **D9's ceiling was surveyed too narrowly — the blocking finding.** T004
+   confirmed 038's C1 guard intact (`installGate` once, the `tokenMayWrite`
+   literal), and it stayed intact. But **041 added its own structural pins to
+   `server/index.js`** in `server/__tests__/bindstate-failure.test.js:259-283`,
+   greping for `if (ydoc._bindFailed) return;` and the `refuseBind({...})` call
+   — both inside the block X1 moves. X1 was implemented and reverted; see
+   `promotion-notes.md` §1. **US1, US2, US3 and US5(a) are consequently not
+   delivered.**
+
+2. **X3's negative guard had to be narrowed.** The contract's G5 says index.js
+   must contain no `origin === ORIGIN_REDIS` literal. It legitimately does: the
+   **awareness** publish handler (`redisAwarenessHandler`) keeps its own
+   feedback-loop check, which is a different predicate on a different event and
+   is not part of X3. G5b greps for the document skip-list pair
+   (`ORIGIN_REDIS || ORIGIN_DB_LOAD`) instead.
+
+3. **The wall-clock count is EIGHT, not nine** (spec Verification Notes say
+   nine; analyze C3 said eight). Confirmed eight post-merge, at lines 155, 173,
+   201, 210, 291, 324, 555, 605. All eight replaced.
+
+4. **US7's target files already exist.** The spec says `VersionHistoryPanel` and
+   `VersionPreview` have "no tests at all" (verified true at spec time). 041 and
+   042 added `VersionHistoryPanel.test.jsx`, `VersionPreview.test.jsx` and two
+   `.characterization.test.jsx` siblings. SC-006's "each has a component test
+   file" was therefore already satisfied on arrival, and the four coverage areas
+   were partly covered: **error-state rendering was complete**, diff rendering
+   was shallow, and selection→restore wiring and attribution labels were absent
+   at the panel level. US7 extended the existing files rather than creating new
+   ones, which is the correct post-041/042 reading.
+
+5. **042's prop collapse does not need a provider wrapper (T008).**
+   `VersionHistoryPanel` *is* the `VersionHistoryProvider` — it still declares
+   every prop and memoizes them into context for its list subtree. So plain
+   prop-based `render()` is the correct harness; wrapping it in a provider would
+   test the wrong thing.
+
+6. **D8's label assertion had to be reframed.** There is no restore-specific
+   label or undo affordance anywhere in the version-history UI — 040's cut
+   removed the concept entirely. So "restores labelled as restores with the
+   restorer" has no rendered counterpart to assert. US7 asserts the honest
+   version instead: the author names the server resolved (human, agent,
+   045's synced-content marker) plus an explicit **negative** that no undo
+   affordance exists for a web-UI restore.
+
+7. **The API-token table is `mcp_api_tokens`**, not `api_tokens` as the harness
+   contract's identity section says. Moot in the end — the harness was not built.
+
+8. **`cleanupDocRows` deletes only `yjs_updates`.** The contract implies also
+   clearing search-index rows; `document_search_index` and `document_embeddings`
+   are both `ON DELETE CASCADE` from `documents`, so `cleanupTestUser` already
+   removes them. That asymmetry is exactly *why* the orphan is an update-log row
+   with no index row.
+
+9. **T010 confirmed clean**: `computeChatDiff(mdBefore, mdAfter)` and
+   `computeMarkdownDiff(prevDoc, currDoc, report, currPmDoc = undefined)` both
+   unchanged by 042 (the default keeps `.length === 3` for 039's pin).
+
+10. **T011 do-not-touch list** (044's awareness coverage, duplicated by nothing
+    here): `server/__tests__/ws-awareness-guard.test.js`,
+    `server/__tests__/awareness-removal-propagation.test.js`,
+    `__tests__/integration/awareness-spoof-block.test.js`, and the awareness
+    half of `server/__tests__/ws-edit-gate.test.js`. This feature asserts
+    nothing about presence.
+
+
 All decisions below were resolved with best defaults and are recorded as
 **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)**. None block work; any can
 be reversed by amending the spec before the plan phase.

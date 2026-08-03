@@ -70,9 +70,10 @@ const documentImages = require('./document-images');
 const s3Images = require('./s3-images');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
-// The one authoritative chat-assistant identity, which the /undo-status route
-// queries. Zero-require leaf — safe to import anywhere.
-const { CHAT_AGENT_NAME } = require('./agent-identity');
+// The identity leaf (features 040/043). Zero-require — safe to import anywhere.
+// `identityFromPrincipal` is the token-derived attribution identity every
+// WebSocket connection is recorded under (043, X2).
+const { identityFromPrincipal } = require('./agent-identity');
 const mcp = require('./mcp');
 const toolRegistry = require('./mcp/tools');
 const agentPresence = require('./mcp/agent-presence');
@@ -89,7 +90,7 @@ const onboarding = require('./onboarding');
 const search = require('./search');
 const { mountDocumentationRoutes } = require('./documentation-routes');
 const { mountBlogRoutes } = require('./blog-routes');
-const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin } = require('./origin');
+const { ORIGIN_DB_LOAD, ORIGIN_REDIS, parseOrigin, shouldPublishToRedis } = require('./origin');
 // The sync-protocol edit gate (feature 038). Frame classification AND the
 // interceptor that installs it live in one module so there is exactly one
 // implementation: the unit test, the FR-008 protocol e2e, and this file all
@@ -108,6 +109,7 @@ const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
 const { createTokenClaimRouter } = require('./api/token-claim');
+const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 // Feature 041 (FR-010): a document-load failure refuses the bind instead of
 // serving an empty doc over an outage.
@@ -1678,23 +1680,10 @@ app.post('/api/docs/:docId/redo', requireAuth, makeUndoRedoHandler('redo', 'redo
 // a fully superseded edit surfaces the honest "nothing left to undo" at
 // action time and the client re-polls after every action. Returns
 // { canUndo, canRedo }; viewer-role and error responses stay both-false.
-app.get('/api/docs/:docId/undo-status', requireAuth, async (req, res) => {
-  try {
-    const { docId } = req.params;
-    const role = await documents.getRole(docId, req.user.userId);
-    if (!role || role === 'viewer') {
-      return res.json({ canUndo: false, canRedo: false });
-    }
-    res.json(await undoService.getUndoStatus({
-      docGuid: docId,
-      userId: req.user.userId,
-      agentName: CHAT_AGENT_NAME,
-    }));
-  } catch (error) {
-    console.error('Error checking undo status:', error);
-    res.json({ canUndo: false, canRedo: false });
-  }
-});
+// The handler lives in server/api/undo-status.js (feature 043, X4) — its suite
+// used to test a hand-copied replica that had already drifted from it. Mounted
+// here in the same style as the other api/ routers.
+app.use(createUndoStatusRouter({ documents, undoService, requireAuth }));
 
 // API: Create a named version
 app.post('/api/docs/:docId/versions', requireAuth, rateLimit.perUser('versionHistory'), async (req, res) => {
@@ -2143,8 +2132,13 @@ wss.on('connection', (ws, req) => {
 
   // Store attribution info on ws for the update handler
   // y-websocket passes ws as origin to ydoc.on('update')
-  ws.userId = userId;
-  ws.agentName = req.user?.isAgent ? req.user.agentName : null;
+  // The derivation lives in server/agent-identity.js (feature 043, X2) so a test
+  // can drive the real thing; a re-declared copy of it would guard nothing.
+  // Reading identity from the authenticated principal — never from awareness —
+  // is the fix eulogised above.
+  const wsIdentity = identityFromPrincipal(req.user);
+  ws.userId = wsIdentity.userId;
+  ws.agentName = wsIdentity.agentName;
 
   // Setup ping/pong keepalive mechanism
   let isAlive = true;
@@ -2354,7 +2348,9 @@ wss.on('connection', (ws, req) => {
           // instances that have the doc loaded, or their live editors never see
           // the push. Its persistence double-store is suppressed elsewhere
           // (parseOrigin returns null), so publishing it here is safe.
-          if (origin === ORIGIN_REDIS || origin === ORIGIN_DB_LOAD) return;
+          // The predicate lives in server/origin.js (feature 043, X3); its suite
+          // used to mirror this skip-list by hand.
+          if (!shouldPublishToRedis(origin)) return;
 
           try {
             redisPubSub.publishUpdate(docId, update);

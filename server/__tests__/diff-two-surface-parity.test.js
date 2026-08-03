@@ -236,3 +236,315 @@ describe('SC-003 — chat and version history agree about which words changed', 
     // (Pinned directly by the LS-* suite in shared/diff/__tests__/word-diff.test.js.)
   });
 });
+
+// ===========================================================================
+// Feature 043 US6 (FR-008, SC-005) — end-to-end, from ONE shared document
+// ===========================================================================
+
+/**
+ * Everything above feeds hand-built diff rows into each surface's
+ * POST-PROCESSING half. That is genuinely useful — it is where 039's shared
+ * segmentation lives — but it bypasses each pipeline's upstream half entirely:
+ * the markdown serialization, the line diff, the region detection. A regression
+ * introduced there would not fail a single assertion above.
+ *
+ * So this block starts from a real collaborative document — a pair of `Y.Doc`s,
+ * the actual input the product diffs — and drives BOTH COMPLETE production
+ * pipelines end to end:
+ *
+ *   version history: `new DiffService(...).computeMarkdownDiff(before, after, report)`
+ *   chat:            `computeChatDiff(toMarkdown(before), toMarkdown(after))`
+ *
+ * Both surfaces provably start from the same bytes, because `computeChatDiff`
+ * is fed exactly the serialization `computeMarkdownDiff` performs internally.
+ * The range-extraction helpers above are reused as the comparison currency
+ * (FR-008 permits this explicitly), so the two halves of this file measure the
+ * same thing.
+ *
+ * No database and no Redis: `DiffService.computeMarkdownDiff` is pure given the
+ * fixture, and `computeChatDiff` is pure outright. This suite therefore runs
+ * fast and cannot orphan rows (FR-010 is vacuous for it).
+ */
+
+const Y = require('yjs');
+const { markdownToPm } = require('../../shared/markdown');
+const { pmJsonToNodes } = require('../mcp/yjs/pm-json-to-nodes');
+const { toMarkdown } = require('../mcp/yjs/serialization');
+const { computeChatDiff } = require('../mcp/diff-utils');
+const DiffService = require('../diff-service');
+
+/** The shared fixture builder: markdown in, a real Y.Doc out. */
+function docFromMarkdown(md) {
+  const doc = new Y.Doc();
+  const fragment = doc.get('default', Y.XmlFragment);
+  doc.transact(() => {
+    fragment.insert(0, pmJsonToNodes(markdownToPm(md, null)));
+  });
+  return doc;
+}
+
+/** Plain text of one ProseMirror block, for reporting which row a range is on. */
+function textOfBlock(block) {
+  let out = '';
+  const walk = (node) => {
+    if (!node || !Array.isArray(node.content)) return;
+    for (const child of node.content) {
+      if (child.type === 'text') out += child.text;
+      else walk(child);
+    }
+  };
+  walk(block);
+  return out;
+}
+
+/**
+ * Run BOTH complete pipelines over one before/after markdown pair and reduce
+ * each to `{ del: [{text, ranges}], ins: [{text, ranges}] }`.
+ *
+ * The serialization round-trip is deliberate and load-bearing: `serialized`
+ * reports what `toMarkdown` actually produced, which is not always what was
+ * fed in (markdown has more than one spelling for the same document — `*x*`
+ * serializes back as `_x_`). Asserting against the round-tripped form is what
+ * keeps these pins about the DIFF rather than about the serializer.
+ */
+function bothPipelines(beforeMd, afterMd) {
+  const before = docFromMarkdown(beforeMd);
+  const after = docFromMarkdown(afterMd);
+  const serializedBefore = toMarkdown(before.get('default', Y.XmlFragment));
+  const serializedAfter = toMarkdown(after.get('default', Y.XmlFragment));
+
+  // ── chat: the full pipeline, from the same bytes ──────────────────────────
+  const chatOut = computeChatDiff(serializedBefore, serializedAfter);
+  const segs = chatOut.inlineSegments || {};
+  const chat = { del: [], ins: [] };
+  chatOut.lines.forEach((line, i) => {
+    if (line.startsWith('-')) chat.del.push({ text: line.slice(1), ranges: rangesFromSegments(segs[i]) });
+    else if (line.startsWith('+')) chat.ins.push({ text: line.slice(1), ranges: rangesFromSegments(segs[i]) });
+  });
+
+  // ── version history: the full pipeline, from the same document ────────────
+  const service = new DiffService({
+    getUpdateRowsUpTo: async () => ({ rows: [], gapped: false }),
+  });
+  const pmDoc = service.computeMarkdownDiff(before, after, { timedOut: false });
+  const history = { del: [], ins: [], context: [] };
+  for (const block of pmDoc.content || []) {
+    const blob = JSON.stringify(block);
+    const entry = { text: textOfBlock(block) };
+    if (blob.includes('diffDelete')) {
+      history.del.push({ ...entry, ranges: rangesFromBlock(block, 'diffDeleteWord') });
+    } else if (blob.includes('diffInsert')) {
+      history.ins.push({ ...entry, ranges: rangesFromBlock(block, 'diffInsertWord') });
+    } else {
+      // Blocks carrying NEITHER change mark: unchanged context that history
+      // keeps in its document. Tracked separately so a divergence in how much
+      // context each surface emits is visible rather than silently filtered.
+      history.context.push(entry);
+    }
+  }
+
+  before.destroy();
+  after.destroy();
+  return { chat, history, chatLines: chatOut.lines, serializedBefore, serializedAfter };
+}
+
+describe('043 US6 — both COMPLETE pipelines, driven from one shared Y.Doc fixture', () => {
+  // ── FR-008 acceptance scenario 1: parity on the contractual corpus ────────
+
+  const parityCorpus = [
+    {
+      name: 'E2E-1: one word replaced in a single paragraph',
+      before: 'The quick brown fox\n',
+      after: 'The slow brown fox\n',
+    },
+    {
+      name: 'E2E-2: a word changed on each of two paragraphs',
+      before: 'The quick brown fox\n\njumps over the lazy dog\n',
+      after: 'The slow brown fox\n\njumps over the lazy cat\n',
+    },
+    {
+      name: 'E2E-3: multi-byte UTF-8 prose',
+      before: 'anejo café señor here\n',
+      after: 'anejo café SEÑOR here\n',
+    },
+    {
+      name: 'E2E-4: a literal asterisk that survives the round-trip unescaped',
+      before: 'Use 2 * 3 here\n',
+      after: 'Use 4 * 3 here\n',
+    },
+  ];
+
+  for (const c of parityCorpus) {
+    test(`${c.name}: the two full pipelines mark the same words`, () => {
+      const { chat, history } = bothPipelines(c.before, c.after);
+
+      // Both surfaces saw the same change, and neither dropped a row.
+      expect(chat.del.length).toBeGreaterThan(0);
+      expect(chat.del.map((r) => r.text)).toEqual(history.del.map((r) => r.text));
+      expect(chat.ins.map((r) => r.text)).toEqual(history.ins.map((r) => r.text));
+
+      // ...and agree about WHICH characters of each row changed. This is the
+      // 022 SC-003 contract, now asserted through both upstream halves.
+      expect(chat.del.map((r) => r.ranges)).toEqual(history.del.map((r) => r.ranges));
+      expect(chat.ins.map((r) => r.ranges)).toEqual(history.ins.map((r) => r.ranges));
+
+      // Emphasis is non-empty: a pipeline that marked nothing would otherwise
+      // "agree" with one that also marked nothing.
+      expect(chat.del.some((r) => r.ranges.length > 0)).toBe(true);
+      expect(chat.ins.some((r) => r.ranges.length > 0)).toBe(true);
+    });
+  }
+
+  // ── FR-014 characterization: the ACCEPTED divergence, pinned ──────────────
+
+  /**
+   * ⚠️ CHARACTERIZATION TESTS — ACCEPTED DIVERGENCE (feature 039, finding A1) ⚠️
+   *
+   * The pins below assert output that the two surfaces DISAGREE about. That
+   * disagreement is a ratified decision, not a bug:
+   *
+   *   chat            segments hard-break-stripped, span-stripped MARKDOWN rows,
+   *                   so `**` and `_` and backticks are part of the text it
+   *                   measures — which is correct for chat, because chat SHOWS
+   *                   the reader that markdown.
+   *   version history segments POST-PARSE plain text, so the same syntax is
+   *                   gone before measurement — which is correct for history,
+   *                   because history shows the reader rendered prose.
+   *
+   * Byte-equal ranges across arbitrary input are therefore not achievable, and
+   * asserting them would be asserting a falsehood. Parity is contractual ONLY
+   * on the plain-prose corpus above.
+   *
+   * WHAT TO DO WHEN ONE OF THESE FAILS: do not update the pin to match the new
+   * output. A change here means one pipeline's treatment of markdown syntax
+   * moved, which is a product decision — ratify it (and then update the pin
+   * deliberately, with the decision recorded) or fix the regression. Silently
+   * re-pinning converts a ratified decision back into an accident, which is the
+   * exact drift this feature exists to prevent.
+   *
+   * SC-005 requires at least three pinned cases; there are four.
+   */
+  describe('accepted divergence on markdown-syntax regions (039 A1) — ratify-or-fix', () => {
+    test('DIV-1 bold syntax: chat measures around the asterisks, history after them', () => {
+      const { chat, history, serializedBefore } = bothPipelines(
+        'The **quick** brown fox\n',
+        'The **slow** brown fox\n'
+      );
+
+      expect(serializedBefore).toBe('The **quick** brown fox');
+
+      // Chat: the row still contains `**`, so the changed word starts at 6.
+      expect(chat.del).toEqual([{ text: 'The **quick** brown fox', ranges: [[6, 11]] }]);
+      expect(chat.ins).toEqual([{ text: 'The **slow** brown fox', ranges: [[6, 10]] }]);
+
+      // History: the syntax is parsed away, so the same word starts at 4.
+      expect(history.del).toEqual([{ text: 'The quick brown fox', ranges: [[4, 9]] }]);
+      expect(history.ins).toEqual([{ text: 'The slow brown fox', ranges: [[4, 8]] }]);
+
+      // Both still emphasise exactly one word — the divergence is the OFFSET,
+      // not the decision about what changed.
+      expect(chat.del[0].ranges).toHaveLength(1);
+      expect(history.del[0].ranges).toHaveLength(1);
+    });
+
+    test('DIV-2 emphasis syntax: chat includes the underscores in the changed span', () => {
+      const { chat, history, serializedBefore } = bothPipelines(
+        'An *urgent* memo here\n',
+        'An *routine* memo here\n'
+      );
+
+      // Note the round-trip: `*x*` serializes back as `_x_`. The pin is about
+      // the diff, so it asserts the form the pipelines actually received.
+      expect(serializedBefore).toBe('An _urgent_ memo here');
+
+      // Chat's changed span SWALLOWS the delimiters (3..11 covers `_urgent_`),
+      // because to a markdown reader the delimiters moved too.
+      expect(chat.del).toEqual([{ text: 'An _urgent_ memo here', ranges: [[3, 11]] }]);
+      expect(chat.ins).toEqual([{ text: 'An _routine_ memo here', ranges: [[3, 12]] }]);
+
+      // History marks the word alone.
+      expect(history.del).toEqual([{ text: 'An urgent memo here', ranges: [[3, 9]] }]);
+      expect(history.ins).toEqual([{ text: 'An routine memo here', ranges: [[3, 10]] }]);
+    });
+
+    test('DIV-3 inline code: the backticks shift chat one column right', () => {
+      const { chat, history } = bothPipelines('call `foo()` now\n', 'call `bar()` now\n');
+
+      expect(chat.del).toEqual([{ text: 'call `foo()` now', ranges: [[6, 9]] }]);
+      expect(chat.ins).toEqual([{ text: 'call `bar()` now', ranges: [[6, 9]] }]);
+
+      expect(history.del).toEqual([{ text: 'call foo() now', ranges: [[5, 8]] }]);
+      expect(history.ins).toEqual([{ text: 'call bar() now', ranges: [[5, 8]] }]);
+
+      // Same width, different origin: the offset is exactly the backtick.
+      expect(chat.del[0].ranges[0][1] - chat.del[0].ranges[0][0])
+        .toBe(history.del[0].ranges[0][1] - history.del[0].ranges[0][0]);
+    });
+
+    test('DIV-4 hard breaks: the marked words agree, but history keeps the joined sibling as context', () => {
+      const { chat, history, chatLines } = bothPipelines(
+        'first line\\\nsecond line\n',
+        'first line\\\nsecond LINE\n'
+      );
+
+      // The EMPHASIS agrees here — a hard break does not shift the columns the
+      // way inline syntax does, because the marker is stripped from both sides
+      // before segmentation (028 FR-004).
+      expect(chat.del).toEqual([{ text: 'second line', ranges: [[7, 11]] }]);
+      expect(chat.ins).toEqual([{ text: 'second LINE', ranges: [[7, 11]] }]);
+      expect(history.del).toEqual([{ text: 'second line', ranges: [[7, 11]] }]);
+      expect(history.ins).toEqual([{ text: 'second LINE', ranges: [[7, 11]] }]);
+
+      // The divergence is STRUCTURAL rather than positional: the hard break
+      // joins two lines into one paragraph, and history's document keeps the
+      // unchanged half as its own context block, carrying the trailing `\`
+      // that chat's line list never emits at all. Two surfaces, two answers to
+      // "what is a row" — accepted for the same A1 reason.
+      expect(history.context).toEqual([{ text: 'first line\\' }]);
+
+      // Chat DOES carry the same half, as a patch CONTEXT line (leading space)
+      // rather than as a document block — and it has STRIPPED the trailing `\`
+      // hard-break marker that history's block still carries in its text
+      // (028 FR-004 strips the marker from both serializations before the line
+      // diff, so every chat consumer sees cleaned text).
+      expect(chatLines).toEqual([' first line', '-second line', '+second LINE']);
+
+      // The same unchanged content, spelled two ways. This inequality IS the
+      // pin: if it ever becomes an equality, one surface changed its treatment
+      // of hard breaks and that is a decision to ratify, not a pin to update.
+      const chatContext = chatLines.filter((l) => l.startsWith(' ')).map((l) => l.slice(1));
+      expect(chatContext).toEqual(['first line']);
+      expect(history.context.map((c) => c.text)).toEqual(['first line\\']);
+      expect(chatContext).not.toEqual(history.context.map((c) => c.text));
+    });
+  });
+
+  // ── FR-008's other half: the fixture really is shared ─────────────────────
+
+  test('E2E-5: both surfaces are provably fed the same bytes', () => {
+    // If this ever stops holding, every parity assertion above becomes
+    // meaningless — they would be comparing two different inputs.
+    const before = docFromMarkdown('alpha beta gamma\n');
+    const after = docFromMarkdown('alpha BETA gamma\n');
+
+    const beforeMd = toMarkdown(before.get('default', Y.XmlFragment));
+    const afterMd = toMarkdown(after.get('default', Y.XmlFragment));
+
+    expect(beforeMd).toBe('alpha beta gamma');
+    expect(afterMd).toBe('alpha BETA gamma');
+
+    // computeMarkdownDiff performs exactly this serialization internally, so
+    // handing the same strings to computeChatDiff is the shared-input proof.
+    const service = new DiffService({ getUpdateRowsUpTo: async () => ({ rows: [], gapped: false }) });
+    const pmDoc = service.computeMarkdownDiff(before, after, { timedOut: false });
+    const historyText = (pmDoc.content || []).map(textOfBlock);
+    const chatText = computeChatDiff(beforeMd, afterMd).lines
+      .filter((l) => l.startsWith('-') || l.startsWith('+'))
+      .map((l) => l.slice(1));
+
+    expect(historyText).toEqual(chatText);
+
+    before.destroy();
+    after.destroy();
+  });
+});

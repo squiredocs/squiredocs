@@ -120,9 +120,35 @@ function waitForSync(provider, timeout = 5000) {
 }
 
 /**
- * Small delay for WebSocket message propagation (not persistence)
+ * Small delay for WebSocket message propagation (not persistence).
+ *
+ * Feature 043 US8 (acceptance scenario 3): this is now used ONLY to await an
+ * ABSENCE — a state where there is nothing to poll for, because the assertion
+ * is that nothing happens. Every sleep that was standing in for an observable
+ * condition has been replaced by `waitUntil` below. A sleep that awaits a
+ * condition is a race the test loses on a slow runner and wins by luck on a
+ * fast one; a sleep that awaits an absence is the only honest kind.
  */
 const tick = (ms = 50) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Poll until `fn()` returns truthy, or fail with a useful label.
+ *
+ * Feature 043 US8 (FR-011): replaces the fixed `tick(100)` propagation waits.
+ * Faster in the common case (returns as soon as the condition holds, usually
+ * in a millisecond or two) and immune to a loaded CI runner, which is the
+ * flake shape this feature exists to remove.
+ */
+async function waitUntil(fn, { timeout = 5000, label = 'condition' } = {}) {
+  const start = Date.now();
+  for (;;) {
+    if (await fn()) return;
+    if (Date.now() - start > timeout) {
+      throw new Error(`Timed out after ${timeout}ms waiting for ${label}`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
 
 describe('Collaboration Integration Tests', () => {
   let server;
@@ -183,6 +209,9 @@ describe('Collaboration Integration Tests', () => {
         server.close(() => resolve());
       });
     });
+    // Deliberate sleep, not a missed waitUntil: this waits for socket teardown
+    // callbacks to drain, which is an ABSENCE of further activity. There is no
+    // condition to poll for "nothing else will happen" (US8 acceptance 3).
     await tick(50);
     await basePersistence.destroy();
   });
@@ -303,9 +332,13 @@ describe('Collaboration Integration Tests', () => {
       try {
         await waitForSync(provider2);
         
-        // Small tick to allow bindState to apply persisted state
-        await tick(100);
-        
+        // bindState applies the persisted state asynchronously; the title
+        // arriving IS the observable condition, so wait for it rather than
+        // guessing how long it takes.
+        await waitUntil(() => meta2.get('title') === 'Server Title', {
+          label: 'persisted title to reach the second client',
+        });
+
         const currentTitle = meta2.get('title');
         expect(currentTitle).toBe('Server Title');
       } finally {
@@ -359,13 +392,16 @@ describe('Collaboration Integration Tests', () => {
         await Promise.all([waitForSync(provider1), waitForSync(provider2)]);
         
         text1.insert(0, 'Hello ');
-        await tick(100); // Allow WebSocket propagation
-        
+        await waitUntil(() => text2.toString() === 'Hello ', {
+          label: "client 1's insert to propagate to client 2",
+        });
         expect(text2.toString()).toBe('Hello ');
-        
+
         text2.insert(text2.length, 'World!');
-        await tick(100);
-        
+        await waitUntil(() => text1.toString() === 'Hello World!', {
+          label: "client 2's insert to propagate back to client 1",
+        });
+
         expect(text1.toString()).toBe('Hello World!');
         expect(text2.toString()).toBe('Hello World!');
       } finally {
@@ -396,8 +432,12 @@ describe('Collaboration Integration Tests', () => {
         text1.insert(0, 'A');
         text2.insert(0, 'B');
         
-        // Wait for sync (both writes should complete)
-        await tick(100);
+        // Both edits converge; convergence is the observable condition, and
+        // Yjs guarantees the two replicas agree once both updates have landed.
+        await waitUntil(
+          () => text1.toString().length === 2 && text1.toString() === text2.toString(),
+          { label: 'the two concurrent edits to converge on both clients' }
+        );
         await trackedPersistence.waitForPendingWrites();
         
         const result1 = text1.toString();

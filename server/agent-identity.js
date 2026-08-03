@@ -69,4 +69,39 @@ function isSameIdentity(a, b) {
     && (a.agentName ?? null) === (b.agentName ?? null);
 }
 
-module.exports = { CHAT_AGENT_NAME, isSameIdentity };
+/**
+ * The connection's attribution identity, derived from the AUTHENTICATED
+ * PRINCIPAL — never from awareness (feature 043, X2).
+ *
+ * This derivation IS the fix for the historical misattribution bug: attribution
+ * used to be guessed from the first awareness message a connection saw, which
+ * could be a broadcast *about* another client. An agent that connected first
+ * therefore captured the next human's attribution, and the human's edits were
+ * filed under the agent's name. Reading it from the token instead is
+ * deterministic and race-free; the eulogy for the deleted awareness capture
+ * lives at the `wss.on('connection')` handler in server/index.js.
+ *
+ * Moved here from that handler so a test can drive the real derivation instead
+ * of re-declaring it (a re-declared copy guards nothing). Home is this
+ * zero-dependency identity leaf; adding it introduces no require and so cannot
+ * close an import cycle (see the module invariant above).
+ *
+ * `userId` is passed through exactly as the principal carries it (`undefined`
+ * for an anonymous/absent principal — NOT coerced to null: the callers store it
+ * straight onto `ws.userId`, and changing the absent-value shape here would
+ * change what lands in `yjs_updates.user_id`). `agentName` is null for every
+ * non-agent principal, including one that happens to carry an `agentName`
+ * field without `isAgent` — being an agent is the token's claim, not the name's
+ * presence.
+ *
+ * @param {object|null|undefined} user - the principal from permissions.extractUser
+ * @returns {{userId: string|undefined, agentName: string|null}}
+ */
+function identityFromPrincipal(user) {
+  return {
+    userId: user?.userId,
+    agentName: user?.isAgent ? user.agentName : null,
+  };
+}
+
+module.exports = { CHAT_AGENT_NAME, isSameIdentity, identityFromPrincipal };

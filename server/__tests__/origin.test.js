@@ -16,13 +16,14 @@ const {
   createSyncPushOrigin,
   isSyncPushOrigin,
   parseOrigin,
+  // Feature 043 (FR-006b, X3): the REAL publish predicate. This file used to
+  // define a local copy of it with the comment "Mirrors the redisUpdateHandler
+  // skip-list in server/index.js exactly" — a claim nothing could check. A copy
+  // passes forever no matter what production routes, so the expectations below
+  // were guarding the copy, not the product. They are unchanged; what changed
+  // is that they now run against the predicate `redisUpdateHandler` consults.
+  shouldPublishToRedis,
 } = require('../origin');
-
-// Mirrors the redisUpdateHandler skip-list in server/index.js exactly: publish
-// everything EXCEPT Redis (feedback loop) and DB-load (already everywhere).
-function shouldPublishToRedis(origin) {
-  return origin !== ORIGIN_REDIS && origin !== ORIGIN_DB_LOAD;
-}
 
 describe('origin sentinels', () => {
   test('the five sentinels are distinct string values', () => {
