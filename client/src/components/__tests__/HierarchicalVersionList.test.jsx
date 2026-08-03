@@ -574,6 +574,72 @@ describe('HierarchicalVersionList — unknown-author tolerance (040 FR-009)', ()
 });
 
 /**
+ * Feature 045 — FR-004 / RBD-045-2: the "Synced content" contributor.
+ *
+ * The server emits this entry for sync-relayed content whose true author cannot
+ * be derived. It must not look like a person, and it must stay visibly distinct
+ * from 040's "Unknown author" — the two state different facts. The client keys
+ * on the additive `isSynced` flag, never on the display name.
+ */
+describe('HierarchicalVersionList — synced-contribution rendering (045 FR-004)', () => {
+  const SYNCED = {
+    id: null,
+    name: 'Synced content',
+    email: null,
+    picture: null,
+    color: '#888888',
+    isAgent: false,
+    isSynced: true,
+  };
+
+  const UNKNOWN = {
+    id: null,
+    name: 'Unknown author',
+    email: null,
+    picture: null,
+    color: '#888888',
+    isAgent: false,
+  };
+
+  it('renders the synced entry with the outlined dot and an explanatory title', () => {
+    const { container } = renderWithVersion({ authors: [SYNCED] });
+
+    expect(screen.getByText('Synced content')).toBeTruthy();
+
+    const dot = container.querySelector('.hierarchy-author-dot');
+    expect(dot.classList.contains('hierarchy-author-dot-synced')).toBe(true);
+    // No identity fill: the stylesheet owns this badge.
+    expect(dot.style.backgroundColor).toBe('');
+
+    const entry = container.querySelector('.hierarchy-author');
+    expect(entry.getAttribute('title')).toMatch(/reconnect/i);
+  });
+
+  it('is visually distinguishable from an Unknown author entry in the same version', () => {
+    const { container } = renderWithVersion({ authors: [UNKNOWN, SYNCED] });
+
+    const names = Array.from(container.querySelectorAll('.hierarchy-author-name'))
+      .map((n) => n.textContent);
+    expect(names).toEqual(['Unknown author', 'Synced content']);
+
+    const dots = container.querySelectorAll('.hierarchy-author-dot');
+    expect(dots[0].classList.contains('hierarchy-author-dot-synced')).toBe(false);
+    expect(dots[1].classList.contains('hierarchy-author-dot-synced')).toBe(true);
+    // The deleted-account entry keeps its filled neutral badge.
+    expect(dots[0].style.backgroundColor).toBe('rgb(136, 136, 136)');
+  });
+
+  it('leaves a real author untouched — the flag is opt-in, not a name match', () => {
+    const { container } = renderWithVersion({
+      authors: [{ id: 'u1', name: 'Synced content', color: '#875692', isAgent: false }],
+    });
+    const dot = container.querySelector('.hierarchy-author-dot');
+    expect(dot.classList.contains('hierarchy-author-dot-synced')).toBe(false);
+    expect(container.querySelector('.hierarchy-author').getAttribute('title')).toBe('Synced content');
+  });
+});
+
+/**
  * Feature 041 US3 (FR-009): expansion state lives in this component while the
  * drill-down cache lives in the hook, so a refresh that wiped the cache used to
  * leave an expanded row rendering "No individual updates" — an empty-state claim

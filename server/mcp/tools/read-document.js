@@ -12,6 +12,7 @@ const {
 } = require('../yjs/cursor-operations');
 const { queryAndSerialize, readDocumentAtVersion } = require('./read-helpers');
 const versionHistory = require('../../version-history');
+const { resolveForRows } = require('../../resupply-resolution');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -137,8 +138,15 @@ async function handler(args, agentToken) {
     const lastUpdate = recentUpdates[recentUpdates.length - 1];
     clock = lastUpdate.clock;
     lastModifiedAt = lastUpdate.createdAt;
-    lastModifiedBy = versionHistory.createAuthor(lastUpdate);
-    recentAuthors = versionHistory.getCurrentSessionAuthors(recentUpdates);
+    // Feature 045: this feed is the one agents ACT on, so it obeys the same
+    // resolution the timeline does — resolved once for this window, consumed by
+    // both fields. `lastModifiedBy` takes the single-slot collapse (RBD-045-9,
+    // RBD-045-12); `recentAuthors` may therefore include the "Synced content"
+    // entry. The response shape is unchanged apart from that entry's additive
+    // isSynced marker; a relayer is never reported as an author either way.
+    const resolution = await resolveForRows(persistenceProvider, docGuid, recentUpdates);
+    lastModifiedBy = versionHistory.authorForSingleSlot(lastUpdate, resolution);
+    recentAuthors = versionHistory.getCurrentSessionAuthors(recentUpdates, { resolution });
   }
 
   const baseUrl = agentToken.baseUrl || '';

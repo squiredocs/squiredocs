@@ -994,6 +994,345 @@ describe('version-history module', () => {
     });
   });
 
+  describe('045: relayed content is credited to its true author, never the relayer', () => {
+    const base = new Date('2024-06-01T10:00:00Z').getTime();
+
+    /** A Y.Doc with a pinned client identity. */
+    const docWithClient = (clientID) => {
+      const doc = new Y.Doc();
+      doc.clientID = clientID;
+      return doc;
+    };
+
+    /** Capture the bytes of one edit. */
+    const capture = (doc, edit) => {
+      let bytes = null;
+      const handler = (u) => { bytes = u; };
+      doc.on('update', handler);
+      edit();
+      doc.off('update', handler);
+      return bytes;
+    };
+
+    const insert = (doc, text) => capture(doc, () => doc.getText('body').insert(0, text));
+
+    const PEOPLE = {
+      'user-a': { userName: 'Alice', userEmail: 'alice@example.com', userPicture: null },
+      'user-b': { userName: 'Bob', userEmail: 'bob@example.com', userPicture: null },
+    };
+
+    /**
+     * A row as the persistence layer returns it, plus the payload bytes the
+     * resolver will fetch separately (the surfaces themselves never see them).
+     */
+    const row = (clock, userId, { agentName = null, viaSync = null, bytes = null, offsetMs = null } = {}) => ({
+      clock,
+      createdAt: new Date(base + (offsetMs === null ? clock * 1000 : offsetMs)).toISOString(),
+      userId,
+      userName: userId ? PEOPLE[userId]?.userName ?? null : null,
+      userEmail: userId ? PEOPLE[userId]?.userEmail ?? null : null,
+      userPicture: null,
+      agentName,
+      meaningful: true,
+      viaSync,
+      updateData: bytes,
+    });
+
+    /** A persistence double that satisfies the surfaces AND the resolver. */
+    const persistenceFor = (rows, namedVersions = []) => ({
+      getUpdatesWithUsers: async () => rows,
+      getUpdatesInRange: async (_doc, clockStart, clockEnd) =>
+        rows.filter(r => r.clock >= clockStart && r.clock <= clockEnd),
+      getNamedVersions: async () => namedVersions,
+      getUpdatePayloads: async (_doc, clocks) =>
+        rows.filter(r => clocks.includes(r.clock)).map(r => ({ clock: r.clock, updateData: r.updateData })),
+      getDirectAttributedRows: async (_doc, { afterClock = -1, beforeClock, limit = 500 }) =>
+        rows
+          .filter(r => r.viaSync !== true && r.userId != null)
+          .filter(r => r.clock > afterClock && r.clock < beforeClock)
+          .slice(0, limit)
+          .map(r => ({ clock: r.clock, userId: r.userId, agentName: r.agentName, updateData: r.updateData })),
+      getUserDisplayFields: async (ids) => {
+        const out = new Map();
+        for (const id of ids) if (PEOPLE[id]) out.set(id, PEOPLE[id]);
+        return out;
+      },
+    });
+
+    const authorIds = (v) => (v.authors || []).map(a => a.id);
+    const authorNames = (v) => (v.authors || []).map(a => a.name);
+
+    beforeEach(() => require('../resupply-resolution')._resetForTest());
+
+    test('the timeline credits the recovered author and never the relaying client (FR-001, SC-001)', async () => {
+      const alice = docWithClient(4001);
+      const rows = [
+        row(1, 'user-a', { bytes: insert(alice, 'alpha') }),
+        // Bob's client relayed Alice's lost edit: Bob's stamp, Alice's content.
+        row(2, 'user-b', { viaSync: true, bytes: insert(alice, 'bravo') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-045');
+
+      expect(versions).toHaveLength(1);
+      expect(authorIds(versions[0])).toEqual(['user-a']);
+      expect(authorIds(versions[0])).not.toContain('user-b');
+    });
+
+    test('a resolved origin renders identically to a direct author (FR-003)', async () => {
+      const alice = docWithClient(4002);
+      const relayed = [
+        row(1, 'user-a', { bytes: insert(alice, 'alpha') }),
+        row(2, 'user-b', { viaSync: true, bytes: insert(alice, 'bravo') }),
+      ];
+      const direct = [
+        row(1, 'user-a', { bytes: insert(docWithClient(4003), 'alpha') }),
+        row(2, 'user-a', { bytes: insert(docWithClient(4003), 'bravo') }),
+      ];
+
+      const relayedTimeline = await getVersionTimeline(persistenceFor(relayed), 'doc-relayed');
+      require('../resupply-resolution')._resetForTest();
+      const directTimeline = await getVersionTimeline(persistenceFor(direct), 'doc-direct');
+
+      expect(relayedTimeline.versions[0].authors).toEqual(directTimeline.versions[0].authors);
+    });
+
+    test('an agent origin relayed through a human is credited to the agent (US1 scenario 4)', async () => {
+      const agentDoc = docWithClient(4004);
+      const rows = [
+        row(1, 'user-a', { agentName: 'claude', bytes: insert(agentDoc, 'alpha') }),
+        row(2, 'user-b', { viaSync: true, bytes: insert(agentDoc, 'bravo') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-agent');
+
+      expect(versions[0].authors).toHaveLength(1);
+      expect(versions[0].authors[0].isAgent).toBe(true);
+      expect(versions[0].authors[0].name).toBe('claude (Alice)');
+    });
+
+    test('self-relay with prior evidence keeps its author, with no synced hedging (SC-002)', async () => {
+      const alice = docWithClient(4005);
+      const rows = [
+        row(1, 'user-a', { bytes: insert(alice, 'alpha') }),
+        row(2, 'user-a', { viaSync: true, bytes: insert(alice, 'bravo') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-self');
+
+      expect(authorIds(versions[0])).toEqual(['user-a']);
+      expect(authorNames(versions[0])).not.toContain('Synced content');
+    });
+
+    test('the drill-down agrees with the timeline (FR-001, drill-down projection carries viaSync)', async () => {
+      const alice = docWithClient(4006);
+      const rows = [
+        row(1, 'user-a', { bytes: insert(alice, 'alpha') }),
+        row(2, 'user-b', { viaSync: true, bytes: insert(alice, 'bravo') }),
+      ];
+      const persistence = persistenceFor(rows);
+
+      const { subversions } = await getUpdatesForVersion(persistence, 'doc-045', 1, 2);
+      const { versions } = await getVersionTimeline(persistence, 'doc-045');
+
+      expect(subversions).toHaveLength(1);
+      expect(authorIds(subversions[0])).toEqual(['user-a']);
+      expect(authorIds(subversions[0])).toEqual(authorIds(versions[0]));
+    });
+
+    test('a NAMED version and both split fragments over a relayed row credit the resolved author (041 paths)', async () => {
+      const alice = docWithClient(4007);
+      const bob = docWithClient(4008);
+      // One burst: Bob writes directly at 1-2, a relayed row of Alice's sits at
+      // 3, Bob writes again at 4-5. Naming clock 3 alone splits the burst on
+      // both sides of the relayed row.
+      const rows = [
+        row(1, 'user-b', { bytes: insert(bob, 'b1') }),
+        row(2, 'user-a', { bytes: insert(alice, 'a1') }),
+        row(3, 'user-b', { viaSync: true, bytes: insert(alice, 'a2') }),
+        row(4, 'user-b', { bytes: insert(bob, 'b2') }),
+        row(5, 'user-b', { bytes: insert(bob, 'b3') }),
+      ];
+      const named = [{
+        id: 'named-3-3',
+        name: 'Named 3',
+        clock_start: 3,
+        clock_end: 3,
+        created_at: new Date(base + 3000).toISOString(),
+        created_by: 'user-b',
+        creator_name: 'Bob',
+      }];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows, named), 'doc-named');
+
+      const namedVersion = versions.find(v => v.isNamed);
+      // The named range is EXACTLY the relayed row: Alice, not the stamped Bob.
+      expect(authorIds(namedVersion)).toEqual(['user-a']);
+
+      const fragments = versions.filter(v => !v.isNamed);
+      expect(fragments).toHaveLength(2);
+      // The BEFORE fragment (clocks 1-2) holds Bob's own row and Alice's own
+      // direct row; the AFTER fragment (4-5) is Bob's alone. Neither inherits
+      // the relayed row's authorship — that belongs to the named range only.
+      const before = fragments.find(f => f.clockStart === 1);
+      const after = fragments.find(f => f.clockStart === 4);
+      expect(authorIds(before).sort()).toEqual(['user-a', 'user-b']);
+      expect(authorIds(after)).toEqual(['user-b']);
+    });
+
+    test('rows with via_sync NULL or false are displayed exactly as before (FR-008)', async () => {
+      const alice = docWithClient(4009);
+      const legacy = [
+        row(1, 'user-a', { viaSync: null, bytes: insert(alice, 'alpha') }),
+        row(2, 'user-b', { viaSync: false, bytes: insert(alice, 'bravo') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(legacy), 'doc-legacy');
+
+      // The stamp is the author for a row that is not known to be sync-relayed —
+      // null is never suspicious (038).
+      expect(authorIds(versions[0]).sort()).toEqual(['user-a', 'user-b']);
+    });
+  });
+
+  describe('045: unmappable relayed content is labelled honestly (US2)', () => {
+    const { SYNCED_CONTRIBUTION } = require('../version-history');
+    const base = new Date('2024-06-02T10:00:00Z').getTime();
+
+    const docWithClient = (clientID) => {
+      const doc = new Y.Doc();
+      doc.clientID = clientID;
+      return doc;
+    };
+    const capture = (doc, edit) => {
+      let bytes = null;
+      const handler = (u) => { bytes = u; };
+      doc.on('update', handler);
+      edit();
+      doc.off('update', handler);
+      return bytes;
+    };
+    const insert = (doc, text) => capture(doc, () => doc.getText('body').insert(0, text));
+
+    const row = (clock, userId, { agentName = null, viaSync = null, bytes = null } = {}) => ({
+      clock,
+      createdAt: new Date(base + clock * 1000).toISOString(),
+      userId,
+      userName: userId === 'user-a' ? 'Alice' : userId === 'user-b' ? 'Bob' : null,
+      userEmail: null,
+      userPicture: null,
+      agentName,
+      meaningful: true,
+      viaSync,
+      updateData: bytes,
+    });
+
+    const persistenceFor = (rows) => ({
+      getUpdatesWithUsers: async () => rows,
+      getUpdatesInRange: async (_doc, clockStart, clockEnd) =>
+        rows.filter(r => r.clock >= clockStart && r.clock <= clockEnd),
+      getNamedVersions: async () => [],
+      getUpdatePayloads: async (_doc, clocks) =>
+        rows.filter(r => clocks.includes(r.clock)).map(r => ({ clock: r.clock, updateData: r.updateData })),
+      getDirectAttributedRows: async (_doc, { afterClock = -1, beforeClock, limit = 500 }) =>
+        rows
+          .filter(r => r.viaSync !== true && r.userId != null)
+          .filter(r => r.clock > afterClock && r.clock < beforeClock)
+          .slice(0, limit)
+          .map(r => ({ clock: r.clock, userId: r.userId, agentName: r.agentName, updateData: r.updateData })),
+      getUserDisplayFields: async () => new Map(),
+    });
+
+    beforeEach(() => require('../resupply-resolution')._resetForTest());
+
+    test('a relayed row with no prior evidence renders the synced contribution, never the relayer (FR-004)', async () => {
+      const stranger = docWithClient(5001);
+      const rows = [row(1, 'user-b', { viaSync: true, bytes: insert(stranger, 'alpha') })];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-noevidence');
+
+      expect(versions[0].authors).toEqual([SYNCED_CONTRIBUTION]);
+      expect(versions[0].authors.map(a => a.id)).not.toContain('user-b');
+    });
+
+    test('ambiguous evidence refuses rather than guessing (FR-006)', async () => {
+      const shared = docWithClient(5002);
+      const rows = [
+        row(1, 'user-a', { bytes: insert(shared, 'a') }),
+        row(2, 'user-b', { bytes: insert(shared, 'b') }),
+        row(3, 'user-b', { viaSync: true, bytes: insert(shared, 'c') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-ambiguous');
+
+      const names = versions[0].authors.map(a => a.name);
+      expect(names).toContain('Synced content');
+      // Both real authors are here for their OWN direct rows; neither is
+      // credited for the relayed one (the synced entry is what covers it).
+      expect(versions[0].authors.filter(a => a.isSynced)).toHaveLength(1);
+    });
+
+    test('a deletion-only relayed payload fabricates no deleter (FR-005)', async () => {
+      const alice = docWithClient(5003);
+      const evidence = insert(alice, 'alpha');
+      const bob = docWithClient(5004);
+      Y.applyUpdate(bob, Y.encodeStateAsUpdate(alice));
+      const deletion = capture(bob, () => bob.getText('body').delete(0, 5));
+
+      const rows = [
+        row(1, 'user-a', { bytes: evidence }),
+        row(2, 'user-b', { viaSync: true, bytes: deletion }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-deletion');
+
+      const names = versions[0].authors.map(a => a.name);
+      expect(names).toContain('Synced content');
+      expect(names).not.toContain('Bob');
+    });
+
+    test('a version made ENTIRELY of unresolvable relayed rows shows the synced contribution, not an empty list', async () => {
+      const stranger = docWithClient(5005);
+      const rows = [
+        row(1, 'user-b', { viaSync: true, bytes: insert(stranger, 'alpha') }),
+        row(2, 'user-b', { viaSync: true, bytes: insert(stranger, 'bravo') }),
+        row(3, 'user-a', { viaSync: true, bytes: insert(stranger, 'charlie') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-allsynced');
+
+      // Three unresolvable rows, two different relayers ⇒ exactly ONE entry.
+      expect(versions[0].authors).toEqual([SYNCED_CONTRIBUTION]);
+    });
+
+    test('the synced contribution and Unknown author coexist distinguishably in one version (RBD-045-2)', async () => {
+      const stranger = docWithClient(5006);
+      const rows = [
+        // A row whose user was deleted (user_id SET NULL) ⇒ Unknown author.
+        row(1, null, { bytes: insert(stranger, 'alpha') }),
+        // A relayed row with no usable evidence ⇒ Synced content.
+        row(2, 'user-b', { viaSync: true, bytes: insert(stranger, 'bravo') }),
+      ];
+
+      const { versions } = await getVersionTimeline(persistenceFor(rows), 'doc-both');
+
+      const names = versions[0].authors.map(a => a.name).sort();
+      expect(names).toEqual(['Synced content', 'Unknown author']);
+      expect(versions[0].authors.find(a => a.name === 'Synced content').isSynced).toBe(true);
+      expect(versions[0].authors.find(a => a.name === 'Unknown author').isSynced).toBeUndefined();
+    });
+
+    test('the drill-down applies the same rule as the timeline for unresolvable rows', async () => {
+      const stranger = docWithClient(5007);
+      const rows = [row(1, 'user-b', { viaSync: true, bytes: insert(stranger, 'alpha') })];
+      const persistence = persistenceFor(rows);
+
+      const { subversions } = await getUpdatesForVersion(persistence, 'doc-drill-synced', 1, 1);
+
+      expect(subversions[0].authors).toEqual([SYNCED_CONTRIBUTION]);
+    });
+  });
+
   describe('formatTimestamp', () => {
     test('formats date string to readable format', () => {
       const formatted = formatTimestamp('2024-12-10T16:44:00Z');
