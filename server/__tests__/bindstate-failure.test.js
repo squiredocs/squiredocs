@@ -406,7 +406,12 @@ describe('041 FR-010: bind refusal on document load failure', () => {
       await expect(documentService.updateDocument(
         DOC_GUID,
         (doc) => {
-          refuseBind({ docName: `s/${DOC_GUID}`, docGuid: DOC_GUID, ydoc: doc, error: new Error('load failed mid-write') });
+          // Refuse the SHARED doc, which is what the bind machinery does in
+          // production. Since 048 the doc handed to updateFn is an ephemeral
+          // per-operation copy, so refusing `doc` would flag a throwaway and
+          // prove nothing. The window under test is unchanged: the refusal
+          // lands after the readiness gate passed and before the merge.
+          refuseBind({ docName: `s/${DOC_GUID}`, docGuid: DOC_GUID, ydoc, error: new Error('load failed mid-write') });
           const p = new Y.XmlElement('paragraph');
           p.insert(0, [new Y.XmlText('lost content')]);
           doc.get('default', Y.XmlFragment).insert(0, [p]);

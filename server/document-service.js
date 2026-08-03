@@ -1,9 +1,31 @@
 /**
  * Document Service - Application layer for document updates
  *
- * Provides a unified interface for both WebSocket and MCP tools
- * to update documents. Ensures all updates go through the in-memory
- * ydoc cache and are broadcast to connected clients.
+ * Provides a unified interface for both WebSocket and MCP tools to update
+ * documents. Ensures all updates go through the in-memory ydoc cache and are
+ * broadcast to connected clients.
+ *
+ * ── HOW A SERVER-SIDE WRITE IS AUTHORED (feature 048) ───────────────────────
+ * `updateDocument` is THE implementation point for every server-side content
+ * operation: markdown import, document seeding, title set, the empty-import
+ * anchor, and the chat image insert all route through it.
+ *
+ * It does two things that are easy to miss and expensive to get wrong:
+ *
+ * 1. It WAITS for the document's bindState load to complete before reading any
+ *    doc state (`waitForDocReady`). The lookup that produces the shared doc
+ *    also creates it, and the load is not awaited — writing into that window
+ *    raced the load and lost data.
+ * 2. It does NOT transact on the shared doc. The caller's function runs against
+ *    a fresh, single-use ephemeral `Y.Doc` seeded from the shared doc's current
+ *    state; only the captured bytes are merged back. Every operation therefore
+ *    carries its own random Yjs clientID, which binds to exactly one
+ *    (user, agent) identity — the property the resupply resolver depends on to
+ *    never credit the wrong author, on any pod, with no shared memory.
+ *
+ * The one deliberate exception to the random-clientID rule is the sync push
+ * (`server/markdown-sync.js`), which pins a SYNTHETIC clientID derived from the
+ * content so an identical retry is byte-identical. It is documented there.
  */
 const Y = require('yjs');
 const { randomUUID } = require('crypto');
@@ -38,6 +60,13 @@ function init(getYDoc, extractDocGuid, docs = null) {
  * `updateDocument` (an agent modify/import must have a doc to write into), but
  * it is the WRONG primitive for asking "is this document loaded?" — see
  * `peekSharedDoc` (feature 041, FR-013).
+ *
+ * ⚠️ The doc this returns is a HANDLE, not a writing surface. Because the load
+ * is not awaited, it may still be empty: anything that reads or writes its
+ * state must first pass `waitForDocReady` (feature 048, FR-013). And no
+ * server-side content operation should transact on it directly — that would
+ * author the operation under the process-wide shared clientID, which is the
+ * misattribution 048 exists to end. Go through `updateDocument`.
  *
  * @param {string} docGuid - Document UUID
  * @returns {Y.Doc} The shared WSSharedDoc instance
@@ -183,18 +212,57 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
 
   ydoc.on('update', updateHandler);
 
-  // Apply changes in a transaction. Yjs fires the doc 'update' event
-  // SYNCHRONOUSLY at transaction end, so by the time transact() returns the
-  // event has either fired (a change) or never will (no change). There is
-  // nothing left to wait for, and therefore no window to leave armed.
+  // ── THE EPHEMERAL PER-OPERATION DOC (feature 048, FR-001/002/003) ──────────
+  // The shared server doc does NOT author this operation. A fresh Y.Doc — with
+  // its own random, one-shot clientID — is seeded from the shared doc's current
+  // state, the caller's function runs against THAT, and only the resulting
+  // bytes are merged back.
   //
-  // The update event also drives:
-  // 1. Broadcast to WebSocket clients
-  // 2. Persistence to the database with userId attribution (bindState listener)
+  // Why: the shared WSSharedDoc has ONE clientID for the whole process, so
+  // every server-side write by every user and agent used to be authored by the
+  // same Yjs client. A row resupplied by a browser after the original was lost
+  // could then only be attributed by guessing, and the guess could name the
+  // wrong person. After this, every clientID in the durable log binds to
+  // exactly one (user, agent) identity by construction, and any process
+  // resolves it identically with no shared in-memory state.
+  //
+  // Seed → transact → merge is SYNCHRONOUS with no awaits between the steps
+  // (FR-001): nothing can interleave on the shared doc mid-operation.
   try {
-    ydoc.transact(() => {
-      updateFn(ydoc);
-    }, origin);
+    const eph = new Y.Doc();
+    Y.applyUpdate(eph, Y.encodeStateAsUpdate(ydoc));
+
+    // Attached only AFTER the seed — the seed itself fires an update event on
+    // the ephemeral doc, and capturing that would return the whole document as
+    // "the operation".
+    let bytes = null;
+    const ephHandler = (update) => { bytes = update; };
+    eph.on('update', ephHandler);
+
+    try {
+      // Yjs fires the doc 'update' event SYNCHRONOUSLY at transaction end, so
+      // by the time transact() returns the bytes exist or never will (a
+      // no-change updateFn), and there is no window to leave armed.
+      eph.transact(() => {
+        updateFn(eph);
+      }, origin);
+    } finally {
+      eph.off('update', ephHandler);
+      // Always destroyed, including on a throwing updateFn: the ephemeral doc
+      // is discarded, the shared doc is untouched, and the error propagates
+      // (FR-006). Nothing was merged, so no row is initiated.
+      eph.destroy();
+    }
+
+    if (bytes) {
+      // The merge-back. This fires the SHARED doc's update event with this
+      // call's origin object, which drives (all unchanged):
+      // 1. Broadcast to WebSocket clients
+      // 2. Persistence to the database with userId attribution (bindState
+      //    listener), stamping one row
+      // 3. The attached Redis handler, and the origin-scoped capture above
+      Y.applyUpdate(ydoc, bytes, origin);
+    }
   } finally {
     // Detached synchronously on EVERY path, including a throwing updateFn (the
     // error still propagates). No armed listener survives this call.
@@ -219,10 +287,21 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   // normally. An agent then reported "done" for content that exists nowhere and
   // kept building on it.
   //
-  // Checked AFTER the transaction rather than before, because the interesting
-  // window is exactly the one a pre-check cannot see: the bind failing between
-  // handle acquisition and the write. A refusal that landed earlier is caught
-  // here too, so one check covers both.
+  // ── WHY THIS EXISTS ALONGSIDE THE GATE ABOVE (feature 048) ────────────────
+  // The bind-readiness gate and this check cover DIFFERENT windows, and neither
+  // subsumes the other:
+  //
+  //   • The GATE (before the seed) answers "has the load finished?" — it waits
+  //     out an in-flight bind so the operation is computed against the real
+  //     document, and refuses immediately if the bind ALREADY failed. It cannot
+  //     see a refusal that arrives after it returns.
+  //   • THIS CHECK (after the merge) answers "did the bind fail underneath us?"
+  //     — the refusal landing between the gate passing and the merge completing.
+  //     A pre-check cannot see that window by definition.
+  //
+  // Together they close both halves: a write is never computed against a
+  // half-loaded doc, and a write whose persist was silently dropped never
+  // resolves as success.
   //
   // Throwing, not refetching: `refuseBind` EVICTS the doc, so the caller's next
   // `getSharedDoc` builds a fresh one and re-attempts the load. Retrying inside
