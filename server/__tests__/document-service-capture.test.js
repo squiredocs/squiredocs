@@ -59,7 +59,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
 
       const result = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('mine')]); },
+        () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('mine')]); },
         { userId: 'u1', agentName: null }
       );
 
@@ -79,7 +79,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       ydoc._redisUpdateHandler = () => {};
       const withHandler = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('a')]); },
+        () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('a')]); },
         { userId: 'u1' }
       );
       expect(withHandler.hadRedisHandler).toBe(true);
@@ -89,7 +89,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       delete ydoc._redisUpdateHandler;
       const withoutHandler = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('b')]); },
+        () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('b')]); },
         { userId: 'u1' }
       );
       expect(withoutHandler.hadRedisHandler).toBe(false);
@@ -99,7 +99,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       // The 037 hazard in reverse: sampling must reflect the emit instant.
       const result = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => {
+        () => (doc) => {
           doc.get('default', Y.XmlFragment).insert(0, [paragraph('c')]);
           // Someone connects mid-flight, after our event already fired.
           setImmediate(() => { ydoc._redisUpdateHandler = () => {}; });
@@ -112,7 +112,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
     test('the returned shape is unchanged', async () => {
       const result = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('d')]); },
+        () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('d')]); },
         { userId: 'u1' }
       );
       expect(Object.keys(result).sort()).toEqual(['hadRedisHandler', 'update']);
@@ -130,7 +130,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       // when the old code sat waiting with an armed, origin-blind listener.
       const pending = documentService.updateDocument(
         DOC_GUID,
-        () => { /* inspects only — changes nothing */ },
+        () => () => { /* inspects only — changes nothing */ },
         { userId: 'me', agentName: null }
       );
 
@@ -170,7 +170,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
 
       const result = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => {
+        () => (doc) => {
           // NOTE: we deliberately do NOT apply a foreign update in here. Yjs
           // nested transactions inherit the OUTER origin, so an applyUpdate
           // inside this callback would arrive stamped with our own origin and
@@ -199,12 +199,12 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       const [a, b] = await Promise.all([
         documentService.updateDocument(
           DOC_GUID,
-          (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('AAA')]); },
+          () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('AAA')]); },
           { userId: 'user-a' }
         ),
         documentService.updateDocument(
           DOC_GUID,
-          (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('BBB')]); },
+          () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('BBB')]); },
           { userId: 'user-b' }
         ),
       ]);
@@ -238,14 +238,14 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       expect(updateListenerCount(ydoc)).toBe(0);
       await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('x')]); },
+        () => (doc) => { doc.get('default', Y.XmlFragment).insert(0, [paragraph('x')]); },
         { userId: 'u1' }
       );
       expect(updateListenerCount(ydoc)).toBe(0);
     });
 
     test('no listener remains after a no-change call', async () => {
-      await documentService.updateDocument(DOC_GUID, () => {}, { userId: 'u1' });
+      await documentService.updateDocument(DOC_GUID, () => () => {}, { userId: 'u1' });
       expect(updateListenerCount(ydoc)).toBe(0);
     });
 
@@ -271,7 +271,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       await expect(
         documentService.updateDocument(
           DOC_GUID,
-          (doc) => {
+          () => (doc) => {
             doc.get('default', Y.XmlFragment).insert(0, [paragraph('partial')]);
             throw new Error('after mutating');
           },
@@ -287,7 +287,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
   describe('(d) no timer on the no-change path', () => {
     test('a no-change call resolves well inside the former 50ms window', async () => {
       const started = Date.now();
-      const result = await documentService.updateDocument(DOC_GUID, () => {}, { userId: 'u1' });
+      const result = await documentService.updateDocument(DOC_GUID, () => () => {}, { userId: 'u1' });
       const elapsed = Date.now() - started;
 
       expect(result).toEqual({ update: null, hadRedisHandler: false });
@@ -298,7 +298,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
     test('many no-change calls in sequence stay fast (no accumulated timers)', async () => {
       const started = Date.now();
       for (let i = 0; i < 10; i++) {
-        await documentService.updateDocument(DOC_GUID, () => {}, { userId: 'u1' });
+        await documentService.updateDocument(DOC_GUID, () => () => {}, { userId: 'u1' });
       }
       // The old code: 10 x 50 ms = ~500 ms minimum.
       expect(Date.now() - started).toBeLessThan(FORMER_TIMEOUT_MS * 4);
@@ -309,7 +309,7 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
       const started = Date.now();
       const result = await documentService.updateDocument(
         DOC_GUID,
-        (doc) => { doc.get('default', Y.XmlFragment).toString(); }, // read-only
+        () => (doc) => { doc.get('default', Y.XmlFragment).toString(); }, // read-only
         { userId: 'u1' }
       );
       expect(result.update).toBeNull();

@@ -76,9 +76,11 @@ async function handler(args, agentToken) {
   // Apply changes through the application layer (document service)
   // This ensures updates are broadcast to all connected WebSocket clients
   // and persisted to the database with proper user attribution
+  // Two-phase (feature 049): the permission checks already ran above and stay
+  // there, so nothing here can fail — the compute phase returns the closure.
   await documentService.updateDocument(
     docGuid,
-    (ydoc) => {
+    () => (ydoc) => {
       const meta = ydoc.getMap('meta');
       meta.set('title', title);
     },

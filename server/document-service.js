@@ -5,7 +5,7 @@
  * documents. Ensures all updates go through the in-memory ydoc cache and are
  * broadcast to connected clients.
  *
- * ── HOW A SERVER-SIDE WRITE IS AUTHORED (feature 048) ───────────────────────
+ * ── HOW A SERVER-SIDE WRITE IS AUTHORED (feature 049, superseding 048) ──────
  * `updateDocument` is THE implementation point for every server-side content
  * operation: markdown import, document seeding, title set, the empty-import
  * anchor, and the chat image insert all route through it.
@@ -16,12 +16,25 @@
  *    doc state (`waitForDocReady`). The lookup that produces the shared doc
  *    also creates it, and the load is not awaited — writing into that window
  *    raced the load and lost data.
- * 2. It does NOT transact on the shared doc. The caller's function runs against
- *    a fresh, single-use ephemeral `Y.Doc` seeded from the shared doc's current
- *    state; only the captured bytes are merged back. Every operation therefore
- *    carries its own random Yjs clientID, which binds to exactly one
+ * 2. It transacts on the shared doc under a BORROWED CLIENT IDENTITY. The
+ *    document is lent a fresh client id for the duration of one synchronous
+ *    transaction and its own id is restored in a `finally`, so the structs the
+ *    operation creates are signed by an id belonging to exactly one
  *    (user, agent) identity — the property the resupply resolver depends on to
  *    never credit the wrong author, on any pod, with no shared memory.
+ *
+ * Feature 048 bought that same property by running the caller's function on an
+ * ephemeral COPY of the document and merging the bytes back. That was correct,
+ * and it cost O(document size) on every write — a title set on a 3 MB document
+ * paid for the whole 3 MB. 049 keeps the guarantee and drops the copy, because
+ * the guarantee was always about WHICH CLIENT ID SIGNS the content ops, never
+ * about where they were computed. See `server/borrowed-identity.js`.
+ *
+ * One consequence rides with the mechanism and cannot be separated from it: the
+ * caller's function is split into a COMPUTE phase and a MUTATE phase. The copy
+ * gave atomicity for free (a throwing function discarded the copy); transacting
+ * on the shared document does not, because yjs does not roll back a transaction
+ * whose function throws. See `updateDocument`'s own contract below.
  *
  * The one deliberate exception to the random-clientID rule is the sync push
  * (`server/markdown-sync.js`), which pins a SYNTHETIC clientID derived from the
@@ -32,6 +45,7 @@ const { randomUUID } = require('crypto');
 const { createOrigin } = require('./origin');
 const documents = require('./documents');
 const { BindFailedError } = require('./bind-failure');
+const borrowedIdentity = require('./borrowed-identity');
 
 let getYDocFn = null;
 let extractDocGuidFn = null;
@@ -64,9 +78,12 @@ function init(getYDoc, extractDocGuid, docs = null) {
  * ⚠️ The doc this returns is a HANDLE, not a writing surface. Because the load
  * is not awaited, it may still be empty: anything that reads or writes its
  * state must first pass `waitForDocReady` (feature 048, FR-013). And no
- * server-side content operation should transact on it directly — that would
- * author the operation under the process-wide shared clientID, which is the
- * misattribution 048 exists to end. Go through `updateDocument`.
+ * server-side content operation should transact on it directly — a bare
+ * `transact` authors the operation under the process-wide shared clientID,
+ * which is the misattribution 048/049 exist to end. `updateDocument` transacts
+ * on this same document, but only ever under a borrowed client identity
+ * (feature 049); going around it gets you the shared id. Go through
+ * `updateDocument`.
  *
  * @param {string} docGuid - Document UUID
  * @returns {Y.Doc} The shared WSSharedDoc instance
@@ -167,10 +184,10 @@ async function waitForDocReady(ydoc, docGuid, timeoutMs = 5000) {
  * turn and this window did not exist (048 review, H1).
  *
  * Re-acquiring is correct HERE in a way it deliberately is not after the merge
- * (see the refused-bind note in `updateDocument`): the caller's `updateFn` has
- * not run yet, so it still runs exactly once, against whichever document is live
- * when it does. Bounded, so a document being torn down repeatedly fails closed
- * instead of spinning.
+ * (see the refused-bind note in `updateDocument`): neither of the caller's
+ * phases has run yet, so each still runs exactly once, against whichever
+ * document is live when it does. Bounded, so a document being torn down
+ * repeatedly fails closed instead of spinning.
  *
  * @param {string} docGuid - Document UUID
  * @param {number} [maxAttempts=3] - Bound on re-acquisition
@@ -197,9 +214,67 @@ async function acquireReadyDoc(docGuid, maxAttempts = 3) {
 }
 
 /**
- * Apply a function to a document with proper transacting
+ * Apply a mutation to a document under a BORROWED client identity (feature 049).
+ *
+ * ── THE TWO-PHASE SHAPE, AND WHY IT IS NOT A CONVENIENCE ────────────────────
+ * `computeMutation` is the COMPUTE phase. It receives the ready shared document,
+ * MAY read it, MAY throw, and MUST NOT mutate it. It returns the MUTATE phase —
+ * a function that mutates and must not throw — or nullish for "nothing to do":
+ *
+ *     await updateDocument(guid, () => (ydoc) => {
+ *       ydoc.getMap('meta').set('title', title);
+ *     }, { userId, agentName });
+ *
+ * Yjs does NOT roll a transaction back when the function passed to it throws: a
+ * function that mutates and then throws leaves the mutation in place AND fires
+ * the document update event, so the half-written edit reaches broadcast,
+ * persistence and the Redis fan-out. Under 048 the ephemeral copy made that
+ * impossible for free. Splitting the phases restores the property by shape —
+ * everything that can fail happens before anything is touched (design: "the
+ * atomicity trade", option (1), RATIFIED 2026-08-03).
+ *
+ * ⚠️ THERE IS NO MUTATE-ONLY CONVENIENCE FORM (PD-049-1). A bare
+ * `(doc) => { ...mutate... }` is NOT accepted. It is indistinguishable from a
+ * compute phase that returns nothing, and the ambiguity resolves in the
+ * dangerous direction: the mutation would run during the COMPUTE phase —
+ * outside the transaction, under the document's OWN client id, with NO origin
+ * object — landing as an unattributed row, which is the exact defect this
+ * feature exists to end. Passing one is DETECTED and fails loudly (FR-004).
+ *
+ * ── WHAT THE MUTATE PHASE MUST NOT DO (FR-003) ──────────────────────────────
+ * It runs inside `ydoc.transact()` while the SHARED document is signing structs
+ * with a BORROWED client id. It must not:
+ *
+ *   • THROW — yjs does not roll back, so the partial edit is broadcast and
+ *     persisted. The shape makes this a deliberate act rather than an easy
+ *     accident; it is the design's recorded residual, not a handled case.
+ *   • be ASYNC, or AWAIT — the borrow is restored in a `finally` that runs when
+ *     this synchronous frame ends. An await would let unrelated code run while
+ *     the shared document is wearing someone else's identity.
+ *   • perform I/O — same reason.
+ *   • read `doc.clientID` — for this window it holds the BORROWED id, not the
+ *     document's own.
+ *   • construct anything that CAPTURES the document's client id — notably a
+ *     y-protocols `Awareness`, which reads `doc.clientID` once at construction
+ *     (`awareness.js:49`) and keeps it for the life of the connection. One built
+ *     here would announce presence under a borrowed id for good.
+ *   • create SUBDOCUMENTS — yjs stamps a subdocument added during a transaction
+ *     with the live `doc.clientID` (`yjs.cjs:3402`, inside transaction cleanup),
+ *     and that stamp is PERMANENT: the borrow is restored, the subdocument's
+ *     borrowed id is not. Nothing in this codebase creates subdocuments today,
+ *     and the FR-008 audit's GO verdict depends on that staying true.
+ *   • RE-ENTER `updateDocument` — a nested borrow would restore the OUTER
+ *     borrow's id when it finished, permanently corrupting the document's own
+ *     identity. Refused loudly (RBD-049-5).
+ *
+ * The compute phase has the mirror-image contract: read and throw freely, touch
+ * nothing. Compute and mutate run back to back with no awaits between them on
+ * the same document, so anything the compute phase resolves against the current
+ * state is still valid when the mutate phase runs.
+ *
  * @param {string} docGuid - Document UUID
- * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
+ * @param {function(Y.Doc): (function(Y.Doc): void)|null|undefined} computeMutation
+ *   COMPUTE PHASE. Returns the MUTATE PHASE, or nullish for "nothing to do".
  * @param {Object} options - Attribution options
  * @param {string|null} options.userId - User ID for attribution
  * @param {string|null} options.agentName - Agent name for attribution (e.g., 'Chat Assistant')
@@ -208,7 +283,7 @@ async function acquireReadyDoc(docGuid, maxAttempts = 3) {
  *   this transaction emitted (feature 037, FR-018). ADDITIVE — every existing
  *   caller ignores it and no timing semantics changed.
  */
-async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
+async function updateDocument(docGuid, computeMutation, { userId = null, agentName = null } = {}) {
   // ── BIND-READINESS GATE (feature 048, FR-013) ──────────────────────────────
   // BEFORE any read of doc state and before any listener is attached. The
   // lookup CREATES the doc and fires an un-awaited bindState, so without this
@@ -222,6 +297,29 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   // capture below — the same identity-not-shape discipline feature 037 adopted
   // for per-push sync origins (see SYNC_PUSH_MARKER in server/origin.js).
   const origin = createOrigin(userId, agentName);
+
+  // ── REENTRANCY REFUSAL (feature 049, RBD-049-5) ────────────────────────────
+  // Checked HERE, before the compute phase, so a nested call is refused before
+  // it can compute or mutate anything. A nested borrow would restore the OUTER
+  // borrow's id when it finished and leave the document permanently wearing an
+  // identity that is not its own.
+  if (borrowedIdentity.isBorrowOpen(ydoc)) {
+    throw new borrowedIdentity.BorrowReentrancyError(`s/${docGuid}`);
+  }
+
+  // ── THE COMPUTE PHASE (feature 049, FR-003) ────────────────────────────────
+  // Everything that may fail runs here, BEFORE anything is touched. It returns
+  // the mutate phase, or nullish for "nothing to do". A throw propagates
+  // unchanged, having mutated nothing — which is the atomicity property 048 got
+  // for free from the ephemeral copy.
+  const mutate = computeMutation(ydoc);
+
+  // Nothing to do: no borrow, no transaction, no listener armed, no row. The
+  // post-write refused-bind check below still runs (G6/T018b).
+  if (mutate === null || mutate === undefined) {
+    if (ydoc._bindFailed) throw new BindFailedError(docGuid);
+    return { update: null, hadRedisHandler: false };
+  }
 
   // Cross-instance fan-out capture (feature 037). A document reached through
   // getSharedDoc has NO Redis handler attached — that is wired lazily by the WS
@@ -256,11 +354,10 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
 
   ydoc.on('update', updateHandler);
 
-  // ── THE EPHEMERAL PER-OPERATION DOC (feature 048, FR-001/002/003) ──────────
-  // The shared server doc does NOT author this operation. A fresh Y.Doc — with
-  // its own random, one-shot clientID — is seeded from the shared doc's current
-  // state, the caller's function runs against THAT, and only the resulting
-  // bytes are merged back.
+  // ── THE BORROWED IDENTITY (feature 049, FR-001/002) ────────────────────────
+  // The shared server doc does not author this operation UNDER ITS OWN ID. It
+  // is lent a fresh client id for the duration of one synchronous transaction,
+  // and its own id is restored in the `finally` below.
   //
   // Why: the shared WSSharedDoc has ONE clientID for the whole process, so
   // every server-side write by every user and agent used to be authored by the
@@ -270,46 +367,41 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   // exactly one (user, agent) identity by construction, and any process
   // resolves it identically with no shared in-memory state.
   //
-  // Seed → transact → merge is SYNCHRONOUS with no awaits between the steps
-  // (FR-001): nothing can interleave on the shared doc mid-operation.
+  // Install → transact → restore is SYNCHRONOUS with no awaits between the
+  // steps (FR-001): nothing can interleave on the shared doc mid-operation, and
+  // no other code can observe the document wearing the borrowed id. Note the
+  // window is WIDER than `mutate` — yjs emits the doc `update` event from
+  // inside transaction cleanup, so persistence, broadcast, the Redis fan-out
+  // and the capture above all run while the borrowed id is still installed.
+  // Nothing they do reads it; that is verified and recorded in
+  // `specs/049-constant-time-write-path/clientid-reader-audit.md` (FR-008).
   try {
-    const eph = new Y.Doc();
-    Y.applyUpdate(eph, Y.encodeStateAsUpdate(ydoc));
-
-    // Attached only AFTER the seed — the seed itself fires an update event on
-    // the ephemeral doc, and capturing that would return the whole document as
-    // "the operation".
-    let bytes = null;
-    const ephHandler = (update) => { bytes = update; };
-    eph.on('update', ephHandler);
-
+    const borrowed = borrowedIdentity.acquire(ydoc, userId, agentName);
+    const ownClientId = ydoc.clientID;
+    borrowedIdentity.install(ydoc, borrowed);
     try {
-      // Yjs fires the doc 'update' event SYNCHRONOUSLY at transaction end, so
-      // by the time transact() returns the bytes exist or never will (a
-      // no-change updateFn), and there is no window to leave armed.
-      eph.transact(() => {
-        updateFn(eph);
-      }, origin);
-    } finally {
-      eph.off('update', ephHandler);
-      // Always destroyed, including on a throwing updateFn: the ephemeral doc
-      // is discarded, the shared doc is untouched, and the error propagates
-      // (FR-006). Nothing was merged, so no row is initiated.
-      eph.destroy();
-    }
-
-    if (bytes) {
-      // The merge-back. This fires the SHARED doc's update event with this
-      // call's origin object, which drives (all unchanged):
+      // This fires the SHARED doc's update event with this call's origin
+      // object, which drives (all unchanged):
       // 1. Broadcast to WebSocket clients
       // 2. Persistence to the database with userId attribution (bindState
       //    listener), stamping one row
       // 3. The attached Redis handler, and the origin-scoped capture above
-      Y.applyUpdate(ydoc, bytes, origin);
+      //
+      // Yjs fires that event SYNCHRONOUSLY at transaction end, so by the time
+      // transact() returns the bytes exist or never will (a mutate phase that
+      // decided not to mutate), and there is no window to leave armed.
+      ydoc.transact(() => {
+        mutate(ydoc);
+      }, origin);
+    } finally {
+      // EVERY path: success, no-change, and a throwing mutate phase. The
+      // document must never be left wearing a borrowed identity.
+      borrowedIdentity.restore(ydoc, ownClientId);
+      borrowedIdentity.endBorrow(ydoc, borrowed);
     }
   } finally {
-    // Detached synchronously on EVERY path, including a throwing updateFn (the
-    // error still propagates). No armed listener survives this call.
+    // Detached synchronously on EVERY path, including a throwing mutate phase
+    // (the error still propagates). No armed listener survives this call.
     ydoc.off('update', updateHandler);
   }
 
@@ -335,12 +427,12 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   // The bind-readiness gate and this check cover DIFFERENT windows, and neither
   // subsumes the other:
   //
-  //   • The GATE (before the seed) answers "has the load finished?" — it waits
-  //     out an in-flight bind so the operation is computed against the real
-  //     document, and refuses immediately if the bind ALREADY failed. It cannot
-  //     see a refusal that arrives after it returns.
-  //   • THIS CHECK (after the merge) answers "did the bind fail underneath us?"
-  //     — the refusal landing between the gate passing and the merge completing.
+  //   • The GATE (before the compute phase) answers "has the load finished?" —
+  //     it waits out an in-flight bind so the operation is computed against the
+  //     real document, and refuses immediately if the bind ALREADY failed. It
+  //     cannot see a refusal that arrives after it returns.
+  //   • THIS CHECK (after the write) answers "did the bind fail underneath us?"
+  //     — the refusal landing between the gate passing and the write completing.
   //     A pre-check cannot see that window by definition.
   //
   // Together they close both halves: a write is never computed against a
@@ -349,9 +441,9 @@ async function updateDocument(docGuid, updateFn, { userId = null, agentName = nu
   //
   // Throwing, not refetching: `refuseBind` EVICTS the doc, so the caller's next
   // `getSharedDoc` builds a fresh one and re-attempts the load. Retrying inside
-  // this call would re-run `updateFn` against a different document state with no
-  // way to tell the caller that happened — for a mutation expressed as an
-  // arbitrary function, that is the caller's decision to make.
+  // this call would re-run the caller's phases against a different document
+  // state with no way to tell the caller that happened — for a mutation
+  // expressed as an arbitrary function, that is the caller's decision to make.
   if (ydoc._bindFailed) {
     throw new BindFailedError(docGuid);
   }
@@ -380,9 +472,12 @@ async function createSeededDocument({ userId, title, nodes = [], agentName = nul
 
   await documents.createDocument(docGuid, userId, title);
 
+  // Two-phase (feature 049): nothing here needs to compute or can fail, so the
+  // compute phase is empty and returns the mutate closure directly. One
+  // transaction, one undo boundary, one attributed row — unchanged.
   await updateDocument(
     docGuid,
-    (ydoc) => {
+    () => (ydoc) => {
       ydoc.getMap('meta').set('title', title);
       if (nodes.length > 0) {
         ydoc.get('default', Y.XmlFragment).insert(0, nodes);

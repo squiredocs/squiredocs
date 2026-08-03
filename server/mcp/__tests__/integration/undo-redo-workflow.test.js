@@ -244,7 +244,7 @@ export default function edit(doc) {
 
     await documentService.updateDocument(
       docGuid,
-      (doc) => doc.getMap('meta').set('title', 'Renamed By Agent'),
+      () => (doc) => doc.getMap('meta').set('title', 'Renamed By Agent'),
       { userId: testUserId, agentName: AGENT_NAME }
     );
 

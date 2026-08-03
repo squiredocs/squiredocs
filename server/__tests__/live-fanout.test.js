@@ -323,7 +323,7 @@ describe('037 cross-instance fan-out for imports', () => {
 
   test('no-change transactions publish nothing (the 50 ms timeout path)', async () => {
     const { docId } = await seedDoc('# Notes\n\nOne.');
-    const live = await documentService.updateDocument(docId, () => {}, { userId: ownerId });
+    const live = await documentService.updateDocument(docId, () => () => {}, { userId: ownerId });
 
     expect(live).toEqual({ update: null, hadRedisHandler: false });
     publishIfUnhandled({ redisPubSub: redis }, docId, live.update, live.hadRedisHandler, 'test');

@@ -57,7 +57,9 @@ async function insertChatImage({ args = {}, messageImages, chatDocGuid, userId, 
 
   const alt = args.alt || att.filename || null;
   const atStart = args.position === 'start';
-  await documentService.updateDocument(docGuid, (ydoc) => {
+  // Two-phase (feature 049): `stored` and `alt` are already computed above and
+  // nothing here can fail, so the compute phase returns the mutate closure.
+  await documentService.updateDocument(docGuid, () => (ydoc) => {
     const frag = ydoc.get('default', Y.XmlFragment);
     frag.insert(atStart ? 0 : frag.length, [buildYjsNode({ type: 'image', src: stored.url, alt })]);
   }, { userId, agentName });
@@ -105,7 +107,12 @@ async function importChatMarkdown({ args = {}, messageMarkdown, userId, agentNam
       // Nothing importable remained (e.g. image-only file, all dropped by the
       // image policy). The doc row already exists — seed the anchor paragraph
       // rather than leave an orphaned empty doc (docs-import F1 parity).
-      await documentService.updateDocument(docGuid, (liveDoc) => {
+      // Two-phase (feature 049). The `frag.length === 0` guard stays INSIDE the
+      // mutate phase deliberately: it is a read, it does not throw, and it must
+      // observe the state the insert runs on. A mutate phase that decides not to
+      // mutate is fine — the transaction emits nothing and the zero value comes
+      // back (G6).
+      await documentService.updateDocument(docGuid, () => (liveDoc) => {
         const frag = liveDoc.get('default', Y.XmlFragment);
         if (frag.length === 0) frag.insert(0, [buildYjsNode({ type: 'paragraph' })]);
       }, { userId, agentName });

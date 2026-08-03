@@ -303,8 +303,11 @@ async function importMarkdown(ydoc, markdown, options = {}) {
 
   const fragment = ydoc.get('default', Y.XmlFragment);
 
-  // Resolve the XPath target before anything else: no match ⇒ error without
-  // any mutation (FR-002). Re-resolved inside the transaction below.
+  // FAIL FAST, before the image work: a doomed XPath import should not rehost
+  // images to S3 on its way to an error. This is an optimisation, NOT the
+  // authoritative resolution — `prepareImport` awaits below, so the document
+  // may move underneath us. The resolution that the insert actually uses is the
+  // one in the compute phase (feature 049, E-049-A).
   if (mode === 'insertAfterXPath') {
     const match = xpathFirst(insertAfterXPath, fragment);
     if (!match || topLevelIndexOf(fragment, match) === -1) {
@@ -318,27 +321,44 @@ async function importMarkdown(ydoc, markdown, options = {}) {
   );
 
   // ONE transaction — one undo boundary, one attributed version entry (FR-004).
+  //
+  // Two-phase (feature 049). Under 048 the XPath target was re-resolved INSIDE
+  // the transaction and threw from there; that is now exactly the forbidden
+  // mutate-phase throw (yjs does not roll back, so a throw after any insert
+  // would broadcast and persist a partial import). The resolution and its throw
+  // move into the COMPUTE phase, which returns a mutate closure carrying the
+  // already-resolved index.
+  //
+  // Behavior-preserving: compute and mutate run back to back on the same
+  // document with no awaits between them, so the index is still resolved
+  // against exactly the state the insert runs on (US2 AS4).
   const live = await documentService.updateDocument(
     imageContext.docId,
     (liveDoc) => {
       const liveFragment = liveDoc.get('default', Y.XmlFragment);
+
       if (mode === 'append') {
-        liveFragment.insert(liveFragment.length, nodes);
-      } else if (mode === 'replace') {
+        // `length` is read inside the closure, at mutate time, so this still
+        // appends to the current end of the document.
+        return () => liveFragment.insert(liveFragment.length, nodes);
+      }
+
+      if (mode === 'replace') {
         // Block-level deletes + inserts against the SAME fragment — never
         // recreate the fragment or doc (plan.md Complexity Tracking).
-        if (liveFragment.length > 0) liveFragment.delete(0, liveFragment.length);
-        liveFragment.insert(0, nodes);
-      } else {
-        // Re-resolve inside the transaction; throwing here aborts before any
-        // mutation (nothing has been inserted or deleted yet).
-        const match = xpathFirst(insertAfterXPath, liveFragment);
-        const idx = match ? topLevelIndexOf(liveFragment, match) : -1;
-        if (idx === -1) {
-          throw new ImportError('XPATH_NO_MATCH', `No element matches XPath: ${insertAfterXPath}`);
-        }
-        liveFragment.insert(idx + 1, nodes);
+        return () => {
+          if (liveFragment.length > 0) liveFragment.delete(0, liveFragment.length);
+          liveFragment.insert(0, nodes);
+        };
       }
+
+      // insertAfterXPath: resolve and throw HERE, before anything is touched.
+      const match = xpathFirst(insertAfterXPath, liveFragment);
+      const idx = match ? topLevelIndexOf(liveFragment, match) : -1;
+      if (idx === -1) {
+        throw new ImportError('XPATH_NO_MATCH', `No element matches XPath: ${insertAfterXPath}`);
+      }
+      return () => liveFragment.insert(idx + 1, nodes);
     },
     { userId: actor.userId, agentName: actor.agentName || null }
   );

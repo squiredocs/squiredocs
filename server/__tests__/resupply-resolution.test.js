@@ -711,7 +711,7 @@ describe('048 — a resupplied server-side write never credits the wrong author'
     try {
       const { update } = await documentService.updateDocument(
         'doc-048',
-        (doc) => doc.getText('body').insert(0, text),
+        () => (doc) => doc.getText('body').insert(0, text),
         { userId, agentName }
       );
       return update;
