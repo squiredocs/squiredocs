@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Merged (2026-08-02)
 
 **Input**: User description: "044-presence-awareness-guard: awareness clientID spoofing guard — connections may only broadcast awareness for clientIDs they control; foreign-clientID frames dropped with rate-suppressed observability event; no disconnects"
 

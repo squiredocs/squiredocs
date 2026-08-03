@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Merged (2026-08-02 partial; completed 2026-08-03)
 
 **Input**: User description: "043-version-history-test-hardening — test hardening for version history / attribution guarantees (E1-E8 from tmp/version-history-deep-dive-2026-08-02.md)"
 
@@ -135,7 +135,7 @@ The existing two-surface diff parity suite hand-builds text rows and feeds them 
 
 ### User Story 8 - Flake hygiene in the version/undo suites (Priority: P3)
 
-Three known flake shapes get resolved: (a) version/undo DB suites insert update-log rows with no matching search-index rows — the same shape as the known CI reindexStale flake — and this feature records and applies a per-suite convention for it; (b) `postgres-gap-read.test.js` contains nine wall-clock `< 300ms` assertions that fail on slow CI runners — replaced with injected clocks or behavioral assertions (e.g., retry-count spies) where feasible, tolerant bounds otherwise; (c) `__tests__/integration/collaboration.test.js` uses sleep-based propagation waits (`tick(50)`) — noted, with deterministic waits substituted where the change is low-risk.
+Three known flake shapes get resolved: (a) version/undo DB suites insert update-log rows with no matching search-index rows — the same shape as the known CI reindexStale flake — and this feature records and applies a per-suite convention for it; (b) `postgres-gap-read.test.js` contains eight wall-clock `< 300ms` assertions that fail on slow CI runners — replaced with injected clocks or behavioral assertions (e.g., retry-count spies) where feasible, tolerant bounds otherwise; (c) `__tests__/integration/collaboration.test.js` uses sleep-based propagation waits (`tick(50)`) — noted, with deterministic waits substituted where the change is low-risk.
 
 **Why this priority**: A flaky guard is an ignored guard; the whole point of this feature is a suite whose failures are believed.
 
@@ -228,7 +228,7 @@ Every deep-dive section-E claim this spec relies on was verified against the wor
 - `origin.test.js:23-25`: local `shouldPublishToRedis` copy of the production skip-list ("Mirrors the redisUpdateHandler skip-list … exactly"). **Confirmed.**
 - `undo-status-api.test.js:40-61`: "Mirror of the server/index.js endpoint handler" — replicated route. **Confirmed.**
 - `via_sync` coverage: only fabricated-row unit tests (`identity-predicate`, `legacy`, `ws-edit-gate`, `collab-guardrail`); no end-to-end catch-up frame test. **Confirmed.**
-- `postgres-gap-read.test.js`: nine `toBeLessThan(300)` wall-clock assertions (lines 155-605). **Confirmed.**
+- `postgres-gap-read.test.js`: eight `toBeLessThan(300)` wall-clock assertions (lines 155-605). **Corrected at plan time: the count is eight, not nine (analyze finding C3, re-confirmed post-merge); all eight were replaced.**
 - `__tests__/integration/collaboration.test.js`: uses `setupWSConnection` directly (no production upgrade/auth), calls `storeUpdate(docGuid, update)` with no identity arguments, and uses `tick(50)` sleep waits — identity is discarded end to end. **Confirmed.**
 - No component test exists for `VersionHistoryPanel` or `VersionPreview` (sibling `VersionConfirmDialog.test.jsx` exists). **Confirmed.**
 - `diff-two-surface-parity.test.js`: hand-built rows fed to `postProcessDiffLines`/`applyWordMarks`, bypassing each surface's upstream diff computation; no shared Y.Doc fixture. **Confirmed.**

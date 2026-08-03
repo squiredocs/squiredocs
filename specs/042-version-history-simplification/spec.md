@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Merged (2026-08-02)
 
 **Input**: User description: "042-version-history-simplification: behavior-preserving dead-code removal and structural refactors in version-history/undo/diff"
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Merged (2026-08-02; post-merge review fixes 2026-08-03)
 
 **Input**: User description: "045-resupply-attribution — truthful author display for sync-resupplied content"
 

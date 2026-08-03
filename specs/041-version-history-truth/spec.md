@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-02
 
-**Status**: Draft
+**Status**: Merged (2026-08-02)
 
 **Input**: User description: "041-version-history-truth — attribution correctness and failure-path honesty in version history. Covers deep-dive report items A1, A2, A4, A5, B2-B9 (excluding B1), A3 (narrow), D3-D5 doc honesty; A6/A7 at spec author's discretion."
 
