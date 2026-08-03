@@ -12,15 +12,16 @@
  * the module is referenced; the negatives say no re-inlined copy exists beside
  * it. Re-inlining is how a mirror grows back.
  *
- * ── Scope note: X1 is NOT guarded here, because X1 did not land ─────────────
- * The planned fourth extraction (the bindState update listener →
- * server/collab-bind-state.js) is deliberately absent. It collides with feature
- * 041's own structural pins in `server/__tests__/bindstate-failure.test.js`,
- * which grep `server/index.js` for `if (ydoc._bindFailed) return;` and for the
- * `refuseBind({ ... })` call — both of which live inside the block X1 moves.
- * Making X1 land requires editing a shipped guard belonging to another feature,
- * which is outside this feature's extraction budget (ledger D9), so it was
- * stopped and reported rather than forced through. See promotion-notes.md.
+ * ── X1 ──────────────────────────────────────────────────────────────────────
+ * X1 (the bindState update listener → server/collab-bind-state.js) landed in a
+ * follow-on pass. It had been blocked because feature 041's structural pins in
+ * `server/__tests__/bindstate-failure.test.js` grepped `server/index.js` for
+ * `if (ydoc._bindFailed) return;` and for the `refuseBind({ ... })` call, both
+ * of which live inside the block X1 moves. Those two pins were repointed at
+ * `server/collab-bind-state.js` with their regexes unchanged byte for byte —
+ * drift protection follows the code to its new home. G1-G3 below are the other
+ * half of that: they prove index.js consults the module rather than keeping a
+ * copy beside it.
  */
 const fs = require('fs');
 const path = require('path');
@@ -38,6 +39,31 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
   const indexCode = indexSrc
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
+
+  // ── X1: the bindState update listener ─────────────────────────────────────
+
+  test('G1: index.js builds its persistence bindState from collab-bind-state', () => {
+    expect(indexSrc).toMatch(/require\(['"]\.\/collab-bind-state['"]\)/);
+    expect(indexCode).toMatch(/createBindState\s*\(/);
+  });
+
+  test('G2: index.js attaches no document update listener of its own', () => {
+    // The listener is the ONLY writer of user_id / agent_name / via_sync for a
+    // live edit. A second `ydoc.on('update')` in index.js would be a second
+    // attribution path, and the US1/US2 E2Es would be guarding the wrong one.
+    expect(indexCode).not.toMatch(/ydoc\.on\(\s*['"]update['"]/);
+  });
+
+  test('G3: index.js contains no re-inlined classify/attribute/persist sequence', () => {
+    // The signature of the moved block: parse the origin, read the sync marker,
+    // then persist with both. Any one of these reappearing in index.js means the
+    // listener grew back.
+    expect(indexCode).not.toMatch(/parseOrigin\s*\(/);
+    expect(indexCode).not.toMatch(/viaSyncFromOrigin\s*\(/);
+    expect(indexCode).not.toMatch(/classificationDisabled\s*\(/);
+    expect(indexCode).not.toMatch(/classifyByXml\s*\(/);
+    expect(indexCode).not.toMatch(/persistenceProvider\.storeUpdate\s*\(/);
+  });
 
   // ── X2: identityFromPrincipal ─────────────────────────────────────────────
 
