@@ -170,6 +170,50 @@ async function cleanupDoc(pool, docGuid) {
   await cleanupDocRows(pool, docGuid);
 }
 
+// ── failure injection (US3) ──────────────────────────────────────────────────
+
+/**
+ * Wrap a persistence provider so that `storeUpdate` REJECTS for one specific
+ * update — matched by its payload bytes — on every attempt, while every other
+ * update goes through untouched.
+ *
+ * Scoped to that one update on purpose. A global failure switch would take down
+ * the document load and the unrelated writes around it, and the resulting
+ * "outcome" would characterize the harness rather than the product.
+ *
+ * The returned handle carries `restore()` for a `finally` block, plus the
+ * observed call counts.
+ *
+ * @param {object} persistence - the provider to wrap (mutated in place)
+ * @param {(update: Uint8Array) => boolean} predicate
+ */
+function rejectUpdateMatching(persistence, predicate) {
+  const original = persistence.storeUpdate.bind(persistence);
+  const handle = { attempts: 0, rejected: 0, restore: null };
+
+  persistence.storeUpdate = (docGuid, update, ...rest) => {
+    if (predicate(update)) {
+      handle.attempts += 1;
+      handle.rejected += 1;
+      // Rejecting here models persistence that has already exhausted its
+      // transient retries: the listener's terminal `.catch` sees exactly the
+      // rejected promise it would see in production.
+      return Promise.reject(new Error('injected persistence failure (US3)'));
+    }
+    return original(docGuid, update, ...rest);
+  };
+
+  handle.restore = () => { persistence.storeUpdate = original; };
+  return handle;
+}
+
+/** Do two byte arrays match exactly? The identity test for a specific update. */
+function sameBytes(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 // ── the mini server ──────────────────────────────────────────────────────────
 
 /**
