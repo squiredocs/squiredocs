@@ -43,6 +43,10 @@ describe('038 US4 — updateDocument capture is origin-scoped and synchronously 
 
   beforeEach(() => {
     ydoc = new Y.Doc();
+    // The honest statement "this fake is fully loaded" — the 048 bind-readiness
+    // gate waits on exactly this flag, which the real createBindState sets at
+    // the end of a successful load.
+    ydoc._bindComplete = true;
     // The service asks for a shared doc by name; hand it ours.
     documentService.init(() => ydoc, (n) => (n.startsWith('s/') ? n.slice(2) : n));
   });

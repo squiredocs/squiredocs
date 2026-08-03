@@ -351,6 +351,11 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     beforeEach(() => {
       ydoc = new Y.Doc();
       ydoc.conns = new Map();
+      // "This fake is fully loaded" — the 048 bind-readiness gate waits on it.
+      // Note the gate and the post-transaction _bindFailed check below cover
+      // DIFFERENT windows: the gate refuses a bind that already failed before
+      // the write starts, the post-check catches one that fails mid-write.
+      ydoc._bindComplete = true;
       storeUpdate = jest.fn().mockResolvedValue(1);
 
       // The real listener, wired the way createBindState wires it.

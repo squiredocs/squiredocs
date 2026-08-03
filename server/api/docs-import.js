@@ -202,32 +202,6 @@ function bodyErrorHandler(err, req, res, next) {
   next();
 }
 
-/**
- * Wait until the shared in-memory doc has absorbed the persisted state.
- * y-websocket's getYDoc fires bindState WITHOUT awaiting it, so a freshly
- * fetched shared doc can briefly be empty — harmless for pure insertion
- * (append), but `replace` must never delete a half-loaded body. bindState
- * applies the whole persisted state in ONE applyUpdate, so "loaded" is
- * exactly "the shared doc's state vector covers the persisted doc's structs":
- * the missing-diff update then encodes zero clients (first varint byte 0).
- */
-async function waitForDocLoaded(persistence, docId, ydoc, timeoutMs = 5000) {
-  const persisted = await persistence.getYDoc(docId);
-  try {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const missing = Y.encodeStateAsUpdate(persisted, Y.encodeStateVector(ydoc));
-      if (missing.length === 0 || missing[0] === 0) return;
-      if (Date.now() > deadline) {
-        throw new Error(`Timed out waiting for document ${docId} to load`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  } finally {
-    persisted.destroy();
-  }
-}
-
 /** Current update-row count and clock (clock starts at 0; null when empty). */
 async function readClockState(persistence, docId) {
   const result = await persistence.getPool().query(
@@ -415,7 +389,7 @@ function createImportRouter(persistence) {
 
       // Announce the agent BEFORE any content changes (feature 037, FR-006):
       // right after the auth + editor-role gates and mode resolution, before
-      // receipt-option validation, the empty-body check, waitForDocLoaded, sync
+      // receipt-option validation, the empty-body check, waitForDocReady, sync
       // baseline validation, parsing and the image pass. An unknown mode 400s
       // above, so presence never opens for one.
       //
@@ -445,7 +419,14 @@ function createImportRouter(persistence) {
 
       const pre = await readClockState(persistence, docId);
       const ydoc = documentService.getSharedDoc(docId);
-      await waitForDocLoaded(persistence, docId, ydoc);
+      // Bind-readiness gate (feature 048, FR-013), unconditional for BOTH append
+      // and replace. `updateDocument` now gates itself too, but this call must
+      // stay at the route level: the append-mode presence baseline below reads
+      // doc state BEFORE `importMarkdown` runs, and `replace` must never delete a
+      // half-loaded body. With the gate also inside `updateDocument` the second
+      // wait is a no-op flag check. Replaces the local state-vector poll this
+      // route used to own — one owner, one predicate, and one fewer DB read.
+      await documentService.waitForDocReady(ydoc, docId);
 
       // Where the appended blocks will start, captured BEFORE they land (037,
       // LOW-2): settle runs after updateDocument's setImmediate hop, so a

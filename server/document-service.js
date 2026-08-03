@@ -74,6 +74,57 @@ function peekSharedDoc(docGuid) {
 }
 
 /**
+ * Wait until a shared doc's bindState load has COMPLETED (feature 048, FR-013).
+ *
+ * y-websocket's `getYDoc` fires `bindState` without awaiting it, so a doc nobody
+ * has open is returned EMPTY and the persisted state merges in later. A write
+ * that lands in that window races the load and can lose: a title set on a cold
+ * doc is a `Y.Map` set, and the later-arriving persisted title wins by LWW
+ * roughly half the time (98/200 trials against this repo's yjs); an "append at
+ * the end" computes its index against an empty fragment and lands at index 0 —
+ * before the entire document. Both were reproduced, not theorised.
+ *
+ * This is the ONE owner of "is this document safe to write through?". It
+ * replaces the state-vector poll `docs-import.js` used to carry, which cost an
+ * extra `persistence.getYDoc` DB read per call and answered a strictly weaker
+ * question: state coverage, not bind success — it spun to timeout on a failed
+ * bind where this throws immediately.
+ *
+ * Note this is a distinct question from `isTrustedLiveDoc`
+ * (`server/live-doc-trust.js`), which asks "may I compute a DURABLE artifact
+ * from this live copy?" and additionally requires ≥1 live connection. Both read
+ * the same `_bindComplete` substrate; the questions stay separate on purpose.
+ *
+ * Never creates a doc, never reads persistence, never mutates the doc.
+ *
+ * @param {Y.Doc} ydoc - The shared doc to wait on
+ * @param {string} docGuid - Document UUID (for error messages)
+ * @param {number} [timeoutMs=5000] - Bound on the wait
+ * @returns {Promise<void>} Resolves once the doc has absorbed its persisted state
+ * @throws {BindFailedError} When the bind was refused (at entry or while polling)
+ * @throws {Error} `Timed out waiting for document <guid> to load` on timeout —
+ *   the message shape the old `waitForDocLoaded` used, so route-level 500
+ *   mapping is unchanged.
+ */
+async function waitForDocReady(ydoc, docGuid, timeoutMs = 5000) {
+  // A refused bind is answered immediately rather than polled to timeout — the
+  // doc will never complete, and callers already handle BindFailedError.
+  if (ydoc._bindFailed) throw new BindFailedError(docGuid);
+  // Fast path: a warm doc pays one flag check and no event-loop turn.
+  if (ydoc._bindComplete === true) return;
+
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    if (ydoc._bindFailed) throw new BindFailedError(docGuid);
+    if (ydoc._bindComplete === true) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for document ${docGuid} to load`);
+    }
+  }
+}
+
+/**
  * Apply a function to a document with proper transacting
  * @param {string} docGuid - Document UUID
  * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
@@ -87,6 +138,12 @@ function peekSharedDoc(docGuid) {
  */
 async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
   const ydoc = getSharedDoc(docGuid);
+
+  // ── BIND-READINESS GATE (feature 048, FR-013) ──────────────────────────────
+  // BEFORE any read of doc state and before any listener is attached. The
+  // lookup above CREATES the doc and fires an un-awaited bindState, so without
+  // this the write races the load — see waitForDocReady for the reproduction.
+  await waitForDocReady(ydoc, docGuid);
 
   // Attribution origin for this call. Its OBJECT IDENTITY is what scopes the
   // capture below — the same identity-not-shape discipline feature 037 adopted
@@ -219,6 +276,8 @@ module.exports = {
   getSharedDoc,
   // Feature 041 (FR-013): the non-creating is-loaded probe.
   peekSharedDoc,
+  // Feature 048 (FR-013): the ONE owner of "is this doc safe to write through?".
+  waitForDocReady,
   updateDocument,
   createSeededDocument,
 };
