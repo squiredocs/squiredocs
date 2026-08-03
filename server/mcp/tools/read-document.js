@@ -46,6 +46,15 @@ RETURNS: content, blockCount, characterCount, matchCount (with xpath), and —
 for current reads — clock, lastModifiedAt/By, recentAuthors. With versionId
 the content is historical and the result carries version metadata instead.
 
+AUTHORSHIP IS NOT ALWAYS KNOWABLE. Content that reached the server through
+another client's reconnect is attributed to its real author when that can be
+proven from the document's own history; when it cannot, the author entry is
+"Synced content" with isSynced: true. That entry means "someone edited here and
+we will not guess who" — never that the named client wrote it. An author whose
+account was deleted appears as "Unknown author". Do not present either as a
+person, and do not treat lastModifiedBy: null as "nobody" — it means the
+document has no update rows at all.
+
 EXAMPLE:
 await read_document({ docGuid: "abc-123", xpath: "//heading", format: "markdown" });`;
 
