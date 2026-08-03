@@ -40,6 +40,15 @@ const CLASSES = {
   // so 60/min per user absorbs normal interactive browsing while capping a
   // client that hammers the (doc-reconstruction-heavy) diff/clock endpoints.
   versionHistory:    { keyPrefix: 'rl:versionhistory:user', points: num('RL_VERSION_HISTORY_PER_MIN', 60), duration: MIN },
+  // MCP tool dispatch (POST /mcp with method tools/call, and POST /mcp/tools/call).
+  // Deliberately the most generous class: many small calls is the pattern the
+  // `modify` tool documentation actively TELLS agents to use, so a budget that
+  // punished bursts would throttle the behavior we ask for. 120/min is 2/s
+  // sustained — an interactive agent session never approaches it, while a
+  // runaway loop trips in seconds. Keyed on the token's USER, not the token, so
+  // minting more tokens does not buy more budget. Handshake methods
+  // (initialize, tools/list) are not charged; neither is auth or registration.
+  mcp:               { keyPrefix: 'rl:mcp:user',        points: num('RL_MCP_PER_MIN', 120),            duration: MIN },
 };
 
 function num(envVar, def) {
@@ -125,6 +134,21 @@ function reject429(res, rejRes, className) {
     const { buildErrorPayload, CODES } = require('./api/chat-errors');
     return res.status(429).json(buildErrorPayload({ code: CODES.RATE_LIMITED }));
   }
+  if (className === 'mcp') {
+    // The reader here is a model, so the body says what to DO. Bare "rate limit
+    // exceeded" invites an immediate retry loop, which is the behavior that
+    // spent the budget.
+    const secs = rejRes && typeof rejRes.msBeforeNext === 'number'
+      ? Math.max(1, Math.ceil(rejRes.msBeforeNext / 1000))
+      : null;
+    return res.status(429).json({
+      error: 'Rate limit exceeded for tool calls.',
+      retryAfterSeconds: secs,
+      guidance: secs
+        ? `Wait ${secs}s before the next tool call. If you are making many small edits, batch them into fewer modify calls rather than retrying immediately.`
+        : 'Wait before the next tool call, and batch many small edits into fewer modify calls rather than retrying immediately.',
+    });
+  }
   res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
 }
 
@@ -149,12 +173,25 @@ async function consume(className, key) {
  * @param {object} res
  * @returns {Promise<boolean>} true ⇒ allowed (caller proceeds); false ⇒ 429 sent
  */
-async function enforce(kind, className, req, res) {
+/**
+ * Consume one point against an EXPLICIT principal key.
+ *
+ * `enforce` below reads `req.user`, which only browser/session auth populates.
+ * MCP authenticates to `req.agentToken` and never sets `req.user`, so routing it
+ * through the per-user helper would key on `undefined` and silently allow every
+ * request — a limiter that looks installed and enforces nothing. Call sites with
+ * a non-session principal pass their key here instead.
+ *
+ * @param {string} className
+ * @param {string|null|undefined} key - the principal; falsy means "cannot
+ *   identify the caller", which fails OPEN (the auth middleware ahead of this
+ *   would have rejected an unidentified caller already)
+ * @param {object} res
+ * @returns {Promise<boolean>} true ⇒ allowed; false ⇒ 429 already sent
+ */
+async function enforceKey(className, key, res) {
   if (!limitingActive()) return true;
-  const key = kind === 'ip' ? clientIp(req) : req.user?.userId;
-  // A per-user limiter with no authenticated principal shouldn't key on null —
-  // let it through (requireAuth runs before this and would have rejected).
-  if (kind === 'user' && !key) return true;
+  if (!key) return true;
   try {
     await consume(className, key);
     return true;
@@ -166,9 +203,18 @@ async function enforce(kind, className, req, res) {
       reject429(res, rejRes, className);
       return false;
     }
-    console.error(`[RateLimit] ${className} ${kind} limiter error (failing open):`, rejRes?.message || rejRes);
+    console.error(`[RateLimit] ${className} limiter error (failing open):`, rejRes?.message || rejRes);
     return true;
   }
+}
+
+async function enforce(kind, className, req, res) {
+  if (!limitingActive()) return true;
+  const key = kind === 'ip' ? clientIp(req) : req.user?.userId;
+  // A per-user limiter with no authenticated principal shouldn't key on null —
+  // let it through (requireAuth runs before this and would have rejected).
+  if (kind === 'user' && !key) return true;
+  return enforceKey(className, key, res);
 }
 
 /** Boolean helper for call sites that limit conditionally (e.g. content search). */
@@ -209,6 +255,7 @@ module.exports = {
   perIp,
   perUser,
   enforceUser,
+  enforceKey,
   reject429,
   clientIp,
   CLASSES,

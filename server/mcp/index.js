@@ -17,6 +17,7 @@ const toolRegistry = require('./tools');
 const { stripUiOnlyDiffFields } = require('./diff-utils');
 const { buildBaseUrl } = require('../url');
 const { notifyException } = require('../exception-notifier');
+const rateLimit = require('../rate-limit');
 
 const router = express.Router();
 
@@ -144,6 +145,10 @@ router.post('/', requireAgentAuth, async (req, res) => {
         break;
 
       case 'tools/call':
+        // Charged here rather than as route middleware so the handshake
+        // (initialize, tools/list, ping) stays free — those are cheap and a
+        // client that cannot handshake cannot back off intelligently either.
+        if (!(await rateLimit.enforceKey('mcp', req.agentToken?.userId, res))) return;
         // Add baseUrl to agentToken for tools that need to construct URLs
         req.agentToken.baseUrl = buildBaseUrl(req);
         result = await handleToolCall(params, req.agentToken);
@@ -295,6 +300,10 @@ router.post('/tools/list', (req, res) => {
  * Returns MCP tool result format for consistency with the main endpoint.
  */
 router.post('/tools/call', requireAgentAuth, async (req, res) => {
+  // Same budget as the JSON-RPC tools/call above — it is the same work reached
+  // by a second door, and both must share one budget or either one is an
+  // unmetered path around the other.
+  if (!(await rateLimit.enforceKey('mcp', req.agentToken?.userId, res))) return;
   try {
     const { name, arguments: args } = req.body;
 

@@ -285,6 +285,7 @@ for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
 - `COLLAB_READ_GAP_RETRIES`: Max full re-fetches when `getYDoc` detects a clock gap in the update log (default: `2`; feature 021)
 - `COLLAB_READ_GAP_RETRY_DELAYS_MS`: Comma-separated waits between gap-read retries in ms (default: `100,300`)
 - `RL_COLLAB_SKIP_PER_MIN`: Per-user rate limit for the render-skip beacon `POST /api/collab/render-skip-report` (default: `30`)
+- `RL_MCP_PER_MIN`: Per-user rate limit for MCP tool calls — both `POST /mcp` with method `tools/call` and `POST /mcp/tools/call`, which share one budget (default: `120`). Keyed on the token's owning user, so additional tokens buy no additional budget. The handshake (`initialize`, `tools/list`, `ping`) and agent registration/auth are not charged. Over budget returns 429 with `Retry-After` plus guidance telling the agent to batch edits rather than retry immediately
 - `CREATE_DOCUMENT_NUDGE_BYTES` / `CREATE_DOCUMENT_REFUSAL_BYTES`: Teaching thresholds for retyped markdown in the `create_document` MCP tool, in UTF-8 bytes (defaults: `2048` / `10240`). At/above the nudge the success result appends a byte-channel pointer; at/above the refusal the call is soft-refused unless `allowRetyped: true`. Read per call (no restart needed); any invalid pair (non-integer, ≤ 0, refusal ≤ nudge) falls back to BOTH defaults
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: IAM credentials for the document image bucket (`s3:PutObject`/`GetObject`/`DeleteObject`)
 
