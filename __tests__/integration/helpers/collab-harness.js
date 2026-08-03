@@ -281,7 +281,8 @@ async function startCollabServer(opts = {}) {
   const notifyException = (err, ctx) => { notifications.push({ err, ctx }); };
 
   // H1: the REAL bindState from X1. No hand-written update listener exists in
-  // this file — grep it: `ydoc.on('update'` appears nowhere.
+  // this file; the only occurrences of that call anywhere in this harness are
+  // the two in prose above, describing its absence.
   setPersistence({
     bindState: createBindState({
       persistenceProvider: persistence,
