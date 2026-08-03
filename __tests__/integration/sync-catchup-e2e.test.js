@@ -37,6 +37,7 @@ const {
 } = require('./helpers/collab-harness');
 
 const versionHistory = require('../../server/version-history');
+const { resolveForRows } = require('../../server/resupply-resolution');
 const { deriveLegacyRange, _isIdentityRow } = require('../../server/undo/legacy');
 const { hasPendingRecording } = require('../../server/undo/edit-records');
 
@@ -195,6 +196,38 @@ describe('US2: reconnect catch-up produces honest attribution', () => {
       // RECOVER the author rather than fall back to "Synced content".
       const authorCredits = allAuthors.filter((a) => a.id === author.userId);
       expect(authorCredits.length).toBeGreaterThan(0);
+
+      // ── NON-VACUITY ────────────────────────────────────────────────────────
+      // The author also has a DIRECT row in this document, so the two
+      // assertions above could in principle be satisfied without 045 ever
+      // resolving anything. Pin the relayed row specifically.
+      const rows = await harness.persistence.getUpdatesWithUsers(docGuid);
+      const syncRow = rows.find((r) => r.viaSync === true);
+      expect(syncRow).toBeDefined();
+
+      // (a) the resolver, asked directly about that clock, recovers the author.
+      const resolution = await resolveForRows(harness.persistence, docGuid, rows);
+      const outcome = resolution.outcomes.get(syncRow.clock);
+      expect(outcome).toBeDefined();
+      expect(outcome.unresolved).toBe(false);
+      expect(outcome.origins.map((o) => o.userId)).toEqual([author.userId]);
+
+      // (b) the single-slot collapse for that row names the author, not the
+      //     relayer and not "Synced content".
+      const slotAuthor = versionHistory.authorForSingleSlot(syncRow, resolution);
+      expect(slotAuthor.id).toBe(author.userId);
+      expect(slotAuthor.isSynced).toBeUndefined();
+
+      // (c) THE PROOF THAT 045 IS WHAT MAKES THIS TRUE. Run the SAME production
+      //     grouping over the SAME rows with resolution switched off — the
+      //     documented pre-045 baseline — and the relayer IS credited. So the
+      //     `relayerCredits === []` assertion above is doing real work.
+      const unresolved = versionHistory.groupUpdatesIntoVersions(
+        rows.filter(versionHistory.isMeaningful),
+        versionHistory.DEFAULT_INACTIVITY_THRESHOLD
+      );
+      const preFixAuthors = unresolved.flatMap((v) => v.authors || []);
+      expect(preFixAuthors.some((a) => a.id === relayer.userId)).toBe(true);
     } finally {
       await relayerClient.close();
     }
