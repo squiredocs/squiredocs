@@ -284,7 +284,15 @@ export function useYjs(docGuid, accessToken, user = null) {
       // reintroduce the race it was gated to prevent. On a genuine mid-session
       // token refresh the promise is long since resolved, so this costs a
       // microtask.
-      localLoaded.then(() => provider.connect());
+      // `shouldConnect` is the liveness tombstone: destroy() calls disconnect(),
+      // which clears it. Without this check a doc closed inside the gate window
+      // (up to 3 s in private browsing, where whenSynced never settles) would
+      // resolve after cleanup and open a socket nobody owns — no listeners, and
+      // in an SPA it survives until unload, pinning the doc in the server
+      // registry. Same reason the initial connect checks `isMounted`.
+      localLoaded.then(() => {
+        if (provider.shouldConnect) provider.connect();
+      });
     }
   }, [accessToken, provider, localLoaded]);
 
@@ -365,7 +373,9 @@ export function useYjs(docGuid, accessToken, user = null) {
     // Gated like every other connect (NF-1). In practice this fires long after
     // the local state loaded, so it is a microtask; gating it anyway means NO
     // path in this hook can open the socket ahead of IndexedDB.
-    setTimeout(() => localLoaded.then(() => provider.connect()), 100);
+    setTimeout(() => localLoaded.then(() => {
+      if (provider.shouldConnect) provider.connect();
+    }), 100);
   }, [provider, accessToken, localLoaded]);
 
   return {
