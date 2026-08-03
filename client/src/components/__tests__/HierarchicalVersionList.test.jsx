@@ -106,7 +106,7 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
         selection={{ id: '5', isSubVersion: true }}
         onSelectVersion={() => {}}
         onSelectUpdate={() => {}}
-        versionUpdates={{ '5': [subVersion] }}
+        versionUpdates={{ '5:1-5': [subVersion] }}
         userRole="editor"
         isLoading={false}
       />
@@ -138,8 +138,8 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
         selection={null}
         onSelectVersion={() => {}}
         onSelectUpdate={() => {}}
-        versionUpdates={{ '5': updates }}
-        versionUpdatesMeta={{ '5': { total: 12, hasMore: true } }}
+        versionUpdates={{ '5:1-5': updates }}
+        versionUpdatesMeta={{ '5:1-5': { total: 12, hasMore: true } }}
         userRole="editor"
         isLoading={false}
       />
@@ -164,8 +164,8 @@ describe('HierarchicalVersionList — selection highlight (F4)', () => {
         selection={null}
         onSelectVersion={() => {}}
         onSelectUpdate={() => {}}
-        versionUpdates={{ '5': updates }}
-        versionUpdatesMeta={{ '5': { total: 1, hasMore: false } }}
+        versionUpdates={{ '5:1-5': updates }}
+        versionUpdatesMeta={{ '5:1-5': { total: 1, hasMore: false } }}
         userRole="editor"
         isLoading={false}
       />
@@ -244,7 +244,7 @@ describe('HierarchicalVersionList — US1 menu reachability & dismissal (024)', 
         selection={null}
         onSelectVersion={extra.onSelectVersion || (() => {})}
         onSelectUpdate={extra.onSelectUpdate || (() => {})}
-        versionUpdates={{ '5': [subVersion] }}
+        versionUpdates={{ '5:1-5': [subVersion] }}
         userRole="editor"
         isLoading={false}
       />
@@ -690,7 +690,7 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
 
   it('re-fetches an expanded row with the FRESH range after a refresh wipes the cache', async () => {
     const onLoadUpdates = vi.fn(() => Promise.resolve([]));
-    const props = listProps({ onLoadUpdates, versionUpdates: { v1: [sub] } });
+    const props = listProps({ onLoadUpdates, versionUpdates: { 'v1:1-5': [sub] } });
     const { container, rerender } = render(<HierarchicalVersionList {...props} />);
 
     expandFirstRow(container);
@@ -710,8 +710,62 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
     await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledWith(3, 5, 'v1'));
   });
 
+  // ── Review 2026-08-03 HIGH-1 ──────────────────────────────────────────────
+  // A version's id outlives the range it described (auto ids are
+  // String(clockEnd), and naming a clock mid-range re-splits it). Drill-down
+  // data therefore answers a RANGE, and this row reads it under a key that says
+  // so — otherwise the previous range's sub-rows, and their authors, render as
+  // this range's.
+  it('ignores drill-down data cached for any range but this row\'s own', async () => {
+    const onLoadUpdates = vi.fn(() => Promise.resolve([]));
+    const stale = { ...sub, authors: [{ id: 'u1', name: 'Alice', color: '#112233' }] };
+
+    const { container } = render(
+      <HierarchicalVersionList
+        {...listProps({
+          onLoadUpdates,
+          // The row now covers 3–5.
+          hierarchicalVersions: [{ label: 'January 2024', versions: [mkVersion({ clockStart: 3 })] }],
+          // Answers to the range it USED to have, and to its bare id.
+          versionUpdates: { v1: [stale], 'v1:1-5': [stale] },
+          versionUpdatesMeta: { v1: { total: 9, hasMore: true }, 'v1:1-5': { total: 9, hasMore: true } },
+        })}
+      />
+    );
+
+    expandFirstRow(container);
+
+    // Neither the rows nor the author they credit may appear under 3–5...
+    expect(container.querySelector('.hierarchy-update')).toBeNull();
+    expect(screen.queryByText('Alice')).toBeNull();
+    expect(container.querySelector('.hierarchy-updates-more')).toBeNull();
+    // ...and the row asks for what it actually covers.
+    await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledWith(3, 5, 'v1'));
+  });
+
+  it('does not treat a superseded (undefined) load result as a failure to suppress', async () => {
+    // The hook returns undefined when a response was superseded by a newer
+    // request for the same range. Suppressing on that would silence the row
+    // that superseded it.
+    const months = [{ label: 'January 2024', versions: [mkVersion()] }];
+    const onLoadUpdates = vi.fn(() => Promise.resolve(undefined));
+    const at = (over) => listProps({ onLoadUpdates, hierarchicalVersions: months, ...over });
+
+    const { container, rerender } = render(<HierarchicalVersionList {...at({ versionUpdates: { 'v1:1-5': [sub] } })} />);
+    expandFirstRow(container);
+    expect(onLoadUpdates).not.toHaveBeenCalled();
+
+    rerender(<HierarchicalVersionList {...at({})} />);
+    await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(1));
+
+    // An unrelated rerender may still ask again — the row has no data and no
+    // recorded failure.
+    rerender(<HierarchicalVersionList {...at({ loadingVersionUpdates: {} })} />);
+    await waitFor(() => expect(onLoadUpdates.mock.calls.length).toBeGreaterThan(1));
+  });
+
   it('shows loading — never "No individual updates" — while the re-fetch is pending', async () => {
-    const props = listProps({ versionUpdates: { v1: [sub] } });
+    const props = listProps({ versionUpdates: { 'v1:1-5': [sub] } });
     const { container, rerender } = render(<HierarchicalVersionList {...props} />);
 
     expandFirstRow(container);
@@ -725,14 +779,14 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
   });
 
   it('still shows "No individual updates" for a genuinely empty successful response', () => {
-    const { container } = render(<HierarchicalVersionList {...listProps({ versionUpdates: { v1: [] } })} />);
+    const { container } = render(<HierarchicalVersionList {...listProps({ versionUpdates: { 'v1:1-5': [] } })} />);
     expandFirstRow(container);
     expect(screen.getByText('No individual updates')).toBeTruthy();
   });
 
   it('drops the expansion for a version that vanished from the refreshed list', async () => {
     const onLoadUpdates = vi.fn(() => Promise.resolve([]));
-    const props = listProps({ onLoadUpdates, versionUpdates: { v1: [sub] } });
+    const props = listProps({ onLoadUpdates, versionUpdates: { 'v1:1-5': [sub] } });
     const { container, rerender } = render(<HierarchicalVersionList {...props} />);
 
     expandFirstRow(container);
@@ -761,7 +815,7 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
   describe('a failed drill-down renders an inline, retryable row error', () => {
     it('replaces the row\'s spinner with a retry affordance, not an endless "Loading updates..."', () => {
       const { container } = render(
-        <HierarchicalVersionList {...listProps({ versionUpdatesError: { v1: 'updates boom' } })} />
+        <HierarchicalVersionList {...listProps({ versionUpdatesError: { 'v1:1-5': 'updates boom' } })} />
       );
       expandFirstRow(container);
 
@@ -778,17 +832,17 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
       const at = (over) => listProps({ onLoadUpdates, hierarchicalVersions: months, ...over });
 
       const { container, rerender } = render(
-        <HierarchicalVersionList {...at({ versionUpdates: { v1: [sub] } })} />
+        <HierarchicalVersionList {...at({ versionUpdates: { 'v1:1-5': [sub] } })} />
       );
       expandFirstRow(container); // already cached — no load yet
       expect(onLoadUpdates).not.toHaveBeenCalled();
 
       // A refresh wipes the cache; the auto-refetch fires once and fails.
-      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { v1: 'updates boom' } })} />);
+      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { 'v1:1-5': 'updates boom' } })} />);
       await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(1));
 
       // Suppressed: unrelated rerenders must not hammer a failing endpoint.
-      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { v1: 'updates boom' } })} />);
+      rerender(<HierarchicalVersionList {...at({ versionUpdatesError: { 'v1:1-5': 'updates boom' } })} />);
       await waitFor(() => expect(onLoadUpdates).toHaveBeenCalledTimes(1));
 
       // The user asking again clears the suppression and re-requests the range.
@@ -799,17 +853,87 @@ describe('HierarchicalVersionList — expanded rows survive a refresh (041 FR-00
 
     it('a successful load after the retry shows the sub-versions, not the error', () => {
       const { container, rerender } = render(
-        <HierarchicalVersionList {...listProps({ versionUpdatesError: { v1: 'updates boom' } })} />
+        <HierarchicalVersionList {...listProps({ versionUpdatesError: { 'v1:1-5': 'updates boom' } })} />
       );
       expandFirstRow(container);
       expect(screen.queryByRole('alert')).toBeTruthy();
 
       rerender(
-        <HierarchicalVersionList {...listProps({ versionUpdates: { v1: [sub] } })} />
+        <HierarchicalVersionList {...listProps({ versionUpdates: { 'v1:1-5': [sub] } })} />
       );
 
       expect(screen.queryByRole('alert')).toBeNull();
       expect(container.querySelectorAll('.hierarchy-update').length).toBe(1);
     });
+  });
+});
+
+/**
+ * Review 2026-08-03 LOW-6 — the first month auto-expands whenever it FIRST
+ * APPEARS, not only at mount.
+ *
+ * The auto-expand ran in a useState initializer, so the first version written
+ * after a month rollover arrived (by poll) inside a collapsed month: the newest
+ * entry in the document's history, the one carrying "Current", was hidden behind
+ * a chevron the user never touched.
+ */
+describe('HierarchicalVersionList — a newly appearing first month expands (LOW-6)', () => {
+  const version = (over = {}) => ({
+    id: 'v1',
+    name: 'Draft',
+    clockStart: 1,
+    clockEnd: 5,
+    timestamp: '2024-01-05T16:30:00Z',
+    authors: [],
+    isNamed: true,
+    isCurrent: false,
+    onBehalfOf: [],
+    onBehalfOfMore: 0,
+    ...over,
+  });
+
+  const list = (months) => (
+    <HierarchicalVersionList
+      hierarchicalVersions={months}
+      selection={null}
+      onSelectVersion={() => {}}
+      onSelectUpdate={() => {}}
+      userRole="editor"
+      isLoading={false}
+    />
+  );
+
+  const january = { label: 'January 2024', versions: [version()] };
+  const february = {
+    label: 'February 2024',
+    versions: [version({ id: 'v2', name: 'Newest', isCurrent: true, clockStart: 6, clockEnd: 9 })],
+  };
+
+  it('expands a month that arrives after mount, so the newest version is visible', async () => {
+    const { rerender } = render(list([january]));
+    expect(screen.getByText('Draft')).toBeTruthy();
+
+    rerender(list([february, january]));
+
+    await waitFor(() => expect(screen.getByText('Newest')).toBeTruthy());
+    expect(screen.getByText('Current')).toBeTruthy();
+  });
+
+  it('expands the first month of a list that arrives after an empty first render', async () => {
+    const { rerender } = render(list([]));
+    rerender(list([january]));
+
+    await waitFor(() => expect(screen.getByText('Draft')).toBeTruthy());
+  });
+
+  it('never re-expands a month the user collapsed', async () => {
+    const { rerender } = render(list([january]));
+    fireEvent.click(screen.getByText('January 2024'));
+    expect(screen.queryByText('Draft')).toBeNull();
+
+    // A poll delivers the same months again.
+    rerender(list([{ ...january, versions: [version()] }]));
+
+    await waitFor(() => expect(screen.queryByText('Draft')).toBeNull());
   });
 });

@@ -138,6 +138,16 @@
   color: var(--danger);
 }
 
+/* Action failures (restore/name/rename/delete). Rendered ALONGSIDE a healthy
+   timeline — it is about the action, not the list — so it is a compact banner
+   rather than the full-height load-error block. */
+.version-history-action-error {
+  padding: 12px 20px;
+  text-align: center;
+  color: var(--danger);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .version-history-retry-btn {
   margin-top: 12px;
   padding: 6px 16px;

@@ -103,7 +103,7 @@ describe('VersionHistoryPanel error state (041 FR-005)', () => {
     renderPanel({
       error: null,
       hierarchicalVersions: [{ label: 'January 2024', versions: [version] }],
-      versionUpdatesError: { v1: 'updates boom' },
+      versionUpdatesError: { 'v1:1-5': 'updates boom' },
     });
 
     expect(screen.queryByText(/Couldn't load version history/i)).toBeNull();
@@ -310,5 +310,82 @@ describe('VersionHistoryPanel attribution labels (043 US7, ledger D8)', () => {
     // ...and the restore path is still offered, so this is not passing by
     // virtue of an empty menu.
     expect(screen.getByText('Restore this version')).toBeTruthy();
+  });
+});
+
+/**
+ * Review 2026-08-03 MED-5 — an action that failed says so as an ACTION.
+ *
+ * restore/name/rename/delete failures used to travel on the timeline's `error`
+ * channel, so a failed rename rendered "Couldn't load version history." over a
+ * list that had loaded perfectly, with a Retry that refetched history and did
+ * nothing about the rename — and the next 10 s poll cleared the banner as though
+ * the action had gone through after all.
+ */
+describe('VersionHistoryPanel action failures (review MED-5)', () => {
+  const healthyList = () => oneMonth(versionRow());
+
+  it('names the action, over a healthy timeline, with no load-retry affordance', () => {
+    renderPanel({
+      error: null,
+      actionError: { action: 'rename', message: 'rename boom' },
+      hierarchicalVersions: healthyList(),
+    });
+
+    expect(screen.getByText("Couldn't rename that version.")).toBeTruthy();
+    expect(screen.getByText('rename boom')).toBeTruthy();
+    // Never the load-failure wording, and never a Retry that refetches history.
+    expect(screen.queryByText(/Couldn't load version history/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    // The timeline is untouched.
+    expect(screen.getByText('Draft')).toBeTruthy();
+  });
+
+  it('uses the wording of whichever action failed', () => {
+    const cases = {
+      restore: "Couldn't restore that version.",
+      name: "Couldn't name that version.",
+      delete: "Couldn't remove that version's name.",
+    };
+    for (const [action, headline] of Object.entries(cases)) {
+      const { unmount } = renderPanel({
+        actionError: { action, message: 'boom' },
+        hierarchicalVersions: healthyList(),
+      });
+      expect(screen.getByText(headline)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it('is dismissible, because nothing else clears it', () => {
+    const onDismissActionError = vi.fn();
+    renderPanel({
+      actionError: { action: 'restore', message: 'boom' },
+      onDismissActionError,
+      hierarchicalVersions: healthyList(),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(onDismissActionError).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the load-error path exactly as it was', () => {
+    const onRetry = vi.fn();
+    renderPanel({ error: 'history boom', onRetry });
+
+    expect(screen.getByText(/Couldn't load version history/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows both channels at once when both are true', () => {
+    renderPanel({
+      error: 'history boom',
+      actionError: { action: 'delete', message: 'delete boom' },
+      hierarchicalVersions: healthyList(),
+    });
+
+    expect(screen.getByText(/Couldn't load version history/i)).toBeTruthy();
+    expect(screen.getByText("Couldn't remove that version's name.")).toBeTruthy();
   });
 });

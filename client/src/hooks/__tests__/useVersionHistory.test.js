@@ -317,7 +317,9 @@ describe('useVersionHistory', () => {
       });
 
       expect(success).toBe(false);
-      expect(result.current.error).toBe('Restore failed');
+      // The failure lands on the ACTION channel, never on the timeline's.
+      expect(result.current.actionError).toEqual({ action: 'restore', message: 'Restore failed' });
+      expect(result.current.error).toBeNull();
     });
   });
 
@@ -490,7 +492,7 @@ describe('useVersionHistory', () => {
       });
 
       // Verify updates are cached
-      expect(result.current.versionUpdates['auto-60']).toEqual(mockUpdates);
+      expect(result.current.versionUpdates['auto-60:57-60']).toEqual(mockUpdates);
 
       // Now create a named version - this should clear the cache
       await act(async () => {
@@ -525,7 +527,7 @@ describe('useVersionHistory', () => {
         await result.current.loadUpdatesForVersion(1, 1, 'auto-1');
       });
 
-      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+      expect(result.current.versionUpdates['auto-1:1-1']).toEqual(mockUpdates);
 
       // Refresh history - the structure moved, so the cache must be cleared
       await act(async () => {
@@ -550,14 +552,14 @@ describe('useVersionHistory', () => {
       await act(async () => {
         await result.current.loadUpdatesForVersion(1, 1, 'auto-1');
       });
-      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+      expect(result.current.versionUpdates['auto-1:1-1']).toEqual(mockUpdates);
 
       await act(async () => {
         await result.current.refresh();
       });
 
       // An idle refresh must not blank an expanded row's contents.
-      expect(result.current.versionUpdates['auto-1']).toEqual(mockUpdates);
+      expect(result.current.versionUpdates['auto-1:1-1']).toEqual(mockUpdates);
     });
   });
 
@@ -627,6 +629,52 @@ describe('useVersionHistory', () => {
       // A background tick never flips the loading flag — that would tear the
       // rendered list down and take scroll/expansions with it.
       expect(result.current.isLoading).toBe(false);
+    });
+
+    // ── Review 2026-08-03 LOW-7: poll hygiene ───────────────────────────────
+    it('skips a tick while the previous poll is still in flight', async () => {
+      let resolveSlow;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: [], totalEdits: 0 } }) // mount
+        .mockImplementationOnce(() => new Promise((r) => {
+          resolveSlow = () => r({ data: { versions: [], totalEdits: 0 } });
+        }))
+        .mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+
+      renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(1));
+
+      // First tick goes out and stalls.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+
+      // Two further ticks pass while it is still out: no requests stack up.
+      await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+
+      // Once it answers, the cadence resumes.
+      await act(async () => { resolveSlow(); await vi.advanceTimersByTimeAsync(10000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('refreshes on the way back to a visible tab, without waiting for the next tick', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions: [], totalEdits: 0 } });
+
+      renderHook(() => useVersionHistory('doc-123'));
+      await vi.waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(1));
+
+      const spy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+      expect(mockApi.get).toHaveBeenCalledTimes(1); // three ticks skipped
+
+      // The tab comes back after 30 s away: the panel is stale NOW, not in 10 s.
+      spy.mockReturnValue(false);
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await Promise.resolve();
+      });
+      expect(mockApi.get).toHaveBeenCalledTimes(2);
+      spy.mockRestore();
     });
   });
 
@@ -714,7 +762,7 @@ describe('useVersionHistory', () => {
       });
 
       expect(updates).toBeNull();
-      expect(result.current.versionUpdatesError['auto-1']).toBe('updates boom');
+      expect(result.current.versionUpdatesError['auto-1:1-5']).toBe('updates boom');
       expect(result.current.error).toBeNull();
       expect(result.current.versions).toEqual(versions); // timeline untouched
     });
@@ -731,11 +779,11 @@ describe('useVersionHistory', () => {
       await waitFor(() => expect(result.current.versions).toHaveLength(1));
 
       await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'auto-1'); });
-      expect(result.current.versionUpdatesError['auto-1']).toBe('updates boom');
+      expect(result.current.versionUpdatesError['auto-1:1-5']).toBe('updates boom');
 
       await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'auto-1'); });
-      expect(result.current.versionUpdatesError['auto-1']).toBeUndefined();
-      expect(result.current.versionUpdates['auto-1']).toEqual(updates);
+      expect(result.current.versionUpdatesError['auto-1:1-5']).toBeUndefined();
+      expect(result.current.versionUpdates['auto-1:1-5']).toEqual(updates);
     });
 
   });
@@ -838,6 +886,392 @@ describe('useVersionHistory', () => {
 
       await waitFor(() => expect(result.current.selection).toBeNull());
       expect(result.current.diffData).toBeNull();
+    });
+  });
+
+  // ── Review 2026-08-03 HIGH-1: a drill-down answer belongs to its RANGE ─────
+  // Auto-version ids are String(clockEnd), so naming a version at a clock inside
+  // an existing range re-splits it while the id survives. With an id-only cache
+  // key, an in-flight /history/updates response for the OLD range landed as the
+  // sub-rows — and the AUTHORS — of the range that replaced it, and stayed
+  // there: the row could not re-request while its own loading flag was up.
+  describe('review HIGH-1: drill-down data is keyed by the range it answers', () => {
+    const rows = (name) => [{
+      id: '58', clockStart: 58, clockEnd: 58, previousClock: 57,
+      timestamp: '2025-01-01T10:01:00Z',
+      authors: [{ id: 'u1', name, color: '#112233' }],
+      updateCount: 1,
+    }];
+
+    it('never applies an in-flight response to a range the version no longer has', async () => {
+      const before = [{ id: '60', name: null, clockStart: 57, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true }];
+      // Someone names clock 59 mid-range: id '60' survives, its range does not.
+      const after = [
+        { id: '60', name: null, clockStart: 60, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true },
+        { id: 'named-uuid', name: 'Draft', clockStart: 57, clockEnd: 59, timestamp: '2025-01-01T10:02:00Z', isCurrent: false },
+      ];
+
+      let resolveUpdates;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 4 } })
+        .mockImplementationOnce(() => new Promise((r) => {
+          resolveUpdates = () => r({ data: { updates: rows('Alice') } });
+        }))
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 4 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      let pending;
+      act(() => { pending = result.current.loadUpdatesForVersion(57, 60, '60'); });
+
+      // A poll lands the re-split (and wipes the cache) while the drill-down is
+      // still out; only then does the drill-down answer.
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+      await act(async () => { resolveUpdates(); await pending; });
+
+      // Nothing the list reads for version '60' (now 60-60) may be the 57-60
+      // answer — crediting Alice for edits outside the row would be the worst
+      // outcome this panel has.
+      expect(result.current.versionUpdates['60']).toBeUndefined();
+      expect(result.current.versionUpdates['60:60-60']).toBeUndefined();
+      expect(result.current.versionUpdatesMeta['60:60-60']).toBeUndefined();
+      // The answer is only ever readable under the range it answered.
+      expect(result.current.versionUpdates['60:57-60']).toEqual(rows('Alice'));
+    });
+
+    it('lets the row re-fetch its new range: the loading flag is per range, not per id', async () => {
+      const before = [{ id: '60', name: null, clockStart: 57, clockEnd: 60, timestamp: '2025-01-01T10:03:00Z', isCurrent: true }];
+
+      let resolveUpdates;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 4 } })
+        .mockImplementationOnce(() => new Promise((r) => {
+          resolveUpdates = () => r({ data: { updates: rows('Alice') } });
+        }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      let pending;
+      act(() => { pending = result.current.loadUpdatesForVersion(57, 60, '60'); });
+
+      // The old range is loading; the NEW range is not — which is what lets the
+      // list's auto-refetch fire instead of skipping.
+      expect(result.current.loadingVersionUpdates['60:57-60']).toBe(true);
+      expect(result.current.loadingVersionUpdates['60:60-60']).toBeUndefined();
+
+      await act(async () => { resolveUpdates(); await pending; });
+    });
+
+    it('applies only the newest request for a range (a retry mid-flight wins)', async () => {
+      const versions = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      let resolveFirst;
+      let resolveSecond;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockImplementationOnce(() => new Promise((r) => { resolveFirst = () => r({ data: { updates: rows('Stale') } }); }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveSecond = () => r({ data: { updates: rows('Fresh') } }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      let first;
+      let second;
+      act(() => {
+        first = result.current.loadUpdatesForVersion(1, 5, 'v1');
+        second = result.current.loadUpdatesForVersion(1, 5, 'v1');
+      });
+
+      await act(async () => { resolveSecond(); await second; });
+      await act(async () => { resolveFirst(); await first; });
+
+      expect(result.current.versionUpdates['v1:1-5']).toEqual(rows('Fresh'));
+      // A superseded response is not a failure: it reports neither.
+      expect(await first).toBeUndefined();
+      expect(result.current.versionUpdatesError['v1:1-5']).toBeUndefined();
+    });
+  });
+
+  // ── Review 2026-08-03 MED-2: the reconcile refreshes in the background ─────
+  // With the current version auto-selected, every poll during live editing grows
+  // clockEnd, so the reconcile reselected — in the FOREGROUND, replacing the
+  // preview with "Loading version…" and tearing TipTap down every 10 s.
+  describe('review MED-2: live reconcile keeps the preview on screen', () => {
+    const stamp = '2025-01-01T10:00:00Z';
+
+    it('keeps the last-good preview visible while a moved range re-fetches', async () => {
+      const before = [{ id: '5', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true }];
+      const after = [{ id: '6', name: null, clockStart: 1, clockEnd: 6, timestamp: stamp, isCurrent: true }];
+      const diffA = { document: 'A', meta: { currentClock: 5 } };
+      const diffB = { document: 'B', meta: { currentClock: 6 } };
+
+      let resolveB;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: diffA })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 6 } })
+        .mockImplementationOnce(() => new Promise((r) => { resolveB = () => r({ data: diffB }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      expect(result.current.diffData).toEqual(diffA);
+
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+      await waitFor(() => expect(result.current.selection.clockEnd).toBe(6));
+
+      // A collaborator typing must not blank the reader's preview.
+      expect(result.current.isLoadingContent).toBe(false);
+      expect(result.current.diffData).toEqual(diffA);
+
+      await act(async () => { resolveB(); });
+      await waitFor(() => expect(result.current.diffData).toEqual(diffB));
+    });
+
+    it('keeps the payload identity when the refetched document is unchanged', async () => {
+      // `diffData` feeds the preview's editor as a dependency: a new-but-equal
+      // object rebuilds TipTap and resets the reader's scroll position.
+      const before = [{ id: '5', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true }];
+      const after = [{ id: '6', name: null, clockStart: 1, clockEnd: 6, timestamp: stamp, isCurrent: true }];
+      const doc = { document: { type: 'doc', content: [] }, meta: { currentClock: 5 } };
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: doc })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 6 } })
+        .mockResolvedValueOnce({ data: JSON.parse(JSON.stringify(doc)) }); // equal, not identical
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      const rendered = result.current.diffData;
+
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+      await waitFor(() => expect(result.current.selection.clockEnd).toBe(6));
+
+      expect(result.current.diffData).toBe(rendered);
+    });
+
+    it('a user-initiated selection is still foreground (the placeholder is honest there)', async () => {
+      const versions = [
+        { id: '5', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: false },
+        { id: '9', name: null, clockStart: 6, clockEnd: 9, timestamp: stamp, isCurrent: true },
+      ];
+      let resolveDiff;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 9 } })
+        .mockImplementationOnce(() => new Promise((r) => { resolveDiff = () => r({ data: { document: 'X', meta: {} } }); }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(2));
+
+      let pending;
+      act(() => { pending = result.current.selectVersion(versions[0]); });
+      expect(result.current.isLoadingContent).toBe(true);
+
+      await act(async () => { resolveDiff(); await pending; });
+      expect(result.current.isLoadingContent).toBe(false);
+    });
+  });
+
+  // ── Review 2026-08-03 MED-3: attribution-only changes propagate ────────────
+  // The structural signature deliberately excludes authors (so an idle poll does
+  // not wipe the drill-down cache), and `metadataMoved` ignored them too — so a
+  // "Synced content" entry that later resolved to a person, or an account
+  // deletion collapsing one to "Unknown author", never reached the screen.
+  describe('review MED-3: attribution changes reach the preview and the rows', () => {
+    const stamp = '2025-01-01T10:00:00Z';
+    const synced = [{ id: null, name: 'Synced content', color: '#888888', isSynced: true }];
+    const person = [{ id: 'u1', name: 'Ada Lovelace', color: '#112233' }];
+
+    it('adopts an attribution-only change on an unchanged range, with no diff refetch', async () => {
+      const before = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: synced }];
+      const after = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: person }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { document: 'doc', meta: {} } })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 5 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      expect(result.current.selection.authors[0].name).toBe('Synced content');
+      const callsAfterSelect = mockApi.get.mock.calls.length;
+
+      await act(async () => { await result.current.refresh(); });
+
+      // The contributors footer reads the selection, so it must now say the
+      // person the server resolved.
+      await waitFor(() => expect(result.current.selection.authors[0].name).toBe('Ada Lovelace'));
+      // The content did not move: exactly one extra call, the refresh itself.
+      expect(mockApi.get.mock.calls.length).toBe(callsAfterSelect + 1);
+    });
+
+    it('refreshes cached drill-down rows in the background, without blanking them', async () => {
+      const before = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: synced }];
+      const after = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: person }];
+      const staleRows = [{ id: '5', clockStart: 5, clockEnd: 5, timestamp: stamp, authors: synced, updateCount: 1 }];
+      const freshRows = [{ id: '5', clockStart: 5, clockEnd: 5, timestamp: stamp, authors: person, updateCount: 1 }];
+
+      let resolveRefreshedRows;
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { updates: staleRows } })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 5 } })
+        .mockImplementationOnce(() => new Promise((r) => {
+          resolveRefreshedRows = () => r({ data: { updates: freshRows } });
+        }));
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'v1'); });
+      expect(result.current.versionUpdates['v1:1-5']).toEqual(staleRows);
+
+      await act(async () => { await result.current.refresh(); });
+
+      // While the corrected rows are in flight the expanded row keeps showing
+      // what it had: no wipe, no spinner over data that is still readable.
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(4));
+      expect(result.current.versionUpdates['v1:1-5']).toEqual(staleRows);
+      expect(result.current.loadingVersionUpdates['v1:1-5']).toBeFalsy();
+
+      await act(async () => { resolveRefreshedRows(); });
+      await waitFor(() => expect(result.current.versionUpdates['v1:1-5']).toEqual(freshRows));
+    });
+
+    it('a failed background row refresh keeps the last-good rows and raises no row error', async () => {
+      const before = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: synced }];
+      const after = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: person }];
+      const staleRows = [{ id: '5', clockStart: 5, clockEnd: 5, timestamp: stamp, authors: synced, updateCount: 1 }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { updates: staleRows } })
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 5 } })
+        .mockRejectedValueOnce({ response: { data: { error: 'updates boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'v1'); });
+      await act(async () => { await result.current.refresh(); });
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalledTimes(4));
+
+      expect(result.current.versionUpdates['v1:1-5']).toEqual(staleRows);
+      expect(result.current.versionUpdatesError['v1:1-5']).toBeUndefined();
+    });
+
+    it('corrects a selected sub-version\'s footer when its row\'s attribution is corrected', async () => {
+      // A sub-version selection is never reconciled against the timeline (the
+      // timeline does not contain it), so the corrected row is the only thing
+      // that can correct what the footer credits.
+      const before = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: synced }];
+      const after = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: person }];
+      const staleRows = [{ id: '5', clockStart: 5, clockEnd: 5, previousClock: 4, timestamp: stamp, authors: synced, updateCount: 1 }];
+      const freshRows = [{ id: '5', clockStart: 5, clockEnd: 5, previousClock: 4, timestamp: stamp, authors: person, updateCount: 1 }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { updates: staleRows } })
+        .mockResolvedValueOnce({ data: { document: 'doc', meta: {} } }) // sub-version diff
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { updates: freshRows } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'v1'); });
+      await act(async () => { await result.current.selectUpdate(staleRows[0]); });
+      expect(result.current.selection.authors[0].name).toBe('Synced content');
+
+      await act(async () => { await result.current.refresh(); });
+
+      await waitFor(() => expect(result.current.selection.authors[0].name).toBe('Ada Lovelace'));
+      expect(result.current.selection.isSubVersion).toBe(true);
+    });
+
+    it('an idle poll with unchanged attribution neither refetches rows nor re-adopts the selection', async () => {
+      const versions = [{ id: 'v1', name: null, clockStart: 1, clockEnd: 5, timestamp: stamp, isCurrent: true, authors: person }];
+      const rows = [{ id: '5', clockStart: 5, clockEnd: 5, timestamp: stamp, authors: person, updateCount: 1 }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } })
+        .mockResolvedValueOnce({ data: { updates: rows } })
+        .mockResolvedValueOnce({ data: { versions, totalEdits: 5 } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.loadUpdatesForVersion(1, 5, 'v1'); });
+      const callsBefore = mockApi.get.mock.calls.length;
+
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+
+      // One call: the tick. Nothing else moved, so nothing else was requested.
+      expect(mockApi.get.mock.calls.length).toBe(callsBefore + 1);
+      expect(result.current.versionUpdates['v1:1-5']).toEqual(rows);
+    });
+  });
+
+  // ── Review 2026-08-03 MED-5: action failures are not load failures ─────────
+  // restore/name/rename/delete used to setError, so the panel rendered
+  // "Couldn't load version history." with a Retry that refetched the timeline —
+  // over a list that had loaded fine — and the next poll cleared it silently.
+  describe('review MED-5: the action failure channel', () => {
+    const versions = [{ id: 'v1', name: 'Draft', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+
+    it('names the action that failed and leaves the timeline channel clean', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions, totalEdits: 5 } });
+      mockApi.put.mockRejectedValue({ response: { data: { error: 'rename boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.renameVersion('v1', 'New name'); });
+
+      expect(result.current.actionError).toEqual({ action: 'rename', message: 'rename boom' });
+      expect(result.current.error).toBeNull();
+      expect(result.current.versions).toHaveLength(1); // timeline untouched
+    });
+
+    it('does not let the next poll clear it: the rename still did not happen', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions, totalEdits: 5 } });
+      mockApi.delete.mockRejectedValue({ response: { data: { error: 'delete boom' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.deleteNamedVersion('v1'); });
+      expect(result.current.actionError.action).toBe('delete');
+
+      await act(async () => { await result.current.fetchHistory({ background: true }); });
+      expect(result.current.actionError.action).toBe('delete');
+
+      // It clears when the user dismisses it, or when the next action starts.
+      act(() => { result.current.clearActionError(); });
+      expect(result.current.actionError).toBeNull();
+    });
+
+    it('a successful action clears a previous action failure', async () => {
+      mockApi.get.mockResolvedValue({ data: { versions, totalEdits: 5 } });
+      mockApi.post
+        .mockRejectedValueOnce({ response: { data: { error: 'name boom' } } })
+        .mockResolvedValueOnce({ data: { version: { id: 'nv', name: 'Milestone' } } });
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.createNamedVersion('Milestone', 5); });
+      expect(result.current.actionError.action).toBe('name');
+
+      await act(async () => { await result.current.createNamedVersion('Milestone', 5); });
+      expect(result.current.actionError).toBeNull();
     });
   });
 });

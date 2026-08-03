@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { getBaseExtensions } from '../extensions/editorExtensions';
+import { contributorTitle, contributorName, contributorColor } from '../utils/contributors';
 import './EditorCommon.css';
 import './VersionPreview.css';
 
@@ -116,10 +117,21 @@ function VersionPreview({
           {selection.authors.map((author, i) => (
             <span
               key={author.id || i}
-              className="version-preview-author"
-              style={{ color: author.color }}
+              // Feature 045 (FR-004): the synced contribution is not a person.
+              // This footer used to render it as one more comma-separated name
+              // in an identity colour, so the same entry the list marked as
+              // "not a person" read here as a contributor. The rules come from
+              // utils/contributors, shared with the list.
+              className={author.isSynced
+                ? 'version-preview-author version-preview-author-synced'
+                : 'version-preview-author'}
+              style={author.isSynced ? undefined : { color: contributorColor(author) }}
+              title={contributorTitle(author)}
             >
-              {author.name || 'Unknown'}
+              {author.isSynced && (
+                <span className="version-preview-author-dot-synced" aria-hidden="true" />
+              )}
+              {contributorName(author)}
               {i < selection.authors.length - 1 && ', '}
             </span>
           ))}

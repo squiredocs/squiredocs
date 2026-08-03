@@ -218,3 +218,67 @@ describe('VersionPreview diff rendering (043 US7, FR-009)', () => {
     expect(screen.getByText('Synced content')).toBeTruthy();
   });
 });
+
+/**
+ * Review 2026-08-03 MED-4 — the contributors footer states a synced
+ * contribution as the not-a-person it is (feature 045, FR-004).
+ *
+ * The list row had the badge-and-explanation treatment from the day 045
+ * shipped; this footer rendered the very same entry as one more comma-separated
+ * name in an identity colour. Two surfaces onto one `authors` array said
+ * different things about it, and the surface a reader looks at while reading the
+ * version said the wrong one. The rules now come from utils/contributors, shared
+ * with the list, and key on the server's `isSynced` flag.
+ */
+describe('VersionPreview contributors footer — synced contribution (045 FR-004)', () => {
+  const diffData = { document: { type: 'doc', content: [] }, meta: {} };
+
+  const renderFooter = (authors) => render(
+    <VersionPreview
+      diffData={diffData}
+      diffError={null}
+      selection={{ ...selection, authors }}
+    />
+  );
+
+  const SYNCED = { id: null, name: 'Synced content', color: '#888888', isSynced: true };
+  const PERSON = { id: 'u1', name: 'Ada Lovelace', color: '#112233' };
+
+  it('marks the synced entry as not a person, and explains what it is', () => {
+    const { container } = renderFooter([SYNCED, PERSON]);
+
+    const entries = [...container.querySelectorAll('.version-preview-author')];
+    const synced = entries.find(e => e.classList.contains('version-preview-author-synced'));
+
+    expect(synced).toBeTruthy();
+    expect(synced.textContent).toContain('Synced content');
+    // The same explanation the list gives on hover.
+    expect(synced.getAttribute('title')).toMatch(/reconnect/i);
+    // No identity colour: it is not somebody's colour to wear.
+    expect(synced.style.color).toBe('');
+    // ...and a visible marker, not a title-only difference.
+    expect(synced.querySelector('.version-preview-author-dot-synced')).toBeTruthy();
+  });
+
+  it('leaves the people beside it exactly as they were', () => {
+    const { container } = renderFooter([SYNCED, PERSON]);
+
+    const entries = [...container.querySelectorAll('.version-preview-author')];
+    const person = entries.find(e => !e.classList.contains('version-preview-author-synced'));
+
+    expect(person.textContent).toContain('Ada Lovelace');
+    expect(person.style.color).toBe('rgb(17, 34, 51)');
+    expect(person.getAttribute('title')).toBe('Ada Lovelace');
+    expect(person.querySelector('.version-preview-author-dot-synced')).toBeNull();
+  });
+
+  it('keys on the server flag, never on the display name', () => {
+    // A real person who happens to be called this is still a person.
+    const { container } = renderFooter([{ id: 'u9', name: 'Synced content', color: '#445566' }]);
+
+    const entry = container.querySelector('.version-preview-author');
+    expect(entry.classList.contains('version-preview-author-synced')).toBe(false);
+    expect(entry.getAttribute('title')).toBe('Synced content');
+    expect(entry.style.color).toBe('rgb(68, 85, 102)');
+  });
+});

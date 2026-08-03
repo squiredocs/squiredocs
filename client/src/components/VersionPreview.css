@@ -62,6 +62,27 @@
   font-weight: var(--font-medium);
 }
 
+/* Feature 045 (FR-004): the "Synced content" contributor is not a person, so it
+   is stated differently from the people beside it — no identity colour, and the
+   same dashed outline marker the history list uses for this entry. */
+.version-preview-author-synced {
+  font-weight: var(--font-normal);
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.version-preview-author-dot-synced {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background-color: transparent;
+  border: 1.5px dashed var(--text-tertiary);
+  box-sizing: border-box;
+  vertical-align: baseline;
+}
+
 /* Notice for when text is identical (sync-only updates) */
 .version-preview-notice {
   padding: 8px 16px;

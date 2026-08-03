@@ -5,6 +5,19 @@ import VersionEmptyState from './VersionEmptyState';
 import { VersionHistoryProvider } from '../contexts/VersionHistoryContext';
 import './VersionHistoryPanel.css';
 
+/**
+ * What failed, said in the user's terms. An action failure names the action —
+ * "Couldn't load version history." over a list that loaded fine described the
+ * wrong thing entirely.
+ */
+const ACTION_ERROR_HEADLINES = {
+  restore: "Couldn't restore that version.",
+  name: "Couldn't name that version.",
+  rename: "Couldn't rename that version.",
+  delete: "Couldn't remove that version's name.",
+};
+const DEFAULT_ACTION_ERROR_HEADLINE = "Couldn't complete that action.";
+
 function VersionHistoryPanel({
   docGuid,
   isOpen,
@@ -19,6 +32,12 @@ function VersionHistoryPanel({
   // never read as "this document has no history".
   error = null,
   onRetry,
+  // Action failure (restore/name/rename/delete). Deliberately NOT the `error`
+  // channel above: a failed rename is not a failed load, so it must not claim
+  // the timeline could not be read, and Retry — which refetches history — would
+  // do nothing about it. Shape: { action, message }.
+  actionError = null,
+  onDismissActionError,
   onCreateNamedVersion,
   onRenameVersion,
   onDeleteVersion,
@@ -132,6 +151,22 @@ function VersionHistoryPanel({
               onClick={() => onRetry()}
             >
               Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {actionError && (
+        <div className="version-history-action-error" role="alert">
+          <p>{ACTION_ERROR_HEADLINES[actionError.action] || DEFAULT_ACTION_ERROR_HEADLINE}</p>
+          <p className="version-history-empty-hint">{actionError.message}</p>
+          {onDismissActionError && (
+            <button
+              type="button"
+              className="version-history-retry-btn"
+              onClick={() => onDismissActionError()}
+            >
+              Dismiss
             </button>
           )}
         </div>

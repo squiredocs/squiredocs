@@ -166,6 +166,10 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
     // nothing rendered them, so a failed load showed the empty state instead.
     error: versionHistoryError,
     diffError: versionDiffError,
+    // The CRUD channel: separate so a failed rename never reads as a failed
+    // load with a Retry that refetches the timeline instead.
+    actionError: versionActionError,
+    clearActionError: clearVersionActionError,
     fetchHistory: refetchHistory,
     isLoadingContent: versionContentLoading,
     selectVersion,
@@ -417,6 +421,8 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
             isLoading={versionHistoryLoading}
             error={versionHistoryError}
             onRetry={refetchHistory}
+            actionError={versionActionError}
+            onDismissActionError={clearVersionActionError}
             onCreateNamedVersion={createNamedVersion}
             onRenameVersion={renameVersion}
             onDeleteVersion={deleteNamedVersion}

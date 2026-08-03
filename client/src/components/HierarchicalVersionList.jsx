@@ -5,7 +5,9 @@ import VersionConfirmDialog from './VersionConfirmDialog';
 import VersionEmptyState from './VersionEmptyState';
 import { useVersionHistoryValues } from '../contexts/VersionHistoryContext';
 import { useRestoreFlow } from '../hooks/useRestoreFlow';
+import { updatesCacheKey } from '../hooks/useVersionHistory';
 import { formatVersionRowTimestamp } from '../utils/datetime';
+import { contributorTitle, contributorName, contributorColor } from '../utils/contributors';
 import './HierarchicalVersionList.css';
 
 /**
@@ -41,15 +43,12 @@ function ChevronIcon({ expanded }) {
 }
 
 /**
- * What the "Synced content" contributor means, for the hover title (feature 045,
- * FR-004). The server sets `isSynced` on that entry; the client only styles it,
- * and never derives authorship of its own.
- */
-const SYNCED_CONTRIBUTION_TITLE =
-  "This content arrived through a collaborator's reconnect. Its original author could not be determined.";
-
-/**
- * Author list component - shared between versions and updates
+ * Author list component - shared between versions and updates.
+ *
+ * The per-entry rules (hover text, display name, whether an identity colour
+ * applies) live in utils/contributors so this surface and the preview footer
+ * state the same thing about the same entry — the footer used to render the
+ * "Synced content" entry as a plain person's name (feature 045, FR-004).
  */
 function AuthorList({ authors, maxDisplay = null }) {
   if (!authors || authors.length === 0) return null;
@@ -66,7 +65,7 @@ function AuthorList({ authors, maxDisplay = null }) {
           // Feature 045 (FR-004): the synced contribution is not a person, so it
           // says what it is on hover. The flag is a server-set field — never a
           // match on the display name.
-          title={author.isSynced ? SYNCED_CONTRIBUTION_TITLE : author.name}
+          title={contributorTitle(author)}
         >
           <span
             className={author.isSynced ? 'hierarchy-author-dot hierarchy-author-dot-synced' : 'hierarchy-author-dot'}
@@ -80,9 +79,9 @@ function AuthorList({ authors, maxDisplay = null }) {
             // The synced contribution takes NO identity fill: it is an outlined
             // badge (feature 045), and leaving the inline colour off is what lets
             // the stylesheet own that entry's appearance.
-            style={author.isSynced ? undefined : { backgroundColor: author.color || '#888888' }}
+            style={author.isSynced ? undefined : { backgroundColor: contributorColor(author) }}
           />
-          <span className="hierarchy-author-name">{author.name || 'Unknown'}</span>
+          <span className="hierarchy-author-name">{contributorName(author)}</span>
         </div>
       ))}
       {remaining > 0 && (
@@ -278,8 +277,11 @@ function subVersionToItem(subVersion) {
 }
 
 /** Identity of one drill-down request: the version AND the range asked for, so a
- *  re-split (which moves the range under a stable id) is a different request. */
-const updatesKey = (version) => `${version.id}:${version.clockStart}-${version.clockEnd}`;
+ *  re-split (which moves the range under a stable id) is a different request.
+ *  The hook caches every drill-down map under this same key — see
+ *  updatesCacheKey — so a response for a superseded range can never be read as
+ *  the sub-rows of the range that replaced it. */
+const updatesKey = (version) => updatesCacheKey(version.id, version.clockStart, version.clockEnd);
 
 /**
  * Unified history item component - renders both versions and clock updates
@@ -404,6 +406,23 @@ function HierarchicalVersionList(props) {
   const [expandedMonths, setExpandedMonths] = useState(() => {
     return firstMonthLabel ? { [firstMonthLabel]: true } : {};
   });
+  // ...and keep doing it when a NEW first month appears mid-session. This ran at
+  // mount only, so the first version created after a month rollover (and the
+  // first list to arrive after an empty initial render) landed in a collapsed
+  // month — hiding "Current" behind a chevron. Only a month never seen before is
+  // expanded, so a month the user deliberately collapsed stays collapsed.
+  const monthLabelsKey = filteredVersions.map(m => m.label).join('|');
+  const seenMonthsRef = React.useRef(null);
+  React.useEffect(() => {
+    const labels = monthLabelsKey ? monthLabelsKey.split('|') : [];
+    const seen = seenMonthsRef.current;
+    seenMonthsRef.current = new Set(labels);
+    if (seen === null) return; // first pass: the useState initializer owns it
+    const first = labels[0];
+    if (first && !seen.has(first)) {
+      setExpandedMonths(prev => ({ ...prev, [first]: true }));
+    }
+  }, [monthLabelsKey]);
   const [expandedVersions, setExpandedVersions] = useState({});
   const [menuOpen, setMenuOpen] = useState(null);
   const menuRef = React.useRef(null);
@@ -473,15 +492,19 @@ function HierarchicalVersionList(props) {
     for (const id of expandedIds) {
       const version = present.get(id);
       if (!version) continue;
-      if (versionUpdates[id] || loadingVersionUpdates[id]) continue;
 
-      // Always re-request with the FRESH range — a re-split moves it.
+      // Always re-request with the FRESH range — a re-split moves it. Reading
+      // the cache under the same range-qualified key is what makes a row whose
+      // range moved re-fetch instead of adopting the previous range's answer.
       const key = updatesKey(version);
+      if (versionUpdates[key] || loadingVersionUpdates[key]) continue;
       if (failedLoadsRef.current.has(key)) continue;
 
       Promise.resolve(onLoadUpdates(version.clockStart, version.clockEnd, id))
+        // `undefined` means the request was superseded, not that it failed —
+        // suppressing on that would silence the row that superseded it.
         .then((result) => {
-          if (result === null || result === undefined) failedLoadsRef.current.add(key);
+          if (result === null) failedLoadsRef.current.add(key);
         })
         .catch(() => { failedLoadsRef.current.add(key); });
     }
@@ -496,8 +519,8 @@ function HierarchicalVersionList(props) {
     const willExpand = !expandedVersions[versionId];
     setExpandedVersions(prev => ({ ...prev, [versionId]: willExpand }));
 
-    // Load updates when expanding if not already loaded
-    if (willExpand && !versionUpdates[versionId] && onLoadUpdates) {
+    // Load updates when expanding if not already loaded for THIS range.
+    if (willExpand && !versionUpdates[updatesKey(version)] && onLoadUpdates) {
       onLoadUpdates(version.clockStart, version.clockEnd, versionId);
     }
   };
@@ -635,7 +658,10 @@ function HierarchicalVersionList(props) {
           {expandedMonths[month.label] && (
             <div className="hierarchy-versions-list">
               {month.versions.map((version) => {
-                const updates = versionUpdates[version.id];
+                // Range-qualified: drill-down data answers a RANGE, and an auto
+                // version's id outlives the range it described.
+                const updatesCacheId = updatesKey(version);
+                const updates = versionUpdates[updatesCacheId];
                 const isExpanded = expandedVersions[version.id];
                 // Add clock range subtitle to versions
                 const versionWithSubtitle = {
@@ -671,9 +697,9 @@ function HierarchicalVersionList(props) {
                             successful, genuinely empty response. An absent
                             cache entry (wiped by a refresh, re-fetch pending)
                             is a loading state, not an empty one. */}
-                        {loadingVersionUpdates[version.id] ? (
+                        {loadingVersionUpdates[updatesCacheId] ? (
                           <div className="hierarchy-loading">Loading updates...</div>
-                        ) : versionUpdatesError[version.id] ? (
+                        ) : versionUpdatesError[updatesCacheId] ? (
                           /* Review L1: a failed drill-down is a failure of THIS
                              row. It is said here, on the row, and retried here —
                              the panel-level error is for the timeline itself. */
@@ -709,9 +735,9 @@ function HierarchicalVersionList(props) {
                                 />
                               );
                             })}
-                            {versionUpdatesMeta[version.id]?.hasMore && (
+                            {versionUpdatesMeta[updatesCacheId]?.hasMore && (
                               <div className="hierarchy-updates-more">
-                                Showing {updates.length} of {versionUpdatesMeta[version.id].total} edits
+                                Showing {updates.length} of {versionUpdatesMeta[updatesCacheId].total} edits
                               </div>
                             )}
                           </>
