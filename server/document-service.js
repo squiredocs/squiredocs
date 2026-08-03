@@ -52,6 +52,30 @@ let extractDocGuidFn = null;
 let docsMap = null;
 
 /**
+ * The compute phase mutated the document (feature 049, FR-004).
+ *
+ * Almost always means a caller passed a BARE MUTATE FUNCTION written against
+ * the pre-049 signature. That is dangerous rather than merely wrong: the
+ * mutation runs outside the transaction, under the document's OWN client id and
+ * with NO origin object, so it lands as an unattributed row and is broadcast
+ * and persisted anyway. Failing loudly is the point.
+ */
+class ComputePhaseMutationError extends Error {
+  constructor(docGuid, userId, agentName) {
+    super(
+      `[document-service] the COMPUTE phase mutated document ${docGuid} ` +
+      `(identity: userId=${userId ?? 'null'}, agentName=${agentName ?? 'null'}). ` +
+      'The compute phase must not touch the document — it returns the mutate ' +
+      'phase, which does. A bare mutate function passed as computeMutation is ' +
+      'the usual cause; it would write an UNATTRIBUTED row outside the ' +
+      'transaction. See server/document-service.js updateDocument.'
+    );
+    this.name = 'ComputePhaseMutationError';
+    this.docGuid = docGuid;
+  }
+}
+
+/**
  * Initialize with server exports
  * @param {function(string, boolean): Y.Doc} getYDoc - Function to get shared ydoc
  * @param {function(string): string} extractDocGuid - Function to extract clean UUID
@@ -307,12 +331,48 @@ async function updateDocument(docGuid, computeMutation, { userId = null, agentNa
     throw new borrowedIdentity.BorrowReentrancyError(`s/${docGuid}`);
   }
 
-  // ── THE COMPUTE PHASE (feature 049, FR-003) ────────────────────────────────
+  // ── THE COMPUTE PHASE (feature 049, FR-003/FR-004) ─────────────────────────
   // Everything that may fail runs here, BEFORE anything is touched. It returns
   // the mutate phase, or nullish for "nothing to do". A throw propagates
   // unchanged, having mutated nothing — which is the atomicity property 048 got
   // for free from the ephemeral copy.
-  const mutate = computeMutation(ydoc);
+  //
+  // TWO detectors, armed for the duration of the compute phase, because ONE IS
+  // NOT ENOUGH (PD-049-3):
+  //
+  //   • the state vector catches INSERTS (a new struct advances a client clock);
+  //   • an `update`-event tripwire catches EVERYTHING that emits, including a
+  //     DELETE-ONLY mutation — which the state vector does NOT see, because a
+  //     delete creates no struct in `store.clients`. Measured against
+  //     yjs@13.6.30, not assumed.
+  //
+  // A delete escaping the compute phase is the worse half: it runs outside the
+  // transaction and therefore carries NO origin object, i.e. an unattributed
+  // row — exactly the defect class this feature exists to end.
+  //
+  // ENABLED IN PRODUCTION, not test-only. The failure it catches is a stale
+  // caller passing a bare mutate function, which is silent, data-affecting, and
+  // exactly the kind of thing that reaches production. Both checks are O(1) in
+  // document size: the state vector is one entry per client, and the tripwire
+  // is a boolean.
+  const beforeVector = Y.encodeStateVector(ydoc);
+  let computePhaseEmitted = false;
+  const computeTripwire = () => { computePhaseEmitted = true; };
+  let mutate;
+  ydoc.on('update', computeTripwire);
+  try {
+    mutate = computeMutation(ydoc);
+  } finally {
+    ydoc.off('update', computeTripwire);
+  }
+
+  const vectorChanged = Buffer.compare(
+    Buffer.from(beforeVector),
+    Buffer.from(Y.encodeStateVector(ydoc))
+  ) !== 0;
+  if (computePhaseEmitted || vectorChanged) {
+    throw new ComputePhaseMutationError(docGuid, userId, agentName);
+  }
 
   // Nothing to do: no borrow, no transaction, no listener armed, no row. The
   // post-write refused-bind check below still runs (G6/T018b).
@@ -393,6 +453,24 @@ async function updateDocument(docGuid, computeMutation, { userId = null, agentNa
       ydoc.transact(() => {
         mutate(ydoc);
       }, origin);
+    } catch (err) {
+      // ── A MUTATE-PHASE THROW (feature 049, PD-049-4) ───────────────────────
+      // The design's recorded residual, and it is NOT compensated: yjs does not
+      // roll back, so whatever the mutate phase managed to write before it threw
+      // is already in the document and is on its way to broadcast, persistence
+      // and the fan-out. Log it loudly and by name so it is diagnosable, then
+      // rethrow the ORIGINAL error object — error IDENTITY is part of the caller
+      // contract (`ImportError.code` drives the HTTP status), so wrapping it
+      // here would silently turn a 400 into a 500.
+      console.error(
+        `[document-service] MUTATE PHASE THREW on document ${docGuid} ` +
+        `(identity: userId=${userId ?? 'null'}, agentName=${agentName ?? 'null'}) ` +
+        'under the borrowed-identity write path. Yjs does not roll back, so a ' +
+        'PARTIAL EDIT may have been broadcast and persisted. The mutate phase ' +
+        'must not throw — move anything that can fail into the compute phase.',
+        err
+      );
+      throw err;
     } finally {
       // EVERY path: success, no-change, and a throwing mutate phase. The
       // document must never be left wearing a borrowed identity.
@@ -491,6 +569,8 @@ async function createSeededDocument({ userId, title, nodes = [], agentName = nul
 
 module.exports = {
   init,
+  // Feature 049 (FR-004): a compute phase that mutated the document.
+  ComputePhaseMutationError,
   getSharedDoc,
   // Feature 041 (FR-013): the non-creating is-loaded probe.
   peekSharedDoc,
