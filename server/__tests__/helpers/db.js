@@ -81,6 +81,48 @@ async function cleanupTestUser(pool, userId) {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
+/**
+ * ── SUITE CLEANUP CONVENTION (feature 043, US8/FR-010, ledger D3) ───────────
+ *
+ * EVERY suite that causes `yjs_updates` rows to exist — by raw INSERT, by
+ * `storeUpdate`, or INDIRECTLY through a WebSocket connection, a restore or an
+ * undo — MUST delete them by `doc_guid` in `finally` / `afterAll`, using this
+ * helper.
+ *
+ * WHY. The backend test database is shared and serial (Constitution II), and
+ * `cleanupTestUser` above does NOT touch `yjs_updates` or `search_index` — it
+ * only clears ai_extra_credits, agent_activity_log, agent_delegations,
+ * document_shares, documents and users. So update-log rows written by a suite
+ * outlive it, with no matching `search_index` row. The search indexer's global
+ * `reindexStale` scan later finds those orphans and works on them, which is the
+ * known CI flake where suites go red on CI while passing locally (auto-memory
+ * `ci-reindexstale-shared-db-flakiness`). Orphans from one suite surface as a
+ * failure in an unrelated one, which is the worst possible failure to debug.
+ *
+ * WHY NOT a per-suite search_index heal. Inserting matching `search_index` rows
+ * would make the orphan well-formed instead of removing it — it papers over the
+ * shape rather than deleting it, and leaves the rows to accumulate anyway. The
+ * real fix is per-run database isolation, which is tracked separately; until
+ * then, deleting what you created is both cheaper and complete (D3).
+ *
+ * IN `finally`/`afterAll`, NOT INLINE: a suite whose server crashes or whose
+ * client disconnects mid-test must still clean up, and inline cleanup is
+ * skipped exactly when the test failed — which is when the orphans matter most.
+ *
+ * @param {import('pg').Pool} pool
+ * @param {string|string[]} docGuid - one guid, or every guid the suite created
+ */
+async function cleanupDocRows(pool, docGuid) {
+  const guids = (Array.isArray(docGuid) ? docGuid : [docGuid]).filter(Boolean);
+  if (guids.length === 0) return;
+  // Only `yjs_updates` needs deleting by hand. `document_search_index` and
+  // `document_embeddings` are both `REFERENCES documents(id) ON DELETE CASCADE`,
+  // so they vanish with the document row that `cleanupTestUser` removes — which
+  // is precisely why the ORPHAN is an update-log row with no index row, and not
+  // the other way round.
+  await pool.query('DELETE FROM yjs_updates WHERE doc_guid = ANY($1::uuid[])', [guids]);
+}
+
 module.exports = {
   TEST_DB_NAME,
   getTestDatabaseUrl,
@@ -89,4 +131,5 @@ module.exports = {
   createPersistence,
   createTestUser,
   cleanupTestUser,
+  cleanupDocRows,
 };

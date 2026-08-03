@@ -7,14 +7,19 @@
  * session is consulted or created, so availability survives session expiry
  * and restarts. Viewer role and errors stay { false, false }.
  *
- * The express app replicates the endpoint handler from server/index.js (the
- * established endpoint-test pattern in this repo).
+ * Feature 043 (FR-006c, X4): this suite used to replicate the endpoint handler
+ * from server/index.js in-file, and the replica had already drifted — it
+ * omitted the `console.error` that production logs on the failure path, so the
+ * one thing a mirror is supposed to prove (that these assertions describe
+ * production) was already false. The handler is now a mounted router and this
+ * app mounts the real one. Stubbing *authentication* below is still legitimate;
+ * stubbing the handler under test is not.
  */
 const request = require('supertest');
 const express = require('express');
 const { randomUUID } = require('crypto');
 const Y = require('yjs');
-const { createPool, createPersistence, createTestUser, cleanupTestUser } = require('./helpers/db');
+const { createPool, createPersistence, createTestUser, cleanupTestUser, cleanupDocRows } = require('./helpers/db');
 const documents = require('../documents');
 const agentPresence = require('../mcp/agent-presence');
 const undoService = require('../undo/undo-service');
@@ -25,6 +30,7 @@ const { getRevertedDocs } = require('../api/chat-staleness');
 // literal, so a local copy here cannot drift from the identity the chat
 // assistant actually records under.
 const { CHAT_AGENT_NAME } = require('../agent-identity');
+const { createUndoStatusRouter } = require('../api/undo-status');
 
 describe('GET /api/docs/:docId/undo-status', () => {
   let pool, persistence, app, userId, viewerId;
@@ -37,31 +43,25 @@ describe('GET /api/docs/:docId/undo-status', () => {
     userId = await createTestUser(pool, `undo-status-${Date.now()}@test.com`);
     viewerId = await createTestUser(pool, `undo-status-viewer-${Date.now()}@test.com`);
 
-    // Mirror of the server/index.js endpoint handler.
+    // THE REAL ROUTER, mounted the real way, behind a fake-auth middleware
+    // standing in for `requireAuth` (the only thing stubbed here).
     app = express();
-    app.use((req, res, next) => {
-      req.user = { userId: req.headers['x-test-user'] || userId };
-      next();
-    });
-    app.get('/api/docs/:docId/undo-status', async (req, res) => {
-      try {
-        const { docId } = req.params;
-        const role = await documents.getRole(docId, req.user.userId);
-        if (!role || role === 'viewer') {
-          return res.json({ canUndo: false, canRedo: false });
-        }
-        res.json(await undoService.getUndoStatus({
-          docGuid: docId,
-          userId: req.user.userId,
-          agentName: CHAT_AGENT_NAME,
-        }));
-      } catch (error) {
-        res.json({ canUndo: false, canRedo: false });
-      }
-    });
+    app.use(createUndoStatusRouter({
+      documents,
+      undoService,
+      requireAuth: (req, res, next) => {
+        req.user = { userId: req.headers['x-test-user'] || userId };
+        next();
+      },
+    }));
   });
 
+  // Feature 043 (FR-010, ledger D3): every doc_guid this suite causes update-log
+  // rows to exist under. See the convention block in ./helpers/db.js.
+  const createdDocGuids = [];
+
   afterAll(async () => {
+    await cleanupDocRows(pool, createdDocGuids);
     await pool.query('DELETE FROM agent_edits WHERE user_id = $1', [userId]);
     await cleanupTestUser(pool, viewerId);
     await cleanupTestUser(pool, userId);
@@ -90,6 +90,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
       [randomUUID(), 'undo-status test', userId],
     );
     const docGuid = d.rows[0].id;
+    createdDocGuids.push(docGuid);
     await pool.query(
       `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`,
       [docGuid, userId]
@@ -184,18 +185,29 @@ describe('GET /api/docs/:docId/undo-status', () => {
     await expect(undoService.getUndoStatus(
       { docGuid, userId, agentName: CHAT_AGENT_NAME },
       { persistence: broken }
-    )).rejects.toThrow('db down'); // the service throws; the endpoint catches:
-    // replicate the endpoint's catch with a stubbed service failure
-    const failingApp = express();
-    failingApp.get('/api/docs/:docId/undo-status', async (req, res) => {
-      try {
-        throw new Error('boom');
-      } catch {
-        res.json({ canUndo: false, canRedo: false });
-      }
-    });
-    const res = await request(failingApp).get(`/api/docs/${docGuid}/undo-status`);
-    expect(res.body).toEqual({ canUndo: false, canRedo: false });
+    )).rejects.toThrow('db down'); // the service throws; the endpoint catches.
+
+    // Feature 043 (FR-006c): the catch is now the PRODUCTION catch. The router
+    // is mounted with a service that throws, so this exercises the real
+    // degrade-to-{false,false} path rather than a second in-file replica of it.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const failingApp = express();
+      failingApp.use(createUndoStatusRouter({
+        documents,
+        undoService: { getUndoStatus: async () => { throw new Error('boom'); } },
+        requireAuth: (req, res, next) => { req.user = { userId }; next(); },
+      }));
+      const res = await request(failingApp).get(`/api/docs/${docGuid}/undo-status`);
+      expect(res.body).toEqual({ canUndo: false, canRedo: false });
+
+      // ...and it is LOGGED. The in-file mirror this suite used to run omitted
+      // this line, so a silent-failure regression would have passed. That
+      // omission is the concrete drift FR-006 exists to prevent.
+      expect(errSpy).toHaveBeenCalledWith('Error checking undo status:', expect.any(Error));
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   test('legacy fallback: a pre-016 edit with only log rows (no record) reports canUndo (FR-021)', async () => {

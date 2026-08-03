@@ -227,9 +227,35 @@ function parseOrigin(origin) {
   return { userId: null, agentName: null, malformedOrigin: 'null-or-primitive' };
 }
 
+/**
+ * Cross-instance publish routing (feature 043, X3). Publish everything EXCEPT
+ * updates that came FROM Redis (publishing those back is a feedback loop) and
+ * DB-load updates (already on every instance by definition).
+ *
+ * NOTE — this is deliberately NOT `isSentinelOrigin`, and the difference is
+ * load-bearing (039 F3): a two-way-sync push arrives with ORIGIN_SYNC_PUSH and
+ * IS publishable, even though `parseOrigin` treats it as a persistence sentinel.
+ * The two questions are different. "Should this be stored again?" is answered by
+ * parseOrigin (no — the push already wrote its one attributed row). "Should
+ * other instances see it?" is answered here (yes — or their live editors never
+ * receive the push at all). Collapsing the two predicates would silently break
+ * cross-instance fan-out for sync pushes.
+ *
+ * Moved out of the per-connection `redisUpdateHandler` closure in
+ * server/index.js, where `server/__tests__/origin.test.js` mirrored it by hand.
+ * Only the predicate is extractable: the handler itself closes over `docId`.
+ *
+ * @param {any} origin
+ * @returns {boolean} true if this update should be published to other instances
+ */
+function shouldPublishToRedis(origin) {
+  return origin !== ORIGIN_REDIS && origin !== ORIGIN_DB_LOAD;
+}
+
 module.exports = {
   ORIGIN_DB_LOAD,
   isSentinelOrigin,
+  shouldPublishToRedis,
   ORIGIN_REDIS,
   ORIGIN_SYNC_PUSH,
   createSyncPushOrigin,
