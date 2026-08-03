@@ -120,9 +120,11 @@
  * invalidatable asynchronously by any pod, so one row could render as a named
  * author on one read and "Synced content" on the next). Closing both residuals
  * properly means giving server-side writes per-identity docs the way MCP agent
- * sessions already have them (research R12) — a feature, not a review fix, and a
- * precondition for running more than one replica. Production is single-replica
- * today, so R2 is latent. The full argument is in the ledger entry.
+ * sessions already have them (research R12) — feature 048, required by
+ * constitution Principle VII (v1.2.0; RBD-045-12 OVERTURNED 2026-08-03).
+ * R2 is NOT latent at one replica: every rolling update briefly runs two pods,
+ * so each deploy opens the reader-is-not-the-writer's-pod window for tens of
+ * seconds. The full argument is in the ledger entry.
  *
  * ── Configuration ──────────────────────────────────────────────────────────
  *  RESUPPLY_EVIDENCE_MAX_ROWS  (20000) evidence rows decoded for ONE document

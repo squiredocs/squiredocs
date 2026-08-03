@@ -308,10 +308,21 @@ async function handlerImpl(args, agentToken) {
   if (baseClock !== null) {
     // The one shared identity predicate (see server/agent-identity.js) —
     // behavior-identical to the raw comparison it replaces.
+    //
+    // A `via_sync` row is NEVER "self", whatever its stamp says (review M1,
+    // Sam-ratified fix 2026-08-03): the stamp on a sync row is the transport
+    // the content came back on, and this agent's own provider reconnecting
+    // relays OTHER authors' lost edits under this agent's stamp. Treating
+    // such a row as self replayed content the agent never read into
+    // `expectedDoc` below, so the gate waved the modify through and the
+    // script could overwrite it — a silent edit-clobber channel. The cost of
+    // the exclusion is an honest conflict refusal after the agent's own
+    // reconnect resupplies genuinely new content; the agent re-reads and
+    // retries with a fresh baseClock.
     const foreign = recentUpdates.filter(u =>
       typeof u.clock === 'number'
       && u.clock > baseClock
-      && !isSameIdentity(u, agentToken)
+      && !(isSameIdentity(u, agentToken) && u.viaSync !== true)
     );
     if (foreign.length > 0) {
       // `yjs_updates` rows include non-content writes — `meta` map (title sync),
@@ -330,9 +341,11 @@ async function handlerImpl(args, agentToken) {
           docGuid, baseClock + 1, 2147483647
         );
         for (const u of updatesSince) {
-          // Shared identity predicate, behavior-identical to the raw
-          // comparison it replaces (see server/agent-identity.js).
-          const isSelf = isSameIdentity(u, agentToken);
+          // Shared identity predicate (see server/agent-identity.js), with the
+          // same via_sync exclusion as the `foreign` filter above: a sync row
+          // is not the agent's own work and must not become part of what the
+          // agent "expects", or divergence it never saw goes undetected.
+          const isSelf = isSameIdentity(u, agentToken) && u.viaSync !== true;
           if (isSelf && u.updateData) {
             Y.applyUpdate(expectedDoc, u.updateData);
           }

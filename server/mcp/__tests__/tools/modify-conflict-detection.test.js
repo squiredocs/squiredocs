@@ -225,6 +225,59 @@ describe('modify conflict detection (content-aware gating)', () => {
     expect(result.message).not.toContain('included below');
   }, 30000);
 
+  test('a via_sync row stamped as the agent does NOT count as seen content (review M1, Sam-ratified fix)', async () => {
+    const modify = toolRegistry.getTool('modify');
+    const { docGuid, baseClock } = await seedDoc('ViaSync Self-Relay Clobber Test');
+
+    // The M1 scenario: the agent's own provider reconnects and its SYNC_STEP2
+    // catch-up relays ANOTHER author's lost edit. The content lands on the live
+    // doc, and its only durable row carries the AGENT'S stamp plus
+    // via_sync=true — the stamp is the transport it came back on, not a
+    // verdict on authorship. Model it exactly: transact on the live doc under
+    // a sentinel origin (the bindState listener skips persisting those), then
+    // store the captured bytes ourselves with the agent's stamp and
+    // viaSync=true.
+    const ydoc = documentService.getSharedDoc(docGuid);
+    let relayedBytes = null;
+    const capture = (update) => { relayedBytes = update; };
+    ydoc.on('update', capture);
+    ydoc.transact(() => {
+      const frag = ydoc.get('default', Y.XmlFragment);
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'lost edit by someone else, relayed under the agent stamp');
+      p.insert(0, [t]);
+      frag.insert(frag.length, [p]);
+    }, ORIGIN_DB_LOAD);
+    ydoc.off('update', capture);
+    expect(relayedBytes).not.toBeNull();
+    await persistence.storeUpdate(
+      docGuid, Buffer.from(relayedBytes), testUserId, 'Test Agent', null, null,
+      { viaSync: true }
+    );
+    await flushPersistence();
+
+    const result = await modify.handler({
+      docGuid,
+      _baseClock: baseClock,
+      script: `
+        export default function edit(doc) {
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, 'agent-overwrite');
+          p.insert(0, [t]);
+          doc.insert(doc.length, [p]);
+        }
+      `,
+    }, agentToken());
+
+    // Pre-fix, the gate classified the row as "self" (identity stamp match),
+    // replayed its bytes into the expected doc, saw no divergence, and let the
+    // script run against content the agent never read — the silent
+    // edit-clobber channel. The gate must refuse instead.
+    expect(result.conflict).toBe(true);
+  }, 30000);
+
   test('conflict with echoContent: true includes the current content', async () => {
     const modify = toolRegistry.getTool('modify');
     const { docGuid, baseClock } = await seedDoc('Echoed Conflict Test');

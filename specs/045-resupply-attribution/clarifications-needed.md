@@ -100,7 +100,7 @@ explicit yes rather than silence).
   page noise materializes in practice, narrowing is a one-line revisit with
   data in hand.
 
-## RBD-045-5 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02) — FLAGGED FOR SAM'S RATIFICATION** — The publish-before-commit durability window is an ACCEPTED RESIDUAL
+## RBD-045-5 — **CONFIRMED by Sam, 2026-08-03 (was ratified-by-default 2026-08-02)** — The publish-before-commit durability window is an ACCEPTED RESIDUAL
 
 This is the accepted-residuals ledger entry required by FR-013. It records a
 product risk posture, so it is explicitly flagged for Sam's confirmation even
@@ -135,8 +135,9 @@ though work proceeds under the pre-authorized default.
   requirements change.
 - **Out of scope forever-until-revisited**: changing the write/broadcast
   ordering, retry policy, or drain behavior (FR-014).
-- **Sam ratifies**: [ ] confirmed / [ ] overturned (overturning promotes
-  durable-before-broadcast or an alternative into its own feature).
+- **Sam ratifies**: [x] **confirmed** — Sam, 2026-08-03 / [ ] overturned
+  (overturning promotes durable-before-broadcast or an alternative into its
+  own feature).
 
 ## RBD-045-6 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02)** — Home of record for accepted residuals
 
@@ -221,7 +222,7 @@ best default, nothing silent, Sam may overturn any of them.
   true-but-partial author as the whole story and let the per-clock view and the
   timeline disagree about who is credited.
 
-## RBD-045-10 — **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-02) — FLAGGED FOR SAM** — A no-evidence self-relay renders as "Synced content", softening one 038 promise
+## RBD-045-10 — **CONFIRMED by Sam, 2026-08-03 (was ratified-by-default 2026-08-02)** — A no-evidence self-relay renders as "Synced content", softening one 038 promise
 
 - **Question**: a user's genuine offline edits, re-supplied by their own client,
   carry evidence ONLY if that editing session already committed at least one
@@ -468,4 +469,10 @@ this status, because scaling out is the trigger and nobody should discover it th
   same direction. INTERIM DEPLOY CONSTRAINT until that feature lands: the
   041-047 train MUST NOT run with more than one app replica without flagging
   the Residual 2 confident-wrong-author path (rolling-update surge windows
-  included, same shape as the D-10 drain window).
+  included, same shape as the D-10 drain window). **Deploy path (Sam,
+  2026-08-03): no pinned single-replica deploy — the train ships together
+  with 048 (per-identity server docs) instead of deploying a replicas:1
+  interim.** The aws-prod overlay therefore stays at replicas:2 deliberately;
+  note the multi-replica gates recorded in the 2026-08-03 review (M3
+  Redis-sub rebind, M4 awareness cross-pod blackout) still stand at
+  scale-out and are tracked with 048's rollout, not waived by this decision.
