@@ -154,6 +154,49 @@ async function waitForDocReady(ydoc, docGuid, timeoutMs = 5000) {
 }
 
 /**
+ * Acquire a shared doc that is loaded AND still the live one for this document.
+ *
+ * `waitForDocReady` can await across I/O turns on its cold path, and the last
+ * WebSocket connection closing in one of those turns takes the doc with it:
+ * y-websocket's `closeConn` deletes it from the registry and destroys it a
+ * microtask later. A destroyed doc still reports `_bindComplete === true` and no
+ * `_bindFailed`, so the gate passes — and a merge into it reaches nothing. Its
+ * observers are gone with the destroy, so there is no broadcast, no persistence
+ * listener, no row: the call would resolve as success for content that exists
+ * nowhere. Before feature 048 the lookup and the write shared one synchronous
+ * turn and this window did not exist (048 review, H1).
+ *
+ * Re-acquiring is correct HERE in a way it deliberately is not after the merge
+ * (see the refused-bind note in `updateDocument`): the caller's `updateFn` has
+ * not run yet, so it still runs exactly once, against whichever document is live
+ * when it does. Bounded, so a document being torn down repeatedly fails closed
+ * instead of spinning.
+ *
+ * @param {string} docGuid - Document UUID
+ * @param {number} [maxAttempts=3] - Bound on re-acquisition
+ * @returns {Promise<Y.Doc>} A loaded doc that is still the registry's
+ * @throws {BindFailedError} When the bind failed, or the doc kept going stale
+ */
+async function acquireReadyDoc(docGuid, maxAttempts = 3) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const ydoc = getSharedDoc(docGuid);
+    await waitForDocReady(ydoc, docGuid);
+    // Both halves matter: `closeConn` deletes from the registry first and
+    // destroys a microtask later, so between those the doc is evicted but not
+    // yet destroyed — and `refuseBind` evicts docs it also destroys. The
+    // registry half is consulted only when one is wired: without it (unit
+    // callers that inject a bare getYDoc) "not in the registry" and "there is
+    // no registry" are indistinguishable, and treating the second as stale
+    // would refuse every write.
+    const evicted = !!docsMap
+      && typeof docsMap.get === 'function'
+      && docsMap.get(`s/${docGuid}`) !== ydoc;
+    if (!ydoc.isDestroyed && !evicted) return ydoc;
+  }
+  throw new BindFailedError(docGuid);
+}
+
+/**
  * Apply a function to a document with proper transacting
  * @param {string} docGuid - Document UUID
  * @param {function(Y.Doc): void} updateFn - Function that modifies the ydoc
@@ -166,13 +209,14 @@ async function waitForDocReady(ydoc, docGuid, timeoutMs = 5000) {
  *   caller ignores it and no timing semantics changed.
  */
 async function updateDocument(docGuid, updateFn, { userId = null, agentName = null } = {}) {
-  const ydoc = getSharedDoc(docGuid);
-
   // ── BIND-READINESS GATE (feature 048, FR-013) ──────────────────────────────
   // BEFORE any read of doc state and before any listener is attached. The
-  // lookup above CREATES the doc and fires an un-awaited bindState, so without
-  // this the write races the load — see waitForDocReady for the reproduction.
-  await waitForDocReady(ydoc, docGuid);
+  // lookup CREATES the doc and fires an un-awaited bindState, so without this
+  // the write races the load — see waitForDocReady for the reproduction. The
+  // acquire wrapper additionally guarantees the doc is still the live one when
+  // the gate returns (048 review, H1); everything from here to the merge is
+  // synchronous, so it cannot go stale again in between.
+  const ydoc = await acquireReadyDoc(docGuid);
 
   // Attribution origin for this call. Its OBJECT IDENTITY is what scopes the
   // capture below — the same identity-not-shape discipline feature 037 adopted

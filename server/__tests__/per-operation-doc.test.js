@@ -206,6 +206,81 @@ describe('048 H — updateDocument never writes into a half-loaded document', ()
     await expect(documentService.waitForDocReady(ydoc, DOC_GUID)).rejects.toThrow(BindFailedError);
     expect(Date.now() - started).toBeLessThan(200);
   });
+
+  /**
+   * A y-websocket-shaped registry: the lookup CREATES (setIfUndefined) and
+   * starts an un-awaited bind, so an evicted document is rebuilt by the next
+   * lookup exactly as production does.
+   */
+  function makeEvictingRegistry({ delayMs = 30 } = {}) {
+    const docs = new Map();
+    const rows = [];
+    const getYDoc = (name) => {
+      let d = docs.get(name);
+      if (!d) {
+        d = new Y.Doc();
+        d.on('update', (update, origin) => {
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          rows.push({ doc: d, userId: parsed.userId });
+        });
+        docs.set(name, d);
+        setTimeout(() => { d._bindComplete = true; }, delayMs);
+      }
+      return d;
+    };
+    documentService.init(getYDoc, (n) => (n.startsWith('s/') ? n.slice(2) : n), docs);
+    return { docs, rows };
+  }
+
+  test('H6 (review H1): a document torn down mid-gate does not swallow the write', async () => {
+    // The gate's cold path awaits across I/O turns, and the last connection
+    // closing in one of them takes the doc with it: y-websocket's closeConn
+    // deletes it from the registry, then destroys it a microtask later. A
+    // destroyed doc still reports _bindComplete and no _bindFailed, so the gate
+    // passes and a merge into it reaches nothing — no observers, no broadcast,
+    // no row — while the call resolves as success.
+    const { docs, rows } = makeEvictingRegistry({ delayMs: 30 });
+    const first = documentService.getSharedDoc(DOC_GUID);
+
+    setTimeout(() => {
+      docs.delete(`s/${DOC_GUID}`);
+      Promise.resolve().then(() => first.destroy());
+    }, 10);
+
+    await documentService.updateDocument(DOC_GUID, (d) => {
+      d.get('default', Y.XmlFragment).insert(0, [paragraph('AGENT WROTE THIS')]);
+    }, ATTRIB);
+
+    // The content must live on the document the registry now serves, with a
+    // durable row behind it — not only on the orphan the gate was waiting on.
+    const live = docs.get(`s/${DOC_GUID}`);
+    expect(live).toBeDefined();
+    expect(live).not.toBe(first);
+    expect(fragmentTexts(live).join(' ')).toContain('AGENT WROTE THIS');
+    expect(rows.some((r) => r.doc === live && r.userId === USER)).toBe(true);
+  });
+
+  test('H6b: a document that keeps being torn down fails closed instead of spinning', async () => {
+    const { docs } = makeEvictingRegistry({ delayMs: 5 });
+    // Every doc this registry hands out is evicted and destroyed the moment it
+    // finishes binding, so no attempt can ever find a live one.
+    const evictOnBind = setInterval(() => {
+      for (const [name, d] of [...docs]) {
+        if (d._bindComplete) { docs.delete(name); d.destroy(); }
+      }
+    }, 2);
+
+    try {
+      await expect(
+        documentService.updateDocument(DOC_GUID, (d) => {
+          d.get('default', Y.XmlFragment).insert(0, [paragraph('never lands')]);
+        }, ATTRIB)
+      ).rejects.toThrow(BindFailedError);
+    } finally {
+      clearInterval(evictOnBind);
+    }
+  });
 });
 
 // ── THE AUTHORSHIP GUARDS (FR-002/FR-007) ───────────────────────────────────
