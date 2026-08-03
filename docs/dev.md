@@ -364,6 +364,28 @@ concurrently against the same `DATABASE_URL`; they delete each other's fixture
 rows and fail with confusing foreign-key errors. Use a per-worktree database
 (`createdb collab_test_db_<n>` + `DATABASE_URL=...`) when working in parallel.
 
+**Test conventions this repo enforces (feature 043).** Two rules keep the suite
+honest, and both exist because it had already gone wrong:
+
+- *Clean up by `doc_guid`, never by truncating shared tables.* A suite that
+  inserts `yjs_updates` rows must delete its own rows in `finally`/`afterAll`,
+  keyed on the document GUIDs it created. Rows left behind (particularly ones
+  with no matching `search_index` entry) surface later as failures in unrelated
+  suites — the CI flake class this convention replaced.
+- *Test production code, not a copy of it.* Several suites used to hand-roll a
+  "mirror" of a production function — a local re-implementation of the bindState
+  listener, the Redis skip-list, or a route handler — and assert against the
+  copy. Mirrors drift silently: one had already lost production's error logging
+  before anyone noticed. Where a subject is hard to import, extract it
+  (`server/collab-bind-state.js`, `server/api/undo-status.js`) rather than
+  copying it, and pin the wiring with a source-regex assertion so moving the
+  code fails the build instead of quietly orphaning the guard.
+
+Real end-to-end collaboration tests use the shared harness at
+`__tests__/integration/helpers/collab-harness.js`, which drives the production
+upgrade path with real `sk_sqd_` tokens and real ACL checks. It is transport
+plumbing only: every decision under test must come from production code.
+
 **Backend test transform note:** the backend is CommonJS, but some AI SDK deps
 (`@ai-sdk/openai-compatible` and its nested `@ai-sdk/*`, plus `@workflow/*`) ship
 ESM-only. Jest handles them via a babel-jest `transform` with `@babel/preset-env`
