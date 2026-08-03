@@ -124,3 +124,41 @@ Before the bump merges:
 - **No migration**, so no ordering constraint against the pending migration
   queue.
 - Deploy stays with Sam.
+
+## 7. Verification results (final)
+
+| Check | Result |
+| --- | --- |
+| Backend suite (`--runInBand`, dedicated `collab_test_db_049`) | **254 suites / 4568 tests, all passing** |
+| Client suite (vitest) | **72 suites / 934 tests, all passing** |
+| `npm run build` | **green** (12 doc pages + 6 blog posts emitted) |
+| Guard file `per-operation-doc.test.js` | 30 tests (was 23 under 048) |
+| `borrowed-identity.test.js` (new) | 14 tests |
+| `borrowed-identity-performance.test.js` (new) | 1 test (N11) |
+| SC-008 deliberate-regression check | **run** — 4 breakages, all caught by name |
+
+**Zero assertion changes were needed in any migrated test file** (T043). The
+eight migrated files changed shape only (`fn` → `() => fn`, 24 call sites); the
+only assertion edits anywhere are the deliberate guard re-points (G3, G4, G4b,
+G5, C1's identity clause) and additions, each documented in place with what it
+used to assert.
+
+### ⚠️ Environment finding, not caused by this feature
+
+The first full-suite run failed 4 suites / 36 tests with
+`ReplyError: MISCONF Redis is configured to save RDB snapshots, but it's
+currently unable to persist to disk`. **This is shared-environment breakage, not
+a code regression** — the failures were exclusively Redis write refusals, with
+no assertion failures among them.
+
+Cause: `redis-cli config get dir` returns **empty**, i.e. the Redis process's
+working directory no longer exists (its cwd was deleted underneath it — a
+deleted worktree is the likely culprit). Disk itself is fine (292 GB free).
+`config set dir` is refused as a protected config, so the durable fix needs a
+Redis restart with a valid `dir`.
+
+Worked around for the run with
+`redis-cli config set stop-writes-on-bgsave-error no`, which is **runtime-only
+and not persisted** — it will revert on the next Redis restart, and the
+underlying empty `dir` will still be there. Flagged for whoever owns the dev
+environment; other agents sharing this Redis will hit the same wall.
