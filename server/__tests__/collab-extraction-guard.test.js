@@ -32,13 +32,24 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
   /**
    * `indexSrc` with comments stripped, for the "this must not appear"
    * assertions — several of the extracted units are DESCRIBED in prose that
-   * would otherwise trip a negative grep. Stripping is approximate and can only
-   * ever remove more than intended, which a negative assertion tolerates: less
-   * text never produces a false alarm.
+   * would otherwise trip a negative grep.
+   *
+   * The block-comment pattern is anchored to the start of a line on purpose. An
+   * unanchored `/\*[\s\S]*?\*\//` is fooled by a `/*` inside a string literal —
+   * index.js's CSP directives contain `https://*.googleusercontent.com`, and the
+   * naive version swallowed ~4KB of real code after it, including the whole
+   * `setPersistence` call. That silently broke the POSITIVE greps below. Every
+   * genuine block comment in this file starts its own line.
    */
   const indexCode = indexSrc
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, '')
     .replace(/^\s*\/\/.*$/gm, '');
+
+  test('the comment stripper does not swallow real code (guards the guard)', () => {
+    // If this regresses, the negative assertions below start passing vacuously.
+    expect(indexCode).toMatch(/setPersistence\(\{/);
+    expect(indexCode).toMatch(/module\.exports\s*=/);
+  });
 
   // ── X1: the bindState update listener ─────────────────────────────────────
 
