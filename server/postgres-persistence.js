@@ -1,6 +1,9 @@
 const { Pool } = require('pg');
 const Y = require('yjs');
 const { retryWithBackoff } = require('./retry');
+// Display-only cache invalidation on document deletion (045 review, LOW-4). The
+// resolver imports nothing from here, so this direction closes no cycle.
+const resupplyResolution = require('./resupply-resolution');
 
 /**
  * Fixed int4 namespace for the per-document clock-acquisition advisory lock
@@ -539,12 +542,23 @@ class PostgresPersistence {
    */
   async clearDocument(docGuid) {
     await this._init();
-    
+
     const client = await this.pool.connect();
     try {
       await client.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [docGuid]);
     } finally {
       client.release();
+    }
+
+    // Feature 045 review (LOW-4): every row for this guid is gone and its clocks
+    // restart at 0, so a still-connected client writing under the same guid
+    // would otherwise be answered from the DEAD document's memoized outcomes.
+    // Display-only cache, dropped after the delete succeeded; a failure here
+    // must never turn a completed deletion into an error.
+    try {
+      resupplyResolution.clearDoc(docGuid);
+    } catch (err) {
+      console.warn(`[PostgresPersistence] resupply cache clear failed for ${docGuid}:`, err.message);
     }
   }
 

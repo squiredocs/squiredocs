@@ -69,7 +69,35 @@ function makeReader(rowsByDoc, users = {}) {
   };
 }
 
+/**
+ * The same reader with an await inside every evidence query, plus an overlap
+ * detector. Two resolutions started before either finishes MUST NOT be inside
+ * the fold at the same time — the fold is shared per-document state mutated
+ * across awaits (045-review MEDIUM-2).
+ */
+function makeInterleavingReader(rowsByDoc, users = {}) {
+  const base = makeReader(rowsByDoc, users);
+  const trace = { inFold: 0, overlapped: false };
+  return {
+    ...base,
+    trace,
+    async getDirectAttributedRows(docGuid, opts) {
+      trace.inFold += 1;
+      if (trace.inFold > 1) trace.overlapped = true;
+      try {
+        await new Promise(resolve => setImmediate(resolve));
+        return await base.getDirectAttributedRows(docGuid, opts);
+      } finally {
+        trace.inFold -= 1;
+      }
+    },
+  };
+}
+
 const DOC = 'doc-045';
+
+/** The chat assistant writes ONLY through the shared server doc (N-045-2). */
+const { CHAT_AGENT_NAME } = require('../agent-identity');
 
 beforeEach(() => resolution._resetForTest());
 
@@ -86,6 +114,149 @@ describe('origin extraction (FR-002, FR-005)', () => {
     const deleteBytes = capture(deleter, () => deleter.getText('body').delete(0, 5));
     expect(resolution.originClientIds(deleteBytes)).toEqual([]);
     expect([...Y.decodeUpdate(deleteBytes).ds.clients.keys()]).toEqual([1111]);
+  });
+
+  test('a payload whose net effect is nothing still names the created-then-deleted content (045-review LOW-5)', () => {
+    // The deletion rule is structural for the DELETE SET only. A resupply diff
+    // spans a window, and content created AND deleted inside that window is
+    // carried as structs (GC placeholders once yjs has collected them), so its
+    // AUTHOR is an origin even though nothing became visible. Never the deleter,
+    // never the relayer — but not "nobody" either, which is what the module
+    // header used to imply.
+    const author = docWithClient(3030);
+    const peer = docWithClient(3040);
+    author.getText('body').insert(0, 'kept');
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(author));
+    const caughtUp = Y.encodeStateVector(peer);
+
+    author.getText('body').insert(4, 'transient');
+    author.getText('body').delete(4, 9);
+
+    const window = Y.encodeStateAsUpdate(author, caughtUp);
+    expect(resolution.originClientIds(window)).toEqual([3030]);
+  });
+});
+
+describe('the shared server doc never binds an identity (045-review HIGH-1, N-045-2)', () => {
+  test('content created through the chat assistant resolves as Synced content, not as whoever acted first', async () => {
+    // ONE live WSSharedDoc, ONE Yjs client identity, many acting identities.
+    // X's assistant edit commits; Y's assistant edit is lost in a crash and
+    // resupplied by a third browser. Binding the shared identity would credit X
+    // for Y's words — systematically, on every surface.
+    const sharedServerDoc = docWithClient(4040);
+    const rows = [
+      { clock: 1, userId: 'user-X', agentName: CHAT_AGENT_NAME, viaSync: null, updateData: insert(sharedServerDoc, 'x wrote this') },
+      { clock: 2, userId: 'user-Z', agentName: null, viaSync: true, updateData: insert(sharedServerDoc, 'y wrote this') },
+    ];
+    const users = { 'user-X': { userName: 'Xavier', userEmail: 'x@x', userPicture: null } };
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }, users), DOC, rows);
+    expect(ctx.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test("this instance's own live shared-doc identity never binds", async () => {
+    const sharedServerDoc = docWithClient(4141);
+    resolution.init({ peekSharedDoc: (guid) => (guid === DOC ? { clientID: 4141 } : null) });
+    const rows = [
+      // A plain human stamp on a server-side write (a title set, a seed, a
+      // restore) — no agent name to give the shared doc away.
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(sharedServerDoc, 'alpha') },
+      { clock: 2, userId: 'user-B', agentName: null, viaSync: true, updateData: insert(sharedServerDoc, 'bravo') },
+    ];
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }), DOC, rows);
+    expect(ctx.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test('learning the live shared-doc identity drops outcomes already memoized under it', async () => {
+    const sharedServerDoc = docWithClient(4242);
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(sharedServerDoc, 'alpha') },
+      { clock: 2, userId: 'user-B', agentName: null, viaSync: true, updateData: insert(sharedServerDoc, 'bravo') },
+    ];
+    const reader = makeReader({ [DOC]: rows });
+
+    const before = await resolution.resolveForRows(reader, DOC, rows);
+    expect(before.outcomes.get(2).origins).toEqual([{ userId: 'user-A', agentName: null }]);
+
+    resolution.init({ peekSharedDoc: () => ({ clientID: 4242 }) });
+    const after = await resolution.resolveForRows(reader, DOC, rows);
+    expect(after.outcomes.get(2)).toEqual({ origins: [], unresolved: true });
+  });
+
+  test('an agent session with its OWN doc still resolves — the poison is scoped to shared-doc writers', async () => {
+    // MCP sessions open their own Y.Doc (research R12), so their client identity
+    // does determine an author. US1 scenario 4 must keep working.
+    const agentSessionDoc = docWithClient(4343);
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: 'claude', viaSync: null, updateData: insert(agentSessionDoc, 'alpha') },
+      { clock: 2, userId: 'user-H', agentName: null, viaSync: true, updateData: insert(agentSessionDoc, 'bravo') },
+    ];
+    const ctx = await resolution.resolveForRows(makeReader({ [DOC]: rows }), DOC, rows);
+    expect(ctx.outcomes.get(2)).toEqual({
+      origins: [{ userId: 'user-A', agentName: 'claude' }],
+      unresolved: false,
+    });
+  });
+});
+
+describe('concurrent resolutions (045-review MEDIUM-2)', () => {
+  test('two readers of one document never share the fold, and both answers stand', async () => {
+    // Two viewers opening history at once, or a timeline render racing an MCP
+    // read. The evidence fold is shared per-document state mutated across
+    // awaits: interleaved, one run snapshots against a map the other wiped (a
+    // false "Synced content", memoized forever) or against bindings from rows
+    // at or after its own clock (a resolution built from LATER evidence).
+    const author = docWithClient(5050);
+    const filler = docWithClient(5060);
+    const rows = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(author, 'alpha') },
+    ];
+    for (let clock = 2; clock <= 12; clock++) {
+      rows.push({ clock, userId: 'user-F', agentName: null, viaSync: null, updateData: insert(filler, `f${clock}`) });
+    }
+    const low = { clock: 6.5, userId: 'user-R', agentName: null, viaSync: true, updateData: insert(author, 'low') };
+    const high = { clock: 20, userId: 'user-R', agentName: null, viaSync: true, updateData: insert(author, 'high') };
+    rows.push(low, high);
+
+    // One row per query, so the fold yields to the event loop between every
+    // mutation of its shared state — the shape a real batched scan has.
+    process.env.RESUPPLY_EVIDENCE_BATCH = '1';
+    const reader = makeInterleavingReader({ [DOC]: rows });
+    try {
+      const [ctxHigh, ctxLow] = await Promise.all([
+        resolution.resolveForRows(reader, DOC, [high]),
+        resolution.resolveForRows(reader, DOC, [low]),
+      ]);
+      expect(reader.trace.overlapped).toBe(false);
+      expect(ctxHigh.outcomes.get(20)).toEqual({ origins: [{ userId: 'user-A', agentName: null }], unresolved: false });
+      expect(ctxLow.outcomes.get(6.5)).toEqual({ origins: [{ userId: 'user-A', agentName: null }], unresolved: false });
+    } finally {
+      delete process.env.RESUPPLY_EVIDENCE_BATCH;
+    }
+  });
+});
+
+describe('document deletion (045-review LOW-4)', () => {
+  test('clearDoc drops the dead document\'s memoized outcomes so reused clocks answer fresh', async () => {
+    const first = docWithClient(6060);
+    const beforeDelete = [
+      { clock: 1, userId: 'user-A', agentName: null, viaSync: null, updateData: insert(first, 'alpha') },
+      { clock: 2, userId: 'user-B', agentName: null, viaSync: true, updateData: insert(first, 'bravo') },
+    ];
+    const before = await resolution.resolveForRows(makeReader({ [DOC]: beforeDelete }), DOC, beforeDelete);
+    expect(before.outcomes.get(2).origins).toEqual([{ userId: 'user-A', agentName: null }]);
+
+    // The document is deleted: every row is gone and clocks restart at 0. A
+    // still-connected client writes new rows under the SAME guid at the same
+    // clocks; they are a different document's content.
+    resolution.clearDoc(DOC);
+
+    const second = docWithClient(6161);
+    const afterDelete = [
+      { clock: 1, userId: 'user-C', agentName: null, viaSync: null, updateData: insert(second, 'gamma') },
+      { clock: 2, userId: 'user-D', agentName: null, viaSync: true, updateData: insert(second, 'delta') },
+    ];
+    const after = await resolution.resolveForRows(makeReader({ [DOC]: afterDelete }), DOC, afterDelete);
+    expect(after.outcomes.get(2).origins).toEqual([{ userId: 'user-C', agentName: null }]);
   });
 });
 
@@ -434,15 +605,35 @@ describe('scope guard (FR-010)', () => {
     }
   });
 
-  test('exactly three modules consume the resolver', () => {
+  test('every author-displaying surface consumes the resolver', () => {
     const consumers = [
       'server/version-history.js',
       'server/collab-guardrail.js',
       'server/mcp/tools/read-document.js',
+      // The REST export's front-matter `lastModifiedBy` is the sixth author
+      // surface and the only DURABLE one (045-review MEDIUM-3).
+      'server/api/docs-export.js',
     ];
     for (const file of consumers) {
       expect({ file, imports: importsResolver(file) }).toEqual({ file, imports: true });
     }
+  });
+
+  test('the only non-display importers are the two wiring sites', () => {
+    // `index.js` injects the live-shared-doc probe (N-045-2) and
+    // `postgres-persistence.js` calls `clearDoc` when a document is deleted
+    // (045-review LOW-4). Neither reads an outcome.
+    const indexSrc = fs.readFileSync(path.join(repoRoot, 'server/index.js'), 'utf8');
+    expect(indexSrc).toMatch(/resupplyResolution\.init\(\{\s*peekSharedDoc/);
+    expect(indexSrc).not.toMatch(/resolveForRows/);
+
+    const persistenceSrc = fs.readFileSync(path.join(repoRoot, 'server/postgres-persistence.js'), 'utf8');
+    const clearDocument = persistenceSrc.slice(
+      persistenceSrc.indexOf('async clearDocument('),
+      persistenceSrc.indexOf('async clearAll(')
+    );
+    expect(clearDocument).toMatch(/resupplyResolution\.clearDoc\(docGuid\)/);
+    expect(persistenceSrc).not.toMatch(/resolveForRows/);
   });
 
   test("undo's via_sync run-breaking guard is unchanged (038 D2)", () => {

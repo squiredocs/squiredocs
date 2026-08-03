@@ -83,6 +83,7 @@ const chatRevertStamp = require('./api/chat-revert-stamp');
 const aiUsage = require('./ai-usage');
 const byokSettings = require('./api/byok-settings');
 const documentService = require('./document-service');
+const resupplyResolution = require('./resupply-resolution');
 const undoService = require('./undo/undo-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
@@ -1967,6 +1968,13 @@ const server = app.listen(PORT, async () => {
   // registry) is passed alongside the creating `getYDoc` so `peekSharedDoc` can
   // answer "is this loaded?" without creating anything (feature 041, FR-013).
   documentService.init(getYDoc, extractDocGuid, docs);
+
+  // Let resupply resolution recognise THIS instance's own shared-doc client
+  // identity (feature 045 review, N-045-2). Content created on the shared doc
+  // carries one client identity for whoever acts through the server, so it
+  // determines no author and must never bind one. Read-only and creating
+  // nothing: `peekSharedDoc` answers null when the document is not loaded here.
+  resupplyResolution.init({ peekSharedDoc: documentService.peekSharedDoc });
 
   // Initialize Redis pub/sub for cross-instance synchronization
   // Await to ensure Redis is ready before accepting WebSocket connections

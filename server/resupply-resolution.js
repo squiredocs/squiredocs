@@ -19,21 +19,34 @@
  *  1. Cheap when nothing is relayed: no row with `viaSync === true` ⇒ ZERO
  *     queries, ZERO decodes, and `EMPTY_RESOLUTION` back. The common path.
  *  2. Compute once: an outcome for `(docGuid, clock)` is computed at most once
- *     per process and memoized. Outcomes are IMMUTABLE — evidence is strictly
- *     prior in clock order over an append-only log — so the memo never needs
- *     invalidation (SC-005).
+ *     per process and memoized. Outcomes are immutable with respect to the LOG
+ *     — evidence is strictly prior in clock order over an append-only log — so
+ *     appending rows never invalidates one (SC-005). Exactly two things drop
+ *     memoized outcomes, and both are changes to the DOCUMENT, not to the log:
+ *     `clearDoc` (the document was deleted and its clocks restart at 0) and
+ *     learning a new shared-server-doc identity for that document (below).
  *  3. Never guesses: absence, ambiguity, deletion-only payloads and the
  *     evidence cap all produce `unresolved: true`, which surfaces render as the
  *     honest "Synced content" entry. There is no most-recent-wins.
  *  4. Never trusts the stamp: a row's own `user_id`/`agent_name` are not
  *     evidence for that row and never enter its outcome.
- *  5. Display only (FR-010): no write path, no cache-invalidation hooks. Its
- *     only importers are `server/version-history.js`,
- *     `server/mcp/tools/read-document.js` and `server/collab-guardrail.js` —
- *     asserted by a test, because a display-only inference must never reach
- *     replay, undo derivation, permissions, restore or diff.
+ *  5. Display only (FR-010): no write path, and exactly ONE inbound hook —
+ *     `clearDoc`, called by `clearDocument` when a document is deleted. Its
+ *     importers are `server/version-history.js`,
+ *     `server/mcp/tools/read-document.js`, `server/collab-guardrail.js`,
+ *     `server/api/docs-export.js` (all display surfaces), plus the two wiring
+ *     sites (`server/index.js` for `init`, `server/postgres-persistence.js` for
+ *     `clearDoc`) — asserted by a test, because a display-only inference must
+ *     never reach replay, undo derivation, permissions, restore or diff.
  *  6. Never throws into a display path: every internal failure degrades the
  *     affected target to `unresolved: true`.
+ *  7. One fold at a time per document: every resolution for a document runs in
+ *     that document's serial slot, so concurrent readers can never interleave
+ *     inside the shared evidence fold (the pattern `_runStoreSlot` uses for
+ *     writes). A fold mutated across an await by a second reader could snapshot
+ *     a target against a half-built map — and memoize that false refusal — or
+ *     against bindings from rows AT OR AFTER its own clock, which is the exact
+ *     invariant this module's soundness rests on.
  *
  * ── Origin extraction ──────────────────────────────────────────────────────
  * A row's embedded origin identities are `[...Y.parseUpdateMeta(bytes).to.keys()]`.
@@ -44,8 +57,47 @@
  * So an empty set means "this payload asserts no authorship" and the row is
  * unresolvable by construction (FR-005). `Y.decodeUpdate(...).structs` would
  * give the same client set, but it materializes every struct AND leaves the
- * delete-set trap one careless edit away; `parseUpdateMeta` makes the deletion
- * rule structural.
+ * delete-set trap one careless edit away.
+ *
+ * PRECISELY WHAT THAT RULE BUYS (045-review LOW-5). `parseUpdateMeta` walks
+ * STRUCTS only and never reads the delete set, so a deleter is never named by
+ * the payload they deleted with — that is structural. It does NOT mean "a
+ * resupply that only deletes names nobody": structs include content that was
+ * created AND deleted inside the lost window (and the GC placeholders yjs
+ * leaves for collected content), so such a payload still reports the DELETED
+ * content's authors as origins. That is never a forbidden credit — never the
+ * deleter, never the relayer — but it does mean an author can be credited for
+ * content no longer visible, and that a single-origin row can turn into a
+ * multi-origin one and collapse to "Synced content".
+ *
+ * ── The shared server doc (045-review HIGH-1, ledger N-045-2) ───────────────
+ * Every server-side write path (`updateDocument`, and the live-doc restore
+ * clone) transacts on the ONE live `WSSharedDoc` for that document, so all
+ * content it creates carries THAT doc's single Yjs client identity while rows
+ * are stamped with whichever `(userId, agentName)` acted. Such an identity
+ * therefore determines NO author, and binding one would systematically credit
+ * the wrong person: bind S→(X,'Assistant') from X's chat edit, lose Y's chat
+ * edit in a crash, have any browser resupply it, and every surface confidently
+ * credits X for Y's words. Two-identity ambiguity does not save it — the second
+ * identity may never commit.
+ *
+ * So a client identity KNOWN to be a shared server doc's is poisoned:
+ * `SERVER_DOC` — never binds, never resolves, always "Synced content". Three
+ * sources, deliberately all read-side so no write path imports this module:
+ *   1. the live doc, when one is loaded here (`init({ peekSharedDoc })`);
+ *   2. any evidence row stamped with an identity that ONLY ever writes through
+ *      the shared doc — today the chat assistant (`CHAT_AGENT_NAME`). This is
+ *      the retroactive source: the stamp is durable, so rows written long
+ *      before this fix are covered by their own recorded identity;
+ *   3. the pre-existing 2+ identity ambiguity, unchanged.
+ * RESIDUAL, recorded not hidden: a server-side write under a PLAIN user
+ * identity (title set, document seed, restore, REST/MCP import) made by a pod
+ * that has since died leaves a single-identity binding that the log cannot
+ * distinguish from the legitimate case — a genuine offline edit whose author's
+ * own prior rows bind their own client identity has a byte-identical shape.
+ * Closing it fully means giving server-side writes per-identity docs the way
+ * MCP agent sessions already have them (research R12), which is a feature, not
+ * a review fix.
  *
  * ── Configuration ──────────────────────────────────────────────────────────
  *  RESUPPLY_EVIDENCE_MAX_ROWS  (20000) evidence rows decoded for ONE document
@@ -66,9 +118,27 @@
  * consistency story).
  */
 const Y = require('yjs');
+const { CHAT_AGENT_NAME } = require('./agent-identity');
 
 /** Sticky marker for a client identity bound to more than one identity pair. */
 const AMBIGUOUS = Symbol('ambiguous');
+
+/** Sticky marker for a SHARED SERVER DOC client identity (N-045-2). Unlike
+ * AMBIGUOUS it is a statement about the identity's PROVENANCE, not about how
+ * many users happen to have used it yet, so one binding never clears it. */
+const SERVER_DOC = Symbol('server-doc');
+
+/**
+ * Stamped identities that write ONLY through the shared server doc.
+ *
+ * The chat assistant has no Y.Doc of its own: every edit it makes runs through
+ * `documentService.updateDocument`, i.e. on the live `WSSharedDoc` (contrast
+ * MCP agent sessions, which each open their own doc and therefore carry their
+ * own client identity — research R12). A durable row stamped with this agent
+ * name is proof that the client identities in its payload are a shared doc's,
+ * whenever it was written.
+ */
+const SHARED_DOC_WRITER_AGENTS = new Set([CHAT_AGENT_NAME]);
 
 const DEFAULT_EVIDENCE_MAX_ROWS = 20000;
 const DEFAULT_EVIDENCE_BATCH = 500;
@@ -88,7 +158,29 @@ const outcomeMemo = new Map();
 /** docGuid -> { byClient, scannedThroughClock, rowsScanned, capped }; FIFO. */
 const evidenceFolds = new Map();
 
+/** docGuid -> Set of client ids known to be a shared SERVER doc's (N-045-2). */
+const serverDocClients = new Map();
+
+/** docGuid -> tail promise; one fold at a time per document (guarantee 7). */
+const foldQueues = new Map();
+
 const stats = { evidenceRowsDecoded: 0, targetRowsDecoded: 0, evidenceQueries: 0 };
+
+/** Injected read-only probe for the live shared doc, or null. */
+let peekLiveDoc = null;
+
+/**
+ * Wire the live-shared-doc probe (called once from `server/index.js`).
+ *
+ * READ-ONLY and optional: without it the resolver behaves exactly as it does
+ * with a document that is not loaded here. The probe must never CREATE a doc —
+ * `documentService.peekSharedDoc` is the honest "is it loaded?" primitive.
+ *
+ * @param {{peekSharedDoc?: function(string): (object|null)}} [wiring]
+ */
+function init({ peekSharedDoc } = {}) {
+  peekLiveDoc = typeof peekSharedDoc === 'function' ? peekSharedDoc : null;
+}
 
 function envInt(name, fallback) {
   const n = parseInt(process.env[name], 10);
@@ -124,6 +216,88 @@ function sortOrigins(origins) {
   });
 }
 
+/** Drop everything DERIVED for a document, keeping what was learned about it. */
+function forgetDerived(docGuid) {
+  evidenceFolds.delete(docGuid);
+  const prefix = `${docGuid}:`;
+  for (const key of outcomeMemo.keys()) {
+    if (key.startsWith(prefix)) outcomeMemo.delete(key);
+  }
+}
+
+/**
+ * Record a client identity as a shared server doc's (N-045-2).
+ * @returns {boolean} true when this is NEW knowledge for the document
+ */
+function noteServerDocClient(docGuid, clientId) {
+  if (!docGuid || !Number.isFinite(clientId)) return false;
+  let ids = serverDocClients.get(docGuid);
+  if (!ids) {
+    ids = new Set();
+    serverDocClients.set(docGuid, ids);
+    evictTo(serverDocClients, envInt('RESUPPLY_CACHE_MAX_DOCS', DEFAULT_CACHE_MAX_DOCS));
+  }
+  if (ids.has(clientId)) return false;
+  ids.add(clientId);
+  // Anything already folded or memoized for this document may have bound this
+  // identity to whoever acted through it first. Recompute rather than serve it.
+  forgetDerived(docGuid);
+  return true;
+}
+
+function isServerDocClient(docGuid, clientId) {
+  const ids = serverDocClients.get(docGuid);
+  return !!ids && ids.has(clientId);
+}
+
+/** Learn this instance's own shared-doc identity for the document, if loaded. */
+function learnLiveServerClient(docGuid) {
+  if (!peekLiveDoc) return;
+  try {
+    const doc = peekLiveDoc(docGuid);
+    if (doc && Number.isFinite(doc.clientID)) noteServerDocClient(docGuid, doc.clientID);
+  } catch {
+    // A probe failure is not a reason to fail a display path; the document is
+    // simply treated as not loaded here.
+  }
+}
+
+/**
+ * Forget a document entirely (the ONE inbound hook, guarantee 5).
+ *
+ * Called when the document is DELETED: its rows are gone and its clocks restart
+ * at 0, so a still-connected client writing under the same guid would otherwise
+ * be answered from the dead document's memoized outcomes. The evidence fold
+ * self-heals through the lower-clock restart; the memo cannot.
+ *
+ * @param {string} docGuid
+ */
+function clearDoc(docGuid) {
+  if (!docGuid) return;
+  forgetDerived(docGuid);
+  serverDocClients.delete(docGuid);
+  foldQueues.delete(docGuid);
+}
+
+/**
+ * Run `task` in this document's serial slot (guarantee 7).
+ *
+ * The same shape `PostgresPersistence._runStoreSlot` uses for writes: chain onto
+ * the document's tail promise, settle-through on either outcome so one caller's
+ * failure never poisons the chain, and delete the entry when the tail is the
+ * last one standing.
+ */
+function withFoldSlot(docGuid, task) {
+  const prev = foldQueues.get(docGuid) || Promise.resolve();
+  const slot = prev.then(task, task);
+  const tail = slot.then(() => {}, () => {});
+  foldQueues.set(docGuid, tail);
+  tail.then(() => {
+    if (foldQueues.get(docGuid) === tail) foldQueues.delete(docGuid);
+  });
+  return slot;
+}
+
 function foldStateFor(docGuid) {
   let state = evidenceFolds.get(docGuid);
   if (!state) {
@@ -135,11 +309,19 @@ function foldStateFor(docGuid) {
 }
 
 /** Fold one evidence row's client identities into the binding map. */
-function foldEvidenceRow(byClient, row) {
+function foldEvidenceRow(byClient, row, docGuid) {
   const ids = originClientIds(row.updateData);
+  // A row stamped with an identity that only ever writes through the shared
+  // server doc proves what its payload's client identities ARE, retroactively
+  // (N-045-2) — whoever else acted through that same doc is stamped elsewhere.
+  const sharedDocRow = SHARED_DOC_WRITER_AGENTS.has(row.agentName || null);
   for (const clientId of ids) {
     const seen = byClient.get(clientId);
-    if (seen === AMBIGUOUS) continue;
+    if (seen === AMBIGUOUS || seen === SERVER_DOC) continue;
+    if (sharedDocRow || isServerDocClient(docGuid, clientId)) {
+      byClient.set(clientId, SERVER_DOC);
+      continue;
+    }
     if (!seen) {
       byClient.set(clientId, { userId: row.userId, agentName: row.agentName || null });
       continue;
@@ -154,16 +336,18 @@ function foldEvidenceRow(byClient, row) {
 }
 
 /** Snapshot one target's outcome against the evidence folded SO FAR. */
-function snapshotOutcome(target, byClient) {
+function snapshotOutcome(target, byClient, docGuid) {
   const origins = [];
   const seenKeys = new Set();
   let unresolved = false;
 
   for (const clientId of target.originIds) {
     const binding = byClient.get(clientId);
-    if (!binding || binding === AMBIGUOUS) {
-      // No binding, or the identity maps to more than one user in this
-      // document's own history: refuse rather than pick (FR-006).
+    if (!binding || binding === AMBIGUOUS || binding === SERVER_DOC
+        || isServerDocClient(docGuid, clientId)) {
+      // No binding; an identity that maps to more than one user in this
+      // document's own history; or a shared server doc's identity, which
+      // determines no author at all (N-045-2). Refuse rather than pick (FR-006).
       unresolved = true;
       continue;
     }
@@ -190,6 +374,10 @@ function memoize(docGuid, clock, outcome) {
  * clock, which is exactly "evidence strictly prior to this row" (R2/R4). The
  * per-document fold state is retained so a later, higher-clock target extends
  * the scan instead of restarting it.
+ *
+ * CALLED ONLY FROM INSIDE THE DOCUMENT'S FOLD SLOT. The state it mutates is
+ * shared per document and it awaits between mutations, so two interleaved
+ * callers would corrupt each other's snapshots (guarantee 7).
  */
 async function runEvidenceFold(reader, docGuid, targets) {
   const state = foldStateFor(docGuid);
@@ -213,7 +401,7 @@ async function runEvidenceFold(reader, docGuid, targets) {
   const snapshotThrough = (clock) => {
     while (ti < sorted.length && sorted[ti].clock <= clock) {
       const target = sorted[ti++];
-      memoize(docGuid, target.clock, snapshotOutcome(target, state.byClient));
+      memoize(docGuid, target.clock, snapshotOutcome(target, state.byClient, docGuid));
     }
   };
 
@@ -230,7 +418,7 @@ async function runEvidenceFold(reader, docGuid, targets) {
       // Every target strictly below this row's clock has now seen all of its
       // (prior-only) evidence.
       snapshotThrough(row.clock);
-      foldEvidenceRow(state.byClient, row);
+      foldEvidenceRow(state.byClient, row, docGuid);
       state.scannedThroughClock = row.clock;
       state.rowsScanned += 1;
       stats.evidenceRowsDecoded += 1;
@@ -300,6 +488,65 @@ async function buildDirectory(reader, rows, outcomes) {
 }
 
 /**
+ * Answer every target clock for one document. Runs INSIDE the document's fold
+ * slot, which is what makes the memo read, the payload decode and the evidence
+ * fold one indivisible step per document (guarantee 7).
+ *
+ * @returns {Promise<Map<number, {origins: Array, unresolved: boolean}>>}
+ */
+async function computeOutcomes(reader, docGuid, clocks) {
+  // Whatever this instance knows about its own shared doc is learned first: it
+  // can invalidate memoized outcomes, and doing that mid-fold is exactly the
+  // interleaving this slot exists to prevent.
+  learnLiveServerClient(docGuid);
+
+  const outcomes = new Map();
+  const unmemoized = [];
+  for (const clock of clocks) {
+    const cached = outcomeMemo.get(`${docGuid}:${clock}`);
+    if (cached) outcomes.set(clock, cached);
+    else unmemoized.push(clock);
+  }
+  if (unmemoized.length === 0) return outcomes;
+
+  const payloads = await reader.getUpdatePayloads(docGuid, unmemoized);
+  const byClock = new Map(payloads.map(p => [Number(p.clock), p.updateData]));
+  const needEvidence = [];
+
+  for (const clock of unmemoized) {
+    let originIds = [];
+    try {
+      originIds = originClientIds(byClock.get(clock));
+      stats.targetRowsDecoded += 1;
+    } catch (decodeErr) {
+      console.warn(
+        `[ResupplyResolution] could not decode relayed row ${docGuid}@${clock} ` +
+        `(rendered as Synced content): ${decodeErr.message}`
+      );
+      originIds = [];
+    }
+    if (originIds.length === 0) {
+      // Deletion-only, missing, or undecodable: the payload asserts no
+      // authorship. Memoized — the answer is data-determined, not transient.
+      outcomes.set(clock, memoize(docGuid, clock, { origins: [], unresolved: true }));
+    } else {
+      needEvidence.push({ clock, originIds });
+    }
+  }
+
+  if (needEvidence.length > 0) {
+    await runEvidenceFold(reader, docGuid, needEvidence);
+    for (const target of needEvidence) {
+      outcomes.set(
+        target.clock,
+        outcomeMemo.get(`${docGuid}:${target.clock}`) || { origins: [], unresolved: true }
+      );
+    }
+  }
+  return outcomes;
+}
+
+/**
  * Resolve every `via_sync` row present in `rows`.
  *
  * @param {{getUpdatePayloads, getDirectAttributedRows, getUserDisplayFields}} reader
@@ -319,49 +566,11 @@ async function resolveForRows(reader, docGuid, rows) {
 
   const outcomes = new Map();
   try {
-    const unmemoized = [];
-    for (const clock of new Set(targetClocks)) {
-      const cached = outcomeMemo.get(`${docGuid}:${clock}`);
-      if (cached) outcomes.set(clock, cached);
-      else unmemoized.push(clock);
-    }
-
-    if (unmemoized.length > 0) {
-      const payloads = await reader.getUpdatePayloads(docGuid, unmemoized);
-      const byClock = new Map(payloads.map(p => [Number(p.clock), p.updateData]));
-      const needEvidence = [];
-
-      for (const clock of unmemoized) {
-        let originIds = [];
-        try {
-          originIds = originClientIds(byClock.get(clock));
-          stats.targetRowsDecoded += 1;
-        } catch (decodeErr) {
-          console.warn(
-            `[ResupplyResolution] could not decode relayed row ${docGuid}@${clock} ` +
-            `(rendered as Synced content): ${decodeErr.message}`
-          );
-          originIds = [];
-        }
-        if (originIds.length === 0) {
-          // Deletion-only, missing, or undecodable: the payload asserts no
-          // authorship. Memoized — the answer is data-determined, not transient.
-          outcomes.set(clock, memoize(docGuid, clock, { origins: [], unresolved: true }));
-        } else {
-          needEvidence.push({ clock, originIds });
-        }
-      }
-
-      if (needEvidence.length > 0) {
-        await runEvidenceFold(reader, docGuid, needEvidence);
-        for (const target of needEvidence) {
-          outcomes.set(
-            target.clock,
-            outcomeMemo.get(`${docGuid}:${target.clock}`) || { origins: [], unresolved: true }
-          );
-        }
-      }
-    }
+    const computed = await withFoldSlot(
+      docGuid,
+      () => computeOutcomes(reader, docGuid, [...new Set(targetClocks)])
+    );
+    for (const [clock, outcome] of computed) outcomes.set(clock, outcome);
 
     const directory = await buildDirectory(reader, rows, outcomes);
     return { outcomes, directory };
@@ -381,17 +590,22 @@ function _stats() {
   return { ...stats };
 }
 
-/** Test seam: drop every cache and counter. */
+/** Test seam: drop every cache, every counter and the injected wiring. */
 function _resetForTest() {
   outcomeMemo.clear();
   evidenceFolds.clear();
+  serverDocClients.clear();
+  foldQueues.clear();
+  peekLiveDoc = null;
   stats.evidenceRowsDecoded = 0;
   stats.targetRowsDecoded = 0;
   stats.evidenceQueries = 0;
 }
 
 module.exports = {
+  init,
   resolveForRows,
+  clearDoc,
   EMPTY_RESOLUTION,
   originClientIds,
   _stats,
