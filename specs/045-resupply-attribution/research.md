@@ -267,7 +267,7 @@ alerting depend on cache state.
 
 ---
 
-## R12 — Agent content resolves cleanly; server-shared-doc content honestly refuses
+## R12 — Agent content resolves cleanly; server-shared-doc content must be REFUSED explicitly
 
 **Decision**: No special-casing for agents. Verified: MCP `modify` edits are applied through
 `session.provider.doc` (`server/mcp/tools/modify.js` — the per-agent-session Y.Doc opened by
@@ -276,12 +276,30 @@ rows carry a consistent `(userId, agentName)` pair — clean, unambiguous eviden
 makes US1 scenario 4 (an agent's lost edit relayed by a human) resolve to the agent.
 
 Content produced ON the server's shared Y.Doc (restore's clone, undo/redo inverses applied via
-`server/live-apply.js`, import writes) shares one client identity across whichever users acted
-on that pod, so that identity typically maps to several users and is AMBIGUOUS. Resupplied
-server-origin content therefore renders as the synced contribution. This is correct behavior,
-not a defect: the identity genuinely does not determine an author.
+`server/live-apply.js`, import writes, chat-assistant edits, title sets, document seeds) shares
+one client identity across whichever users acted on that pod.
 
-**Alternatives considered**: none — special-casing the shared-doc identity would mean guessing.
+**CORRECTED 2026-08-03 (045 post-merge review, HIGH-1).** The second paragraph of this entry
+originally concluded that such an identity "typically maps to several users and is AMBIGUOUS",
+so resupplied server-origin content "therefore renders as the synced contribution", and that
+no code was needed. That is FALSE AS WRITTEN. Ambiguity only exists once a SECOND identity has
+committed a direct row for that identity BEFORE the relayed row; until then the shared identity
+has exactly one binding and resolution confidently credits it. The realistic sequence — doc
+loaded, user X's chat edit commits and binds the shared identity, user Y's chat edit is
+broadcast and lost in a crash, any browser resupplies it — makes every surface credit X for Y's
+content. Systematic, not a coincidence, and precisely the outcome this feature exists to
+prevent.
+
+The refusal is therefore now EXPLICIT rather than hoped for: a client identity known to be a
+shared server doc's is poisoned and never binds (ledger N-045-2, and "The shared server doc" in
+`contracts/resupply-resolution.md`). The residual — a server-side write under a plain user
+identity from a pod that has since died — is recorded there; the log genuinely cannot tell it
+from the legitimate case.
+
+**Alternatives considered**: relying on 2+ identity ambiguity alone (rejected above — it is
+the assumption that was wrong); stamping server writes in the row (rejected: needs a migration
+and leaves every historical row uncovered); giving each server-side write path its own Y.Doc
+the way MCP sessions have one (the real fix for the residual, and a feature of its own).
 
 ---
 

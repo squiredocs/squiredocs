@@ -131,3 +131,47 @@ after green). Unrelated to this feature.
 3. **The manual UI walk** in `quickstart.md`: a version showing the recovered
    author, a version showing the outlined "Synced content" dot with its tooltip,
    the two synthetic entries side by side, and both themes.
+
+---
+
+## Post-merge adversarial review — dispositions (2026-08-03)
+
+Fixed directly on `main` (solo workflow). Every fix carries a regression test
+that was VERIFIED RED against the pre-fix code, except where noted.
+
+| # | Finding | Disposition |
+|---|---|---|
+| **HIGH-1** | The shared server-doc client identity credits a lost server-side edit to the wrong identity | **FIXED.** Such an identity is poisoned and never binds — see ledger **N-045-2**, the module header, and "The shared server doc" in `contracts/resupply-resolution.md`. Sources: the live doc (`init({ peekSharedDoc })` wired in `server/index.js`), any evidence row stamped with a shared-doc-only writer (`CHAT_AGENT_NAME` — the retroactive source, since the stamp is durable), and the existing 2+ ambiguity. Residual (plain-user server writes from a dead pod) recorded in N-045-2. Research **R12 corrected** — its "typically AMBIGUOUS ⇒ honestly refuses" claim was false as written. |
+| **MEDIUM-2** | Concurrent resolutions corrupt the shared evidence fold; corrupted outcomes are memoized forever | **FIXED.** Every resolution for a document now runs in that document's serial slot — the same tail-promise pattern `PostgresPersistence._runStoreSlot` uses for writes — and the memo read, payload decode and fold are one indivisible step. Test asserts both that two concurrent readers are never inside the fold together and that both answers stand. |
+| **MEDIUM-3** | The REST export named the relayer in exported front-matter | **FIXED.** `getExportMeta` now takes the persistence provider and puts a `via_sync` tail row through the SAME single-slot collapse the MCP path uses (RBD-045-12), emitting the true author or `''` when authorship cannot be recovered. `''` — not "Synced content": that is a UI contributor entry, not an identity, and this artifact leaves the product. A non-`via_sync` tail row keeps the pre-045 path, so existing exports stay byte-identical (FR-022, pinned by a test). |
+| **LOW-4** | The memo could outlive the truth across `clearDocument` | **FIXED.** The resolver exports `clearDoc(docGuid)` — its ONE inbound hook — and `clearDocument` calls it after the delete succeeds, swallowing any failure so a completed deletion never becomes an error. |
+| **LOW-5** | "The deletion rule is structural" was overbroad | **FIXED (documentation).** The module header and the contract now state it precisely: `parseUpdateMeta` never reads the delete set, so a deleter is never named — but structs include content created and deleted inside the lost window (and GC placeholders), so such a payload still names the DELETED content's authors. No behavior change, so its test is a characterization test that passes against pre-fix code too; it is what makes the corrected wording checkable. |
+
+### Reviewer adjudications carried forward
+
+- **N-045-1 (pre-038 unmarked resupplies are evidence-eligible)** — blast radius
+  re-examined: propagating, but order single-digit rows, and strictly better than
+  the pre-045 unconditional relayer credit. **Record-no-fix stands**; no change.
+- **RBD-045-14 (MCP `lastModifiedBy` gains 040's unknown-author fallback)** —
+  verified confined and sound. The gap was that the `read_document` TOOL
+  DESCRIPTION never mentioned it, and agents read that text: it now states that
+  authorship is not always knowable, what "Synced content" / `isSynced` and
+  "Unknown author" mean, and that `lastModifiedBy: null` means "no rows", not
+  "nobody".
+
+### Consumer set changed
+
+`server/api/docs-export.js` is a fourth display consumer, and there are now two
+non-display wiring sites (`server/index.js` for `init`, `server/postgres-persistence.js`
+for `clearDoc`). The FR-010 scope guard was updated to assert exactly that, and
+still asserts that undo, diff, live-apply and restore never import the resolver.
+
+### Properties re-verified after the changes
+
+- **FR-009 / zero cost when nothing is relayed**: a document with no `viaSync === true`
+  row still performs zero queries, zero decodes, and takes no fold slot (existing
+  test, green). Everything added — the live-doc probe included — happens only after
+  a target exists.
+- **FR-013 / never throws into a display path**: unchanged; the evidence-query
+  failure and undecodable-payload tests are green, the live-doc probe has its own
+  catch, and `clearDoc` failures are swallowed at the call site.

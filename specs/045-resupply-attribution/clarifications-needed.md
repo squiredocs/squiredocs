@@ -330,3 +330,41 @@ requires the true author to have no correctly attributed row for that session in
 the same document) and strictly better than today's unconditional relayer
 credit. No fix in this feature; recorded so nobody re-derives it as a surprise.
 
+
+## N-045-2 — NOTE (no decision required) — The shared server doc never binds an identity
+
+Added by the 045 post-merge adversarial review (HIGH-1), 2026-08-03.
+
+**The claim that was wrong.** Research R12 concluded that content created on the
+server's shared `WSSharedDoc` "typically maps to several users and is AMBIGUOUS",
+so it would refuse itself with no code. It only refuses once a SECOND identity has
+committed a direct row for that client identity BEFORE the relayed row. Until
+then the shared identity has exactly one binding and resolution credits it with
+full confidence: doc loaded, user X's assistant edit commits and binds the shared
+identity, user Y's assistant edit is broadcast and lost in a crash, any browser
+resupplies it — and every surface names X as the author of Y's words. Systematic,
+not a birthday accident, and the exact failure this feature exists to prevent.
+
+**The rule now implemented.** A client identity KNOWN to be a shared server doc's
+is poisoned: it never binds an author, never resolves, and always renders the
+honest "Synced content" entry. Three read-side sources, deliberately all read-side
+so no write path imports a display-only module:
+
+1. the live shared doc, when this instance has the document loaded
+   (`resupplyResolution.init({ peekSharedDoc })`, wired in `server/index.js`);
+2. any evidence row stamped with an identity that ONLY ever writes through the
+   shared doc — today the chat assistant (`CHAT_AGENT_NAME`), which has no Y.Doc
+   of its own. This is the RETROACTIVE source: the stamp is durable, so rows
+   written long before this rule existed are covered by their own recorded
+   identity, with no migration and no backfill;
+3. the pre-existing 2+ identity ambiguity, unchanged.
+
+**Residual.** A server-side write under a PLAIN user identity (title set, document
+seed, restore, REST/MCP import) made by a pod that has since died leaves a
+single-identity binding that the durable log cannot distinguish from the
+legitimate case: a genuine offline edit whose author's own prior rows bind their
+own client identity has a byte-identical shape. Over-refusing everything of that
+shape would delete the feature. The real fix is to give server-side write paths
+per-identity docs the way MCP agent sessions already have them (research R12) —
+a feature of its own, not a review fix. Recorded so nobody re-derives it as a
+surprise.

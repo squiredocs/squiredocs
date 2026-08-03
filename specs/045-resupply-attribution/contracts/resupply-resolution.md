@@ -18,6 +18,15 @@ async function resolveForRows(reader, docGuid, rows) -> {
 // it did before this feature — the pre-045 baseline is always one argument away.
 const EMPTY_RESOLUTION;
 
+// Wiring, called once at startup: a READ-ONLY probe for the live shared doc, so the
+// resolver can recognise this instance's own shared-doc client identity (N-045-2).
+// The probe must never create a document.
+function init({ peekSharedDoc });
+
+// The one inbound hook: forget a DELETED document (its rows are gone and its clocks
+// restart at 0). Called by PostgresPersistence.clearDocument.
+function clearDoc(docGuid);
+
 // Test seams (FR-009 / SC-005).
 function _stats() -> { evidenceRowsDecoded, targetRowsDecoded, evidenceQueries };
 function _resetForTest();
@@ -32,24 +41,38 @@ function _resetForTest();
    performs ZERO queries and ZERO decodes and returns `EMPTY_RESOLUTION`. This is the
    overwhelmingly common path.
 2. **Compute once.** An outcome for `(docGuid, clock)` is computed at most once per process
-   and memoized permanently (it is immutable — evidence is prior-only over an append-only
-   log). A repeat request over already-resolved history performs zero payload decodes
-   (SC-005).
+   and memoized (it is immutable with respect to the LOG — evidence is prior-only over an
+   append-only log, so appending rows never invalidates one). A repeat request over
+   already-resolved history performs zero payload decodes (SC-005). Exactly two things drop
+   memoized outcomes, and both are changes to the DOCUMENT rather than to the log:
+   `clearDoc` (deletion) and learning a new shared-server-doc identity for that document.
 3. **Deterministic.** Same row ⇒ same outcome, on every surface and every request. Origins
    are deduped and sorted so serialized output is byte-stable.
-4. **Never guesses.** Ambiguity, absence, deletion-only payloads, and the evidence cap all
-   produce `unresolved: true`. There is no "most recent wins" and no "most frequent wins".
+4. **Never guesses.** Ambiguity, absence, deletion-only payloads, shared-server-doc origins,
+   and the evidence cap all produce `unresolved: true`. There is no "most recent wins" and no
+   "most frequent wins".
 5. **Never trusts the stamp.** A row's own `user_id`/`agent_name` are NOT evidence for that
    row and never enter its outcome.
-6. **Display only.** The resolver has no write path, no cache invalidation hooks, and is
-   imported by exactly: `server/version-history.js`, `server/mcp/tools/read-document.js`,
-   `server/collab-guardrail.js` (FR-010 — enforced by test).
+6. **Display only.** The resolver has no write path and exactly one inbound hook
+   (`clearDoc`). Its display consumers are `server/version-history.js`,
+   `server/mcp/tools/read-document.js`, `server/collab-guardrail.js` and
+   `server/api/docs-export.js`; its two wiring sites are `server/index.js` (`init`) and
+   `server/postgres-persistence.js` (`clearDoc`). Nothing else may import it (FR-010 —
+   enforced by test), and replay, undo, permissions, restore and diff never see an outcome.
+7. **One fold at a time per document.** Every resolution runs in that document's serial slot
+   (the pattern `_runStoreSlot` uses for writes). The evidence fold is shared per-document
+   state mutated across awaits: interleaved callers would snapshot against a half-built map
+   — memoizing a false refusal — or against bindings from rows at or after their own clock,
+   which is the strictly-prior invariant RBD-045-3/-10 rest on.
 
 ## Algorithm
 
 ```
 targets := { r.clock | r ∈ rows, r.viaSync === true } \ memoized
 if targets = ∅: return context built from memo + directory
+
+— everything below runs in this document's serial fold slot —
+learn the live shared doc's client identity, if this instance has it loaded
 
 payloads := reader.getUpdatePayloads(docGuid, targets)          // one query
 for each target: originIds := parseUpdateMeta(payload).to.keys()
@@ -58,7 +81,7 @@ for each target: originIds := parseUpdateMeta(payload).to.keys()
 needed := targets still needing evidence, ascending
 scan direct rows ascending (batched, default 500) with clock < max(needed):
     evidence row ≡ via_sync IS NOT TRUE ∧ user_id IS NOT NULL
-    fold clientID → (userId, agentName) | AMBIGUOUS      // see data-model §3
+    fold clientID → (userId, agentName) | AMBIGUOUS | SERVER_DOC   // see data-model §3
     when the scan passes a target's clock, snapshot that target's outcome
     stop at RESUPPLY_EVIDENCE_MAX_ROWS (default 20000) → remaining targets unresolved
 
@@ -68,6 +91,39 @@ memoize outcomes; build directory (rows first, then one batched users lookup)
 Evidence-scan state (`byClient`, `scannedThroughClock`) is retained per document so later,
 higher-clock targets extend the fold. A needed target BELOW `scannedThroughClock` (reachable
 only after memo eviction) restarts the fold from the document's first row.
+
+## The shared server doc (N-045-2)
+
+Every server-side write path transacts on the ONE live `WSSharedDoc`, so all content it
+creates carries that doc's single Yjs client identity while rows are stamped with whichever
+identity acted. Such a client identity determines NO author, and binding one credits the
+wrong person systematically — not only once a second identity has committed. It is therefore
+poisoned (`SERVER_DOC`): it never binds, never resolves, always renders "Synced content".
+Three read-side sources, so no write path imports the resolver:
+
+1. the live doc, when one is loaded on this instance (`init({ peekSharedDoc })`);
+2. an evidence row stamped with an identity that ONLY ever writes through the shared doc —
+   today the chat assistant (`CHAT_AGENT_NAME`). This is the RETROACTIVE source: the stamp is
+   durable, so rows written long before this rule existed are covered by their own recorded
+   identity;
+3. the pre-existing 2+ identity ambiguity.
+
+**Residual, recorded not hidden.** A server-side write under a plain user identity (title set,
+document seed, restore, REST/MCP import) made by a pod that has since died leaves a
+single-identity binding the log cannot distinguish from the legitimate case — a genuine
+offline edit whose author's own prior rows bind their own client identity has a byte-identical
+shape. Closing it means giving server-side writes per-identity docs the way MCP agent sessions
+already have them (research R12); that is a feature, not a review fix.
+
+## Deletion payloads, precisely (045-review LOW-5)
+
+`parseUpdateMeta` walks STRUCTS and never reads the delete set (verified in yjs 13.6.30), so a
+deleter is never named by the payload they deleted with — that part is structural. It does NOT
+follow that a deletion-only resupply names nobody: structs include content created AND deleted
+inside the lost window, and the GC placeholders yjs leaves for collected content, so such a
+payload reports the DELETED content's authors as origins. Never a forbidden credit (never the
+deleter, never the relayer), but an author can be credited for content that is no longer
+visible, and a single-origin row can become multi-origin and collapse to "Synced content".
 
 ## Configuration
 
