@@ -421,6 +421,8 @@ module.exports = {
   cleanupAgentToken,
   cleanupTestUser,
   cleanupDoc,
+  rejectUpdateMatching,
+  sameBytes,
   waitFor,
   tick,
   docWithParagraph,
