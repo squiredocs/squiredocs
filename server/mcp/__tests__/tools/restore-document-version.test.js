@@ -179,7 +179,7 @@ describe('restore_document_version tool', () => {
       // Add initial content using documentService for proper persistence
       await documentService.updateDocument(
         testDocGuid,
-        (ydoc) => {
+        () => (ydoc) => {
           const xmlFragment = ydoc.get('default', Y.XmlFragment);
           const paragraph = new Y.XmlElement('paragraph');
           const text = new Y.XmlText();
@@ -197,7 +197,7 @@ describe('restore_document_version tool', () => {
       // Make a second edit to create a new version
       await documentService.updateDocument(
         testDocGuid,
-        (ydoc) => {
+        () => (ydoc) => {
           const xmlFragment = ydoc.get('default', Y.XmlFragment);
           const paragraph = xmlFragment.get(0);
           const text = paragraph.get(0);

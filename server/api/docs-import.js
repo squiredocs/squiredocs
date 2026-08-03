@@ -338,9 +338,11 @@ function createImportRouter(persistence) {
           // and leave an orphaned untitled empty doc (F1), fall back to the
           // frontmatter-only shape: seed the anchor paragraph and return 201
           // with the itemized dropped-image report so nothing vanishes silently.
+          // Two-phase (feature 049). The emptiness guard stays inside the mutate
+          // phase: it is a read that must observe the state the insert runs on.
           await documentService.updateDocument(
             docId,
-            (liveDoc) => {
+            () => (liveDoc) => {
               const liveFragment = liveDoc.get('default', Y.XmlFragment);
               if (liveFragment.length === 0) {
                 liveFragment.insert(0, [buildYjsNode({ type: 'paragraph' })]);

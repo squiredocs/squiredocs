@@ -455,3 +455,174 @@ live reader still stops the line.
   this near-miss for the implementer: the sweep that missed it was looking for
   exactly the right thing, in the right place, with a tool that lies about this
   file. T005a must use `grep -a` or Read, and must state which it used.
+
+---
+
+## G. Implementation-stage findings (2026-08-03, implement agent)
+
+### N-049-4 — NOTE (T001/T002) — The inventory and the versions are unchanged
+
+Re-verified with `grep -arn "updateDocument(" server/ __tests__/`. All **7
+production call sites** are at the lines `research.md` §R7 states
+(`document-service.js:383`, `markdown-import.js:321`, `chat-tools.js:60` and
+`:108`, `docs-import.js:341`, `create-document.js:197`,
+`set-document-title.js:79`), and exactly **8 test files** call `updateDocument`
+directly. No drift. Installed versions match the plan exactly: `yjs@13.6.30`,
+`y-protocols@1.0.7`, `y-websocket@1.5.4`.
+
+### F-049-1 — REFINEMENT to E-049-D's reachability argument — the decisive barrier is a microtask, not an `await`
+
+The record (orchestrator note on E-049-D) accepted T005a on the grounds that
+"every path to `learnLiveServerClient` crosses an await". **That argument is
+weaker than it looks, and it is not the one the audit rests on.**
+
+`learnLiveServerClient` is the **first statement of `computeOutcomes`, before any
+`await`** (`resupply-resolution.js:589`). The synchronous prefix of an `async`
+function runs synchronously at the call. So "the caller awaits it" does not by
+itself keep the read out of a synchronous window — if `computeOutcomes` were ever
+*invoked* from inside the borrow window, the `doc.clientID` read would execute
+inside it.
+
+What actually settles it: `computeOutcomes` is invoked **only** through
+`withFoldSlot` (`resolveForRows:658`), which dispatches as `prev.then(task, task)`.
+A `.then()` callback always runs in a microtask, never in the calling synchronous
+frame. The borrow window is one synchronous frame and restores `doc.clientID`
+before any microtask runs. Verified empirically (probe P6).
+
+This is recorded as a refinement rather than a contradiction — the conclusion
+(not stop-the-line) is unchanged. It matters because the barrier that holds is a
+**structural** property of the dispatch that a new caller inherits automatically,
+whereas the `await` argument would have to be re-checked against every future
+caller. Full reasoning in `clientid-reader-audit.md` §5.
+
+### F-049-2 — NEW FINDING (T003) — yjs stamps SUBDOCUMENTS with the live `doc.clientID` inside the borrow window
+
+Not previously flagged at any stage. `yjs.cjs:3402`, inside transaction cleanup
+and therefore **inside the borrow window**:
+
+```js
+subdocsAdded.forEach(subdoc => { subdoc.clientID = doc.clientID; … })
+```
+
+This is a genuine **live** read. A subdocument created by a mutate phase would be
+stamped with the **borrowed** id **permanently** — the borrow is restored, the
+subdocument's id is not, and nothing later repairs it.
+
+**Not stop-the-line**: it is unreachable today. A NUL-safe sweep of `server/` for
+`new Y.Doc()` finds 17 sites, all standalone documents; none is inserted into
+another document's type, so `subdocsAdded` is always empty for our transactions.
+
+**Disposition**: this is exactly the hazard T018a's JSDoc prohibition names, and
+it is now backed by a located line rather than by contract prose. It is
+unenforceable by shape — hence written into the signature's documentation. **If a
+future caller creates a subdocument in a mutate phase, the FR-008 GO verdict no
+longer covers it.**
+
+### F-049-3 — CONFIRMED MECHANICALLY (T003, analyze F4) — yjs's client-id self-heal can never fire for a 049 write
+
+`yjs.cjs:3379` guards the self-heal with `!transaction.local && …`. 048's
+merge-back used `Y.applyUpdate`, which yjs runs **non-local**, so the self-heal
+could fire. 049's `doc.transact` is **local**, so the condition short-circuits
+and `doc.clientID` is not even evaluated (probe P2).
+
+Recorded because it upgrades FR-007 from a precaution to a **requirement with a
+located mechanical cause**: a borrowed id receives no protection from yjs's own
+duplicate-id repair, and caching stretches that exposure across the process
+lifetime. The manual clock re-check is the only thing standing in for it.
+
+---
+
+## H. Implementation close-out (2026-08-03, implement agent) — T046
+
+### PD-049-1..4 — all four CONFIRMED AS IMPLEMENTED
+
+- **PD-049-1** (two-phase, no mutate-only form): implemented. `updateDocument`
+  takes `computeMutation` only; a bare mutate function is not merely
+  unsupported, it is **detected** and throws `ComputePhaseMutationError`
+  (pinned N6/N7). The prohibition list lives in the JSDoc so the signature
+  carries it (T018a).
+- **PD-049-2** (WeakMap keyed by the live `Y.Doc`): implemented. **The FR-006 /
+  US3-AS3 tension was resolved in favour of FR-006's anti-leak MUST**, as the
+  plan directed. A reload produces a new document object and therefore a fresh
+  id; what AS3 actually protects — never minting a duplicate `(clientId, clock)`
+  pair, and always reading the clock from the document's own store — is
+  preserved and pinned (N5, N3). Sam may overturn; nothing else depends on the
+  choice, because losing the cache costs one client id in a state vector.
+- **PD-049-3** (keep the ratified detector, add the tripwire): implemented, both
+  enabled in production. The measured hole is now demonstrated *inside* the
+  guard itself: N7 asserts the state vector is byte-identical across a
+  delete-only mutation before asserting the tripwire catches it, so the reason
+  the second detector exists cannot be lost to a later "simplification".
+- **PD-049-4** (mutate-phase throw logs loudly, rethrows the ORIGINAL error):
+  implemented. Verified by G5 (`rejects.toBe(boom)`, the object itself) and by
+  the import suite, where `ImportError.code` still drives the HTTP status.
+
+### F-049-4 — NOTE — `invariant-guards.md` listed C1 as "kept unchanged"; one of its clauses was falsified
+
+C1 (chat image insert) carried `expect(a[0]).not.toBe(b[0])` — "each insert
+authored under its own one-shot identity". Both inserts in that fixture are made
+by the **same** identity, so the per-identity cache makes them share one id, by
+design. The contract characterised C1 as a content-placement guard and missed
+the clause.
+
+Re-pointed exactly as G3 was, and recorded as a deviation (promotion-notes D3)
+rather than quietly edited. Content-placement assertions are untouched; the
+identity clause now asserts same-identity reuse plus the two properties that
+must not weaken (exactly one id per update, never the document's own).
+
+### F-049-5 — NOTE — the FR-008 audit found one live reader that no prior stage had flagged
+
+`yjs.cjs:3402` stamps subdocuments with the live `doc.clientID`, permanently.
+Unreachable today (nothing creates subdocuments), now prohibited in the
+`updateDocument` JSDoc with the located line as its reason. Full entry at
+F-049-2 above. **The GO verdict is conditional on nothing creating a
+subdocument in a mutate phase.**
+
+### Owed to Sam (unchanged by implementation, restated)
+
+1. **D-049-A** — the Squire design doc's "no better and no worse" residual claim
+   does not survive caching. The implementation now *provides* the missing
+   re-check (FR-007, pinned N3) and the audit records the mechanical reason it
+   is required (`yjs.cjs:3379` is gated on `!transaction.local`, so yjs's own
+   self-heal can never fire for our writes). The design sentence still needs
+   amending in the Squire doc; `design/` is export-only and was not touched.
+2. **The manual walk** in `quickstart.md` §7.
+3. **`docs/dev.md`** — the FR-012 upgrade checklist is owed to the merge queue,
+   with ready-to-paste text in `promotion-notes.md` §5. Not applied here because
+   the implement brief reserves that file to the merge queue.
+
+### F-049-6 — CORRECTION to N8's stated scope — a nested `updateDocument` is DEFERRED, not refused
+
+`contracts/invariant-guards.md` describes pin **N8** as "a reentrant
+`updateDocument` from inside a mutate phase is refused loudly, and the
+document's own id is still restored". **The first clause does not happen**, and
+the reason is structural rather than a defect.
+
+`updateDocument` is `async` and its first action is `await acquireReadyDoc(...)`.
+A mutate phase is synchronous and cannot await, so a nested call **suspends at
+that await** and returns a pending promise. The outer transaction then runs to
+completion and its `finally` restores the document's clientID and closes the
+borrow. Only then does the inner call resume — and by that point no borrow is
+open, so `isBorrowOpen` is false and the inner call proceeds as an ordinary
+sequential write under its own borrow.
+
+Reproduced directly: both writes land, each carries its own borrowed id, neither
+carries the document's own, and the identity is restored at the end.
+
+**Consequences, recorded rather than smoothed over:**
+
+1. The reentrancy **refusal** in `updateDocument` is genuinely **unreachable
+   through `updateDocument`**. It is defense-in-depth for a future synchronous
+   caller of `acquire`, and it is pinned where it can actually be exercised —
+   directly, at module level, in `borrowed-identity.test.js` (N8 there is real
+   and non-vacuous).
+2. The behavior is **safe**, so this is not stop-the-line: nesting cannot
+   produce a nested borrow, cannot restore the wrong id, and cannot share an id
+   between identities.
+3. A new guard pins the ACTUAL behavior in `per-operation-doc.test.js`
+   ("N8 (through the write path)"), with the mechanism written out, so that a
+   future refactor making `updateDocument` synchronous up to the borrow would
+   change behavior here and be noticed.
+
+Reported instead of quietly satisfying the contract's wording, because a guard
+named for a refusal that cannot occur would have been decorative.

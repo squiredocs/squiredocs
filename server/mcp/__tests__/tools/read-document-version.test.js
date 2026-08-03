@@ -154,7 +154,7 @@ describe('read_document_version tool', () => {
       // Add some content to the document to create a version using documentService
       await documentService.updateDocument(
         testDocGuid,
-        (ydoc) => {
+        () => (ydoc) => {
           const xmlFragment = ydoc.get('default', Y.XmlFragment);
           const paragraph = new Y.XmlElement('paragraph');
           const text = new Y.XmlText();

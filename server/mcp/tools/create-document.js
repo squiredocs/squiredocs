@@ -194,9 +194,11 @@ async function handler(args, agentToken) {
       // empty body — rather than throw and orphan an empty untitled doc (F1),
       // seed the anchor paragraph (frontmatter-only shape) and report the
       // dropped image(s) so nothing vanishes silently.
+      // Two-phase (feature 049). The emptiness guard stays inside the mutate
+      // phase: it is a read that must observe the state the insert runs on.
       await documentService.updateDocument(
         docGuid,
-        (liveDoc) => {
+        () => (liveDoc) => {
           const liveFragment = liveDoc.get('default', Y.XmlFragment);
           if (liveFragment.length === 0) {
             liveFragment.insert(0, [buildYjsNode({ type: 'paragraph' })]);

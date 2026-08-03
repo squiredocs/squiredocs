@@ -377,7 +377,7 @@ describe('041 FR-010: bind refusal on document load failure', () => {
 
     const write = () => documentService.updateDocument(
       DOC_GUID,
-      (doc) => {
+      () => (doc) => {
         const p = new Y.XmlElement('paragraph');
         p.insert(0, [new Y.XmlText('agent content')]);
         doc.get('default', Y.XmlFragment).insert(0, [p]);
@@ -405,7 +405,7 @@ describe('041 FR-010: bind refusal on document load failure', () => {
       // listener runs at transaction end and sees the flag, so it drops.
       await expect(documentService.updateDocument(
         DOC_GUID,
-        (doc) => {
+        () => (doc) => {
           // Refuse the SHARED doc, which is what the bind machinery does in
           // production. Since 048 the doc handed to updateFn is an ephemeral
           // per-operation copy, so refusing `doc` would flag a throwaway and
@@ -438,7 +438,7 @@ describe('041 FR-010: bind refusal on document load failure', () => {
       // unknown. Reporting success would assert something this doc cannot back.
       refuseBind({ docName: `s/${DOC_GUID}`, docGuid: DOC_GUID, ydoc, error: new Error('load failed') });
 
-      await expect(documentService.updateDocument(DOC_GUID, () => {}, { userId: null }))
+      await expect(documentService.updateDocument(DOC_GUID, () => () => {}, { userId: null }))
         .rejects.toThrow(BindFailedError);
     });
   });

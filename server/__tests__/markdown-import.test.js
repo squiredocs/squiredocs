@@ -195,15 +195,26 @@ describe('importMarkdown', () => {
     const docGuid = await makeDoc();
     await doImport(docGuid, '# Only Heading');
     const before = toMarkdown(liveFragment(docGuid));
+    // Feature 049 (T031/US2 AS4): the XPath resolution and its throw moved from
+    // INSIDE the transaction into the COMPUTE phase, because a mutate-phase
+    // throw is no longer recoverable (yjs does not roll back). Pin the
+    // observable contract that move had to preserve: the same error code, the
+    // same message, and a document that is BYTE-identical, not merely
+    // markdown-identical.
+    const beforeBytes = Y.encodeStateAsUpdate(documentService.getSharedDoc(docGuid));
 
     await expect(
       doImport(docGuid, 'never lands', {
         mode: 'insertAfterXPath',
         insertAfterXPath: '//heading[@level=4]',
       })
-    ).rejects.toMatchObject({ code: 'XPATH_NO_MATCH' });
+    ).rejects.toMatchObject({
+      code: 'XPATH_NO_MATCH',
+      message: 'No element matches XPath: //heading[@level=4]',
+    });
 
     expect(toMarkdown(liveFragment(docGuid))).toBe(before);
+    expect(Y.encodeStateAsUpdate(documentService.getSharedDoc(docGuid))).toEqual(beforeBytes);
   });
 
   test('empty and whitespace-only inputs are rejected before mutation', async () => {
