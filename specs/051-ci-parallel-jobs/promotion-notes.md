@@ -89,3 +89,13 @@ inside FR-009's three files): scope C-1's grep to `run:` lines, and scope C-5's 
 - **Nothing carries the old job name `test`.** Both jobs are new names. The repo has no
   branch-protection required-checks layer (spec Assumptions), so nothing depended on it — but
   if such a layer is ever added, it must reference `backend` and `client`, not `test`.
+
+## 5. Post-merge review dispositions (2026-08-04, review verdict CLEAN, 2 LOW)
+
+- **LOW-1 (merge message overstates live-verification closure)**: no code action. When Sam
+  runs the owed live-CI verification, the FIRST green push closes only T021/T022 — T023 needs
+  three consecutive runs (cold / warm / lockfile-bump) and T024 needs a deliberately red
+  throwaway branch. Do not tick T023/T024 off a single green run.
+- **LOW-2 (contract greps C-1/C-5 self-contradictory verbatim)**: FIXED same-day — the checks
+  in contracts/ci-contract.md now scope C-1 to `run:` lines and escape the dot in C-5, both
+  verified against the merged tree (C-1: zero hits; C-5: exactly three).

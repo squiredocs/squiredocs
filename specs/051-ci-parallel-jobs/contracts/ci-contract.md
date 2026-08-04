@@ -30,9 +30,11 @@ feature 052-parallel-test-isolation, which will change backend worker settings. 
 invocation behind the npm script means 052's change lands in `package.json` (script or jest
 config) and cannot collide with this feature's workflow edit.
 
-**Check**: `grep -nE 'jest|vitest|node --test|maxWorkers|runInBand|--reporters?=' .github/workflows/test.yml`
-returns nothing. (The npm script *names* contain none of these tokens, so any hit is a real
-violation.)
+**Check**: `grep -nE 'jest|vitest|node --test|maxWorkers|runInBand|--reporters?=' <(grep 'run:' .github/workflows/test.yml)`
+returns nothing — the check is scoped to `run:` lines because the cache step's key and path
+legitimately contain the token `jest` (`jest-cache-...`, `.jest-cache`). Any hit on a `run:`
+line is a real violation. [Scoping applied post-merge 2026-08-04 per review LOW-2; the
+original unscoped grep false-alarms on the cache step mandated by C-6.]
 
 ---
 
@@ -102,8 +104,10 @@ with a wrong path. A mismatch between the first two silently produces a permanen
 tree on every local backend run (SC-005 fails). Neither breaks a test, so neither is caught by
 the suites.
 
-**Check**: `grep -rn 'jest-cache' package.json .github/workflows/test.yml .gitignore` returns
-exactly three hits, all naming `.jest-cache`.
+**Check**: `grep -rn '\.jest-cache' package.json .github/workflows/test.yml .gitignore` returns
+exactly three hits (one per file), all agreeing on the path. [Escaped-dot form applied
+post-merge 2026-08-04 per review LOW-2: the unescaped pattern also matches the cache KEY
+lines (`jest-cache-${{ ... }}`), yielding five hits and a false alarm.]
 
 ---
 
