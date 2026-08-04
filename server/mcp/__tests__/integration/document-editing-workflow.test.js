@@ -25,6 +25,14 @@ const documentService = require('../../../document-service');
 // writes and strands orphan rows for later suites).
 const pendingOperations = [];
 
+// Every doc guid the suite binds (review 050 M1). Rows can only be written by the
+// bindState-installed listener, so tracking at bind time covers every per-test doc
+// — including tests that fail before their inline cleanup runs, and stores still
+// in flight when an inline DELETE fires. afterAll flushes pendingOperations, then
+// deletes for ALL tracked guids (per the helpers/db.js in-afterAll convention);
+// re-deleting a guid an inline cleanup already handled is harmless.
+const boundDocGuids = new Set();
+
 // Mock agent token
 const mockAgentToken = {
   userId: null, // Will be set in beforeAll
@@ -64,6 +72,7 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
     setPersistence({
       bindState: async (docName, ydoc) => {
         const docGuid = extractDocGuid(docName);
+        boundDocGuids.add(docGuid);
         // Install the listener BEFORE the initial load so nothing is missed.
         ydoc.on('update', (update, origin) => {
           const parsed = parseOrigin(origin);
@@ -194,7 +203,8 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
       httpServer.close(resolve);
     });
 
-    // Wait for any pending writeState callbacks to complete
+    // Give late connection-close activity a beat to settle (writeState itself is
+    // a no-op under the per-update wiring; the stores ride the update listener).
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Flush every in-flight per-update store before the cleanup DELETEs below,
@@ -202,10 +212,14 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
     await Promise.all(pendingOperations);
     pendingOperations.length = 0;
 
-    // Clean up test data
-    await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [testDocGuid]);
-    await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [testDocGuid]);
-    await pool.query('DELETE FROM documents WHERE id = $1', [testDocGuid]);
+    // Clean up test data for EVERY doc the suite bound (review 050 M1): a test
+    // that failed before its inline cleanup, or a store that landed after an
+    // inline DELETE, would otherwise strand attributed orphan rows — the exact
+    // shape the reindexStale CI flake feeds on.
+    const allDocGuids = [...new Set([testDocGuid, ...boundDocGuids])].filter(Boolean);
+    await pool.query('DELETE FROM yjs_updates WHERE doc_guid = ANY($1::uuid[])', [allDocGuids]);
+    await pool.query('DELETE FROM document_shares WHERE doc_id = ANY($1::uuid[])', [allDocGuids]);
+    await pool.query('DELETE FROM documents WHERE id = ANY($1::uuid[])', [allDocGuids]);
     await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     await pool.end();
 

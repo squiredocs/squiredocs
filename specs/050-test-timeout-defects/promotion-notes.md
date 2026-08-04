@@ -101,3 +101,17 @@ The setup modifies in `undo should succeed` and `redo should succeed` were
 `await executeScript.handler(...)` with no assignment. T013 required binding them
 to attach the guard; they are now `const setupResult = await ...`. The name does
 not collide with the `result` each test already uses for the undo/redo call.
+
+## Post-merge review dispositions (2026-08-04, verdict: no HIGH, 1 MEDIUM, 2 LOW)
+
+- **M1 (suite could still add yjs_updates orphans)**: FIXED same-day. Every doc guid is
+  now tracked at bindState time (`boundDocGuids`) and afterAll deletes for all of them
+  AFTER the pendingOperations flush, per the helpers/db.js in-afterAll convention.
+  Bind-time tracking covers both review scenarios (failed test skipping inline cleanup;
+  store landing after an inline DELETE) because rows can only be written by the
+  bindState-installed listener. Verified: suite green, zero orphans in the DB afterward.
+- **LOW (stale writeState comment)**: fixed in the same commit.
+- **LOW (client afterEach runs cleanup() before useRealTimers())**: accepted as-is per
+  review ("no observable effect today"); swap the order if it ever bites.
+- **F1 stamping**: reviewer verdict KEEP — prod stamps identically at server/index.js:1955
+  before setupWSConnection; the test replicates prod's auth supply, not extra identity.
