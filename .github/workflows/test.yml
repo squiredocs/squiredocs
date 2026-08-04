@@ -6,7 +6,7 @@ on:
       - '*'
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
 
     services:
@@ -47,9 +47,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install client dependencies
-        run: cd client && npm ci
-
       - name: Run server tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/collab_test_db
@@ -57,9 +54,27 @@ jobs:
           REDIS_PORT: 6379
         run: npm run test:server
 
+  client:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
       - name: Run client tests
         run: npm run test:client
 
       - name: Run first-run rehearsal suite (deterministic — bundle drift, content budgets, grader regressions)
         run: npm run test:first-run
-
