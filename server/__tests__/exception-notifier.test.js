@@ -8,7 +8,13 @@ jest.mock('../email', () => ({
   sendEmail: jest.fn(),
 }));
 
+// Mock the user store so email resolution never touches a real DB
+jest.mock('../auth/users', () => ({
+  findById: jest.fn(),
+}));
+
 let sendEmail;
+let findById;
 let notifyException;
 
 /**
@@ -18,8 +24,14 @@ let notifyException;
 function loadModule() {
   jest.resetModules();
   sendEmail = require('../email').sendEmail;
+  findById = require('../auth/users').findById;
   const mod = require('../exception-notifier');
   notifyException = mod.notifyException;
+}
+
+/** Flush the microtask/immediate queue so the async email-resolution path completes. */
+function flushAsync() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 describe('exception-notifier', () => {
@@ -173,6 +185,90 @@ describe('exception-notifier', () => {
       const call = sendEmail.mock.calls[0][0];
       expect(call.html).toContain('minimal');
       expect(call.html).toContain('unknown'); // default source
+    });
+  });
+
+  describe('user email resolution', () => {
+    beforeEach(() => {
+      process.env.ADMIN_EMAIL = 'admin@test.com';
+      loadModule();
+    });
+
+    afterAll(() => {
+      delete process.env.ADMIN_EMAIL;
+    });
+
+    test('does not hit the DB when req.user already carries an email', () => {
+      const req = { method: 'GET', url: '/x', headers: {}, user: { userId: 'u-1', email: 'user@test.com' } };
+      notifyException(new Error('boom'), { req, source: 'api' });
+
+      expect(findById).not.toHaveBeenCalled();
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      const call = sendEmail.mock.calls[0][0];
+      expect(call.subject).toContain('(user@test.com)');
+      expect(call.html).toContain('user@test.com');
+    });
+
+    test('resolves email from DB for principals with only a userId (API tokens)', async () => {
+      findById.mockResolvedValue({ id: 'u-2', email: 'tokenowner@test.com' });
+      const req = {
+        method: 'POST', url: '/api/docs', headers: {},
+        user: { userId: 'u-2', agentName: 'ci-import', isAgent: true },
+      };
+      notifyException(new Error('boom'), { req, source: 'api' });
+
+      expect(sendEmail).not.toHaveBeenCalled(); // async path
+      await flushAsync();
+
+      expect(findById).toHaveBeenCalledWith('u-2');
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      const call = sendEmail.mock.calls[0][0];
+      expect(call.subject).toContain('(tokenowner@test.com)');
+      expect(call.html).toContain('tokenowner@test.com');
+      expect(call.html).toContain('ci-import');
+    });
+
+    test('resolves email from extra.userId (websocket contexts)', async () => {
+      findById.mockResolvedValue({ id: 'u-3', email: 'wsuser@test.com' });
+      notifyException(new Error('ws boom'), {
+        source: 'websocket',
+        extra: { connId: 7, docId: 'doc-1', userId: 'u-3' },
+      });
+
+      await flushAsync();
+
+      expect(findById).toHaveBeenCalledWith('u-3');
+      const call = sendEmail.mock.calls[0][0];
+      expect(call.subject).toContain('(wsuser@test.com)');
+      expect(call.html).toContain('wsuser@test.com');
+    });
+
+    test('still sends (with userId only) when the lookup fails', async () => {
+      findById.mockRejectedValue(new Error('db down'));
+      notifyException(new Error('boom'), {
+        source: 'websocket',
+        extra: { userId: 'u-4' },
+      });
+
+      await flushAsync();
+
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      const call = sendEmail.mock.calls[0][0];
+      expect(call.subject).not.toContain('(');
+      expect(call.html).toContain('u-4');
+    });
+
+    test('still sends when the user no longer exists', async () => {
+      findById.mockResolvedValue(null);
+      notifyException(new Error('boom'), {
+        source: 'websocket',
+        extra: { userId: 'u-gone' },
+      });
+
+      await flushAsync();
+
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+      expect(sendEmail.mock.calls[0][0].html).toContain('u-gone');
     });
   });
 

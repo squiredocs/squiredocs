@@ -43,16 +43,33 @@ function formatHeaders(headers) {
     .join('\n');
 }
 
+/**
+ * Best-effort user info for the report: prefers the resolved context.user
+ * (set by notifyException after a DB lookup), falls back to req.user.
+ * Returns null when the error has no associated principal.
+ */
+function userInfoFromContext(context) {
+  const user = context.user || context.req?.user;
+  if (!user || (!user.userId && !user.email)) return null;
+  return user;
+}
+
+function formatUserRow(user) {
+  const identity = [user.email, user.userId].filter(Boolean).map(escapeHtml).join(' — ');
+  const agent = user.agentName ? ` (agent: ${escapeHtml(user.agentName)})` : '';
+  return `<tr><td style="padding:2px 8px;font-weight:bold;color:#666">User</td><td style="padding:2px 8px">${identity}${agent}</td></tr>`;
+}
+
 function formatExceptionEmail(error, context = {}) {
   const { req, source, extra } = context;
   const timestamp = new Date().toISOString();
   const errorName = error?.name || 'Error';
   const errorMessage = error?.message || String(error);
   const stack = error?.stack || '(no stack trace)';
+  const user = userInfoFromContext(context);
 
   let requestSection = '';
   if (req) {
-    const user = req.user;
     requestSection = `
     <h3 style="margin:16px 0 8px;color:#333">Request</h3>
     <table style="border-collapse:collapse;font-size:14px">
@@ -60,7 +77,6 @@ function formatExceptionEmail(error, context = {}) {
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">URL</td><td style="padding:2px 8px">${escapeHtml(req.originalUrl || req.url || '')}</td></tr>
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">IP</td><td style="padding:2px 8px">${escapeHtml(req.ip || req.connection?.remoteAddress || '')}</td></tr>
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">User-Agent</td><td style="padding:2px 8px">${escapeHtml(req.headers?.['user-agent'] || '')}</td></tr>
-      ${user ? `<tr><td style="padding:2px 8px;font-weight:bold;color:#666">User</td><td style="padding:2px 8px">${escapeHtml(user.userId || '')} / ${escapeHtml(user.email || '')}</td></tr>` : ''}
     </table>
 
     <h3 style="margin:16px 0 8px;color:#333">Headers</h3>
@@ -84,6 +100,7 @@ function formatExceptionEmail(error, context = {}) {
     <h2 style="color:#c0392b;margin-bottom:4px">${escapeHtml(errorName)}: ${escapeHtml(errorMessage)}</h2>
 
     <table style="border-collapse:collapse;font-size:14px;margin-bottom:16px">
+      ${user ? formatUserRow(user) : ''}
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">Source</td><td style="padding:2px 8px">${escapeHtml(source || 'unknown')}</td></tr>
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">Time</td><td style="padding:2px 8px">${timestamp}</td></tr>
       <tr><td style="padding:2px 8px;font-weight:bold;color:#666">Environment</td><td style="padding:2px 8px">${escapeHtml(process.env.NODE_ENV || 'development')}</td></tr>
@@ -101,8 +118,31 @@ function formatExceptionEmail(error, context = {}) {
 }
 
 /**
+ * Look up a user's email by id, bounded to 2s so a sick database (often the
+ * very thing that errored) can't stall the notification. Never rejects.
+ */
+function lookupUserEmail(userId) {
+  // Lazy require: this module is loaded very early (logger, index) and must
+  // not pull the DB pool into the startup require chain.
+  const { findById } = require('./auth/users');
+  const timeout = new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 2000);
+    if (timer.unref) timer.unref();
+  });
+  const lookup = findById(userId)
+    .then((user) => user?.email || null)
+    .catch(() => null);
+  return Promise.race([lookup, timeout]);
+}
+
+/**
  * Send an exception notification email to the admin.
  * Fire-and-forget — never throws, never blocks.
+ *
+ * The report identifies the affected user when possible: req.user directly
+ * for browser sessions (their JWT carries the email), and a best-effort DB
+ * lookup for principals that only carry a userId (API tokens, agent JWTs,
+ * websocket contexts passing extra.userId).
  *
  * @param {Error|*} error - The error to report
  * @param {object} [context] - Optional context
@@ -118,17 +158,35 @@ function notifyException(error, context = {}) {
     return;
   }
 
-  try {
-    const errorMessage = error?.message || String(error);
-    const errorName = error?.name || 'Error';
-    const truncated = errorMessage.length > 80 ? errorMessage.substring(0, 80) + '...' : errorMessage;
-    const subject = `[Squire Docs] ${errorName}: ${truncated}`;
-    const html = formatExceptionEmail(error, context);
+  // Count against the rate limit up front, before any async resolution.
+  sentTimestamps.push(Date.now());
 
-    sentTimestamps.push(Date.now());
-    sendEmail({ to: ADMIN_EMAIL, subject, html });
-  } catch (err) {
-    console.error('[ExceptionNotifier] Failed to send notification:', err.message);
+  const send = (ctx) => {
+    try {
+      const errorMessage = error?.message || String(error);
+      const errorName = error?.name || 'Error';
+      const truncated = errorMessage.length > 80 ? errorMessage.substring(0, 80) + '...' : errorMessage;
+      const email = userInfoFromContext(ctx)?.email;
+      const subject = `[Squire Docs] ${errorName}: ${truncated}${email ? ` (${email})` : ''}`;
+      const html = formatExceptionEmail(error, ctx);
+      sendEmail({ to: ADMIN_EMAIL, subject, html });
+    } catch (err) {
+      console.error('[ExceptionNotifier] Failed to send notification:', err.message);
+    }
+  };
+
+  const principal = context.req?.user;
+  const userId = principal?.userId || context.extra?.userId;
+  if (userId && !principal?.email) {
+    // Async path only when an email actually needs resolving.
+    lookupUserEmail(userId)
+      .then((email) => send({
+        ...context,
+        user: { userId, email: email || undefined, agentName: principal?.agentName || context.extra?.agentName },
+      }))
+      .catch(() => send(context));
+  } else {
+    send(context);
   }
 }
 

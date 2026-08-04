@@ -266,7 +266,10 @@ async function handleToolCall(params, agentToken) {
     // Return error in MCP tool result format with is_error: true
     // This ensures the agent sees detailed error messages instead of generic ones
     console.error(`Tool "${name}" execution error:`, error);
-    notifyException(error, { source: 'mcp-tool', extra: { tool: name } });
+    notifyException(error, {
+      source: 'mcp-tool',
+      extra: { tool: name, userId: agentToken.userId, agentName: agentToken.agentName },
+    });
 
     return {
       is_error: true,
