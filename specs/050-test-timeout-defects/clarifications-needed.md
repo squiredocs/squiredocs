@@ -131,3 +131,70 @@ the file as of 2026-08-04 the real sleeps are 5600ms, 5500ms and 3200ms
 stream-delivery timer inside the late-reply test's patched transport, not a
 sleep. Substantively the design's claim holds; recorded here only so the next
 reader is not confused by the mismatch.
+
+---
+
+## C. Implementer decisions (RATIFIED BY DEFAULT)
+
+Taken at implement time on branch `050-test-timeout-defects`, 2026-08-04. Each is
+recorded so a reviewer can overturn it rather than discover it. None changes what
+any existing assertion proves.
+
+### RBD-050-5 — SC-002 is verified by the in-suite assertions, not by the log grep
+
+- **Decision**: treat the 20 added `expect(<result>.editRangePending).toBeUndefined()`
+  assertions as the SC-002 evidence, and disregard `grep -c editRangePending` on the
+  Jest log.
+- **Why forced**: the grep gate proposed in quickstart.md and T012 expects `> 0`
+  before and `0` after, but it reads **`0` in both** — `editRangePending` is a field
+  on the returned result object and is never printed to stdout, so the grep never
+  had anything to match. It does not discriminate.
+- **What was done instead**: the in-suite assertions were proven non-vacuous by
+  temporarily neutralizing the per-update listener (simulating pre-016 wiring) and
+  confirming `modify: append text to existing paragraph` then FAILS at the
+  `editRangePending` assertion and takes 5084 ms again. The temporary edit was
+  reverted immediately and appears in no commit.
+- **Reviewer's remedy if overturned**: none available — the grep cannot be made to
+  work without printing the flag, which would be a change to product logging.
+  quickstart.md's grep line is worth correcting in a later train.
+
+### RBD-050-6 — Guards added to the deliberately-failing modifies too
+
+- **Decision**: attach the additive `editRangePending` guard to the `badResult`
+  modifies in the Mermaid and SVG error tests, not only to the succeeding ones.
+- **Why**: T013 says "for every `modify` result the suite captures". These two guards
+  are vacuous (a script-error modify never enters the durability wait) but strictly
+  additive and true.
+- **Reviewer's remedy if overturned**: delete those two lines; nothing else depends
+  on them.
+
+### RBD-050-7 — The two unbound setup modifies are bound as `setupResult`
+
+- **Decision**: the setup modifies in `undo should succeed` and `redo should succeed`
+  were `await executeScript.handler(...)` with no assignment; they are now
+  `const setupResult = await executeScript.handler(...)` so the guard can be attached.
+- **Why**: T013 explicitly directs binding the result rather than restructuring the
+  surrounding assertions. `setupResult` avoids colliding with the `result` each test
+  already uses for its undo/redo call.
+- **Reviewer's remedy if overturned**: revert to the bare `await` and drop the two
+  guards.
+
+### RBD-050-8 — `vi.useRealTimers()` in `afterEach` is unconditional
+
+- **Decision**: `afterEach` calls `vi.useRealTimers()` on every test, not only the two
+  that install a fake clock.
+- **Why**: plan B2. A test that fails mid-way under a fake clock would otherwise leak
+  it into the next test, turning one failure into a cascade. Unconditional restore is
+  a no-op when timers are already real.
+- **Reviewer's remedy if overturned**: none needed; it has no observable effect on the
+  eight real-timer tests.
+
+### RBD-050-9 — Per-test timeout annotations dropped in the client file only
+
+- **Decision**: the obsolete `10000` and `20000` per-test timeouts on the two client
+  recovery tests were dropped (plan B3/B4 permit it). The backend file's `10000` /
+  `30000` annotations were LEFT ALONE (plan A6 prefers the smaller diff).
+- **Why**: the client annotations existed solely to accommodate the real sleeps being
+  removed and are actively misleading now; the backend annotations are merely generous.
+- **Reviewer's remedy if overturned**: restore the two client annotations — they are
+  harmless either way.
