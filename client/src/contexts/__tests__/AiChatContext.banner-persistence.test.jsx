@@ -42,6 +42,15 @@ const { AiChatProvider, useAiChat } = await import('../AiChatContext');
 function wrapper({ children }) { return <AiChatProvider>{children}</AiChatProvider>; }
 function renderAiChat() { return renderHook(() => useAiChat(), { wrapper }); }
 
+// Let time pass by `ms`. Under real timers this is the plain sleep these tests
+// always used; under fake timers (the two recovery tests below) it advances the
+// single fake clock that also drives RECONNECT_ESTABLISH_MS and the tests' own
+// scheduled stream deliveries. Timer-agnostic so the eight real-timer tests keep
+// byte-identical behavior.
+const settle = async (ms) => (
+  vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(ms) : new Promise((r) => setTimeout(r, ms))
+);
+
 // Queue the create-chat → refreshList → title → refreshList api sequence.
 function mockNewChatFlow(chatId) {
   mockApi.post.mockResolvedValueOnce({ data: { id: chatId } });
@@ -61,7 +70,7 @@ async function sendWith(result, chatId, chunks, text = 'hi') {
   latestScriptedTransport().scriptSend(chunks);
   await act(async () => {
     await result.current.sendMessage(text);
-    await new Promise((r) => setTimeout(r, 30));
+    await settle(30);
   });
 }
 
@@ -77,7 +86,9 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     sessionStorage.clear();
     mockApi.get.mockResolvedValueOnce({ data: [] }); // chat-list on mount
   });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  // useRealTimers is unconditional so a test that fails mid-way under a fake
+  // clock can never leak it into the next test.
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   // ── T012 / US1: a failed turn stays visibly failed ────────────────────────
 
@@ -95,7 +106,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     // error → submitted (error cleared) → ready. The durable banner must NOT vanish
     // — SDK status is not a render gate (FR-008).
     latestScriptedTransport().scriptReconnect([{ type: 'start' }, { type: 'finish' }]);
-    await act(async () => { await result.current.resumeStream(); await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { await result.current.resumeStream(); await settle(20); });
 
     expect(result.current.status).toBe('ready');   // SDK cleared its error and ended clean
     expect(result.current.error).toBeUndefined();
@@ -110,7 +121,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     expect(result.current.errorInfo).toMatchObject({ code: 'provider_overloaded' });
 
     // Switch to a brand-new draft chat — no error bleeds across.
-    await act(async () => { await result.current.createChat(); await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => { await result.current.createChat(); await settle(10); });
     expect(result.current.errorInfo).toBeNull();
     expect(result.current.usageLimitReached).toBe(false);
   });
@@ -123,7 +134,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
 
     // A reload/select loads a transcript whose trailing user turn is stamped.
     mockApi.get.mockResolvedValueOnce({ data: { messages: [stampedUser('app_usage_limit')] } });
-    await act(async () => { result.current.selectChat('chat-reload'); await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { result.current.selectChat('chat-reload'); await settle(20); });
 
     // Derived purely from the transcript — identical copy/action to a live banner.
     expect(result.current.errorInfo).toMatchObject({ code: 'app_usage_limit' });
@@ -136,7 +147,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
     mockApi.get.mockResolvedValueOnce({ data: { messages: [userText, assistantReply] } });
-    await act(async () => { result.current.selectChat('chat-legacy'); await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { result.current.selectChat('chat-legacy'); await settle(20); });
 
     expect(result.current.errorInfo).toBeNull();
   });
@@ -147,6 +158,11 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
 
+    // Fake timers go in only AFTER the opening waitFor: RTL v14 detects Jest fake
+    // timers, not Vitest's, so a waitFor under a fake clock would hang. Everything
+    // below is driven by settle(), never waitFor.
+    vi.useFakeTimers();
+
     // A non-fatal internal failure enters recovery (no immediate banner).
     await sendWith(result, 'chat-int', errorChunks('Bad Gateway'));
 
@@ -154,15 +170,21 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     // that ends clean with NO content — waitForReply times out → banner stays.
     mockApi.get.mockResolvedValue({ data: { messages: [userText] } });
     latestScriptedTransport().scriptReconnect([{ type: 'start' }, { type: 'finish' }]);
-    await act(async () => { await new Promise((r) => setTimeout(r, 5600)); });
+    await act(async () => { await settle(5600); });
 
     expect(result.current.errorInfo).toMatchObject({ code: 'internal' });
     expect(result.current.reconnecting).toBe(false); // attempt concluded…
-  }, 10000);
+  });
 
   it('a reply that lands LATE (past the establish window) clears the stale banner + untouched draft (F2)', async () => {
     const { result } = renderAiChat();
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+
+    // Fake timers go in after the opening waitFor (RTL v14 does not detect Vitest
+    // fake timers) but BEFORE the reconnectToStream patch below, so the 6500ms
+    // delivery is armed on the same clock as RECONNECT_ESTABLISH_MS — otherwise the
+    // "late" reply could arrive un-late.
+    vi.useFakeTimers();
 
     // The resumed stream opens immediately but its first CONTENT arrives only AFTER
     // the establish window — a slow-TTFT reconnect. Model it with a delayed stream
@@ -186,20 +208,22 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     mockNewChatFlow('chat-late');
     mockApi.get.mockResolvedValueOnce({ data: { messages: [userText] } }); // recovery refetch
     t.scriptSend(errorChunks('Bad Gateway'));
-    await act(async () => { await result.current.sendMessage('my draft'); await new Promise((r) => setTimeout(r, 30)); });
+    await act(async () => { await result.current.sendMessage('my draft'); await settle(30); });
 
     // waitForReply times out (no content within 5s) → fallback: banner + restored draft.
-    await act(async () => { await new Promise((r) => setTimeout(r, 5500)); });
+    // 5500 crosses the 5000ms establish window but stops short of the 6500ms delivery,
+    // so this first stage is observed before the late reply lands.
+    await act(async () => { await settle(5500); });
     expect(result.current.errorInfo).toMatchObject({ code: 'internal' });
     expect(result.current.draftText).toBe('my draft');
     expect(result.current.reconnecting).toBe(false); // attempt concluded
 
     // The reply lands late on that same instance → the background late-reply watcher
     // retires the now-stale banner and withdraws the untouched draft (no duplicate send).
-    await act(async () => { await new Promise((r) => setTimeout(r, 3200)); });
+    await act(async () => { await settle(3200); });
     expect(result.current.errorInfo).toBeNull();
     expect(result.current.draftText).toBe('');
-  }, 20000);
+  });
 
   it('a fatal code is not recovered — banner renders immediately, no reconnect', async () => {
     const { result } = renderAiChat();
@@ -224,7 +248,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     // resend to succeed so it doesn't re-trip.
     latestScriptedTransport().scriptSend(replyChunks('recovered'));
     mockApi.get.mockResolvedValue({ data: [] });
-    await act(async () => { await result.current.sendMessage('try again'); await new Promise((r) => setTimeout(r, 30)); });
+    await act(async () => { await result.current.sendMessage('try again'); await settle(30); });
 
     expect(result.current.errorInfo).toBeNull();
   });
@@ -250,7 +274,7 @@ describe('durable banner persistence (real Chat + scripted transport)', () => {
     // Reload a transcript: stamped user turn followed by a partial assistant reply.
     const partial = { role: 'assistant', parts: [{ type: 'text', text: 'partial…' }] };
     mockApi.get.mockResolvedValueOnce({ data: { messages: [stampedUser('provider_overloaded', 'anthropic'), partial] } });
-    await act(async () => { result.current.selectChat('chat-mid-reload'); await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { result.current.selectChat('chat-mid-reload'); await settle(20); });
 
     expect(result.current.errorInfo).toMatchObject({ code: 'provider_overloaded' });
     expect(result.current.interruptionReason).toBeTruthy();
