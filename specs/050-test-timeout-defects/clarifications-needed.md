@@ -131,3 +131,93 @@ the file as of 2026-08-04 the real sleeps are 5600ms, 5500ms and 3200ms
 stream-delivery timer inside the late-reply test's patched transport, not a
 sleep. Substantively the design's claim holds; recorded here only so the next
 reader is not confused by the mismatch.
+
+---
+
+## C. Implementer decisions (RATIFIED BY DEFAULT)
+
+Taken at implement time on branch `050-test-timeout-defects`, 2026-08-04. Each is
+recorded so a reviewer can overturn it rather than discover it. None changes what
+any existing assertion proves.
+
+### RBD-050-5 — SC-002 is verified by the in-suite assertions, not by the log grep
+
+- **Decision**: treat the 20 added `expect(<result>.editRangePending).toBeUndefined()`
+  assertions as the SC-002 evidence, and disregard `grep -c editRangePending` on the
+  Jest log.
+- **Why forced**: the grep gate proposed in quickstart.md and T012 expects `> 0`
+  before and `0` after, but it reads **`0` in both** — `editRangePending` is a field
+  on the returned result object and is never printed to stdout, so the grep never
+  had anything to match. It does not discriminate.
+- **What was done instead**: the in-suite assertions were proven non-vacuous by
+  temporarily neutralizing the per-update listener (simulating pre-016 wiring) and
+  confirming `modify: append text to existing paragraph` then FAILS at the
+  `editRangePending` assertion and takes 5084 ms again. The temporary edit was
+  reverted immediately and appears in no commit.
+- **Reviewer's remedy if overturned**: none available — the grep cannot be made to
+  work without printing the flag, which would be a change to product logging.
+  quickstart.md's grep line is worth correcting in a later train.
+
+### RBD-050-6 — Guards added to the deliberately-failing modifies too
+
+- **Decision**: attach the additive `editRangePending` guard to the `badResult`
+  modifies in the Mermaid and SVG error tests, not only to the succeeding ones.
+- **Why**: T013 says "for every `modify` result the suite captures". These two guards
+  are vacuous (a script-error modify never enters the durability wait) but strictly
+  additive and true.
+- **Reviewer's remedy if overturned**: delete those two lines; nothing else depends
+  on them.
+
+### RBD-050-7 — The two unbound setup modifies are bound as `setupResult`
+
+- **Decision**: the setup modifies in `undo should succeed` and `redo should succeed`
+  were `await executeScript.handler(...)` with no assignment; they are now
+  `const setupResult = await executeScript.handler(...)` so the guard can be attached.
+- **Why**: T013 explicitly directs binding the result rather than restructuring the
+  surrounding assertions. `setupResult` avoids colliding with the `result` each test
+  already uses for its undo/redo call.
+- **Reviewer's remedy if overturned**: revert to the bare `await` and drop the two
+  guards.
+
+### RBD-050-8 — `vi.useRealTimers()` in `afterEach` is unconditional
+
+- **Decision**: `afterEach` calls `vi.useRealTimers()` on every test, not only the two
+  that install a fake clock.
+- **Why**: plan B2. A test that fails mid-way under a fake clock would otherwise leak
+  it into the next test, turning one failure into a cascade. Unconditional restore is
+  a no-op when timers are already real.
+- **Reviewer's remedy if overturned**: none needed; it has no observable effect on the
+  eight real-timer tests.
+
+### RBD-050-9 — Per-test timeout annotations dropped in the client file only
+
+- **Decision**: the obsolete `10000` and `20000` per-test timeouts on the two client
+  recovery tests were dropped (plan B3/B4 permit it). The backend file's `10000` /
+  `30000` annotations were LEFT ALONE (plan A6 prefers the smaller diff).
+- **Why**: the client annotations existed solely to accommodate the real sleeps being
+  removed and are actively misleading now; the backend annotations are merely generous.
+- **Reviewer's remedy if overturned**: restore the two client annotations — they are
+  harmless either way.
+
+### RBD-050-10 — SC-004's "Vitest wall under 10s" is reported MISSED, not worked around
+
+- **Decision**: report SC-004 as partially met and stop, rather than touch any file
+  outside this feature's scope to buy the last second.
+- **Measured**: client wall **18.10 s → 11.06-11.28 s** (three repeats). The file half
+  of SC-004 is met decisively: `AiChatContext.banner-persistence.test.jsx` goes
+  14 794 ms → 439 ms, a 34x cut, against a target of "about a second".
+- **Why the wall stops at ~11.1 s**: after the fix no test file is slow — the slowest is
+  2 772 ms. The residual wall is per-file fixed overhead across 72 files on 10 workers
+  (environment 27.3 s + setup 11.8 s + collect 10.5 s + transform 3.2 s summed, versus
+  29.5 s of actual test time). jsdom environment construction and module loading now
+  dominate, so no further single-file fix reaches 10 s.
+- **Why not fixed here**: reducing per-file environment cost or sharding the run is
+  Train B (§1.3 CI split/cache) and Train C (Part 2 parallel isolation), both explicitly
+  out of scope (FR-009). Chasing the number by excluding a file or relaxing an assertion
+  is forbidden by FR-006.
+- **What the spec assumed**: that banner-persistence was the whole gap between 18.2 s and
+  the target. It was the whole gap between 18.2 s and ~11 s; the last 1.1 s was never in
+  this train's reach.
+- **Reviewer's remedy if overturned**: re-target SC-004's wall half at Train B/C, or
+  restate it as "wall under 12 s" for Train A. Either is a spec/design amendment, not an
+  implementation change.
