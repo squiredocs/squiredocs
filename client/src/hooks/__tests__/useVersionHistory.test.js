@@ -845,6 +845,64 @@ describe('useVersionHistory', () => {
       expect(after.some(v => v.id === result.current.selection.id)).toBe(true);
     });
 
+    it('keeps an older NAMED version selected when named ranges nest (live E2E HIGH)', async () => {
+      // Versions named through the UI all begin at clock 0, so their ranges
+      // nest and every one of them contains an older selection's clockEnd.
+      // Resolving to the FIRST containing match silently switched the panel to
+      // the newest version about two seconds after the user clicked an older
+      // one, and re-applied it on every poll so re-clicking never stuck.
+      const nested = [
+        { id: 'n3', name: 'Draft three', clockStart: 0, clockEnd: 77, timestamp: '2025-01-01T10:03:00Z', isCurrent: true },
+        { id: 'n2', name: 'Draft two', clockStart: 0, clockEnd: 47, timestamp: '2025-01-01T10:02:00Z', isCurrent: false },
+        { id: 'n1', name: 'Draft one', clockStart: 0, clockEnd: 23, timestamp: '2025-01-01T10:01:00Z', isCurrent: false },
+      ];
+
+      // The refresh must return a FRESH array, as the real fetch does — the
+      // reconcile effect is keyed on the versions array identity, so reusing
+      // the same object makes React bail out and the effect never runs (which
+      // would make this test pass against the bug).
+      const refreshed = nested.map(v => ({ ...v }));
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: nested, totalEdits: 9 } })
+        .mockResolvedValueOnce(diffOk)               // select Draft one
+        .mockResolvedValueOnce({ data: { versions: refreshed, totalEdits: 9 } })
+        .mockResolvedValue(diffOk);
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(3));
+
+      await act(async () => { await result.current.selectVersion(nested[2]); });
+      expect(result.current.selection.id).toBe('n1');
+
+      // The poll must not move the user off the version they chose.
+      await act(async () => { await result.current.refresh(); });
+      expect(result.current.selection.id).toBe('n1');
+      expect(result.current.selection.clockEnd).toBe(23);
+    });
+
+    it('still follows the CURRENT version as it grows', async () => {
+      // The narrowest-containing rule must not break the case reconciliation
+      // exists for: the auto-version the panel selects by default advances as
+      // collaborators type, and the preview has to follow it.
+      const before = [{ id: '77', name: null, clockStart: 0, clockEnd: 77, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
+      const after = [{ id: '90', name: null, clockStart: 0, clockEnd: 90, timestamp: '2025-01-01T10:01:00Z', isCurrent: true }];
+
+      mockApi.get
+        .mockResolvedValueOnce({ data: { versions: before, totalEdits: 9 } })
+        .mockResolvedValueOnce(diffOk)
+        .mockResolvedValueOnce({ data: { versions: after, totalEdits: 12 } })
+        .mockResolvedValue(diffOk);
+
+      const { result } = renderHook(() => useVersionHistory('doc-123'));
+      await waitFor(() => expect(result.current.versions).toHaveLength(1));
+
+      await act(async () => { await result.current.selectVersion(before[0]); });
+      await act(async () => { await result.current.refresh(); });
+
+      await waitFor(() => expect(result.current.selection.clockEnd).toBe(90));
+    });
+
     it('adopts a renamed version without re-fetching an identical preview', async () => {
       const before = [{ id: 'nv', name: 'Old name', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];
       const after = [{ id: 'nv', name: 'New name', clockStart: 1, clockEnd: 5, timestamp: '2025-01-01T10:00:00Z', isCurrent: true }];

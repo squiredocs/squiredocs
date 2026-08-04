@@ -624,9 +624,27 @@ export function useVersionHistory(docGuid) {
       return;
     }
 
-    const containing = freshVersions.find(
-      v => v.clockStart <= current.clockEnd && v.clockEnd >= current.clockEnd
-    );
+    // Which version is the user looking at, now that the list has refreshed?
+    //
+    // Prefer the SAME version by id: a named version keeps a stable database id,
+    // so this is exact. Otherwise take the NARROWEST range that still contains
+    // the selection.
+    //
+    // Narrowest, not first. Versions named through the UI all begin at clock 0,
+    // so their ranges NEST — 0-23, 0-47, 0-77 — and every one of them contains
+    // an older selection's clockEnd. Taking the first match resolved every named
+    // version to the widest one: clicking "Draft one" showed its content for
+    // about two seconds, then the panel silently switched to the newest version,
+    // and re-applied that on every poll so re-clicking could never stick. No
+    // error, no way to view any named version but the widest. (The auto-version
+    // path never nests, which is why this hid until a version was named from
+    // the UI rather than over MCP.)
+    const sameId = freshVersions.find(v => v.id === current.id);
+    const containing = sameId || freshVersions.reduce((best, v) => {
+      if (v.clockStart > current.clockEnd || v.clockEnd < current.clockEnd) return best;
+      if (!best) return v;
+      return (v.clockEnd - v.clockStart) < (best.clockEnd - best.clockStart) ? v : best;
+    }, null);
 
     // A sub-version selection stays valid as long as a top-level version still
     // covers it; only when its containing version is gone do we fall back.
