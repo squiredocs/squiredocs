@@ -358,11 +358,16 @@ Redis client stays connected after the suite finishes, so plain `npx jest` never
 exits on its own. Interactively that looks like a hang; piped or captured (as an
 agent runs it) the command blocks indefinitely and returns nothing, which reads
 like a broken test run rather than a finished one. If you need to run a single
-suite, keep the flags AND the Redis host the npm script sets for you:
-`REDIS_HOST=localhost npx jest path/to/file.test.js --runInBand --forceExit`.
-Without `REDIS_HOST` the Redis-touching suites hang with **no output at all**
-rather than failing, which reads like a code regression and is not one. Note
-also that `npm run test:server -- path/to/file.test.js` does NOT work: the
+suite, keep the flags: `npx jest path/to/file.test.js --runInBand --forceExit`.
+The hang is caused by the missing `--forceExit` alone. An earlier version of
+this note also blamed a missing `REDIS_HOST`; that was wrong, and measurably so
+— without it a Redis-touching suite FAILS in under a second with explicit
+errors, it does not hang. `REDIS_HOST` still matters for a different reason:
+the npm script defaults it to `localhost` while the pod environment exports
+`collab-redis`, so a bare `npx jest` can silently target a **different Redis**
+than `npm run test:server` does. Set it deliberately (`REDIS_HOST=collab-redis`)
+rather than copying a default. Note also that
+`npm run test:server -- path/to/file.test.js` does NOT work: the
 positional lands after `--reporters=` and jest rejects it as a custom reporter.
 Backend tests are serial-only against one database — never run two suites
 concurrently against the same `DATABASE_URL`; they delete each other's fixture
@@ -1008,23 +1013,38 @@ server: {
 
 ### Searching the code: some files are invisible to plain `grep`
 
-A few source files contain NUL bytes (they hold binary-ish literals), so `file`
-reports them as `data` and `grep`/`git grep` treat them as binary and **silently
-report no matches**. Known today: `server/markdown-sync.js` and
-`server/resupply-resolution.js`.
-
-A negative `grep` on one of these is indistinguishable from a genuine absence,
-and that has repeatedly produced confident wrong conclusions — three separate
-agents have reported a function "missing" from `markdown-sync.js` when it was
-sitting there the whole time (`applySyncPush` at L1063, the pinned sync-push
-`clientID` at L1111).
-
-Use `grep -a` (or read the file) before concluding something is not there:
+A few source files contain NUL bytes (they use `'\0'` as a join separator), so
+`file` reports them as `data` and plain `grep` treats them as binary and
+**silently reports no matches**. Three tracked JS files today:
 
 ```bash
-grep -an "applySyncPush" server/markdown-sync.js   # finds it
-grep -n  "applySyncPush" server/markdown-sync.js   # silently finds nothing
+# regenerate this list rather than trusting it
+for f in $(git ls-files '*.js' '*.mjs' '*.jsx' | grep -v node_modules); do
+  [ "$(file -b "$f")" = data ] && echo "$f"
+done
+# server/markdown-sync.js
+# server/mcp/yjs/serialization.js
+# server/resupply-resolution.js
 ```
+
+A negative `grep` on one of these is indistinguishable from a genuine absence,
+and that has repeatedly produced confident wrong conclusions — four separate
+agents have reported something "missing" from one of these files when it was
+sitting there the whole time. One of them recommended "correcting" a design doc
+that was already right, which would have replaced a correct reference with a
+wrong one.
+
+**Only plain `grep` lies.** `git grep` and `rg` both work here: git's binary
+heuristic only inspects the first 8000 bytes, and every NUL in these files sits
+past offset 12700.
+
+```bash
+grep -n  "applySyncPush" server/markdown-sync.js   # silently finds NOTHING
+grep -an "applySyncPush" server/markdown-sync.js   # finds it (L1063)
+git grep -n "applySyncPush" -- server/markdown-sync.js  # also finds it
+```
+
+Never state "X is not in file Y" on the strength of a plain `grep` alone.
 
 Never state "X is not in file Y" on the strength of a plain `grep` alone.
 

@@ -2027,11 +2027,17 @@ wss.on('connection', (ws, req) => {
         logPerf(event, {
           connId, userId, docId, role: userRole, reason, foreignIds, conflicts, dropped, sinceLastLog,
         });
-        // `dropped`, not 1: this line is rate-suppressed per connection, so
-        // counting calls would undercount precisely during a flood. After the
-        // cross-pod vouching fix this should fall to roughly zero — if it does
-        // not, legitimate reconnects are still being refused.
-        telemetryMetrics.recordAwarenessBlocked(reason, dropped);
+        // `sinceLastLog`, not 1 and not `dropped`. This line is rate-suppressed
+        // per connection, so counting CALLS would undercount during a flood —
+        // but `dropped` is the connection's running TOTAL, and adding a running
+        // total to a counter sums every emission's cumulative (a connection
+        // refused across 60 windows reports ~30x). `sinceLastLog` is the delta
+        // this emission represents and is reset immediately after, so the sum
+        // over emissions is exactly the number of frames dropped.
+        // After the cross-pod vouching fix this should fall to roughly zero —
+        // if it does not, legitimate reconnects are still being refused, and
+        // that verdict only works if the number means what it says.
+        telemetryMetrics.recordAwarenessBlocked(reason, sinceLastLog);
         console.log(
           `✗ Awareness frame blocked (${reason}): user ${userId} asserted clientIds [${foreignIds}] `
           + `it does not control on doc ${docId} (held by `

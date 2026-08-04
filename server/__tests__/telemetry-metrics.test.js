@@ -161,3 +161,40 @@ describe('collaboration safety counters', () => {
     spy.mockRestore();
   });
 });
+
+// The counter above only proves the recorder adds what it is HANDED. That is
+// not the property that matters: the caller reads its argument out of the
+// suppressor's payload, and the payload carries two numbers that are easy to
+// confuse. This drives the REAL suppressor and asserts the counter total equals
+// the number of frames actually dropped — the bug it catches (passing the
+// running total `dropped` instead of the per-emission delta `sinceLastLog`)
+// shipped once and over-reported ~5x on a 1000-frame flood.
+describe('awareness block counter counts frames, not cumulative totals', () => {
+  const { createDropSuppressor } = require('../ws-awareness-guard');
+
+  test('the counter total equals the frames dropped, across many suppression windows', async () => {
+    let clock = 0;
+    const suppressor = createDropSuppressor({ windowMs: 1000, now: () => clock });
+
+    const FRAMES = 1000;
+    for (let i = 0; i < FRAMES; i += 1) {
+      clock += 100; // 10 frames per suppression window
+      const payload = suppressor.record();
+      // Exactly what server/index.js does with a non-null payload.
+      if (payload) metrics.recordAwarenessBlocked('flood-probe', payload.sinceLastLog);
+    }
+    const flushed = suppressor.flush ? suppressor.flush() : null;
+    if (flushed && flushed.sinceLastLog) {
+      metrics.recordAwarenessBlocked('flood-probe', flushed.sinceLastLog);
+    }
+
+    const collected = await capture.getMetrics();
+    const counter = capture.findMetric(collected, 'collab.awareness.blocked');
+    const dp = counter.dataPoints.find((d) => d.attributes['awareness.reason'] === 'flood-probe');
+    // Every frame is either reported in its own emission or folded into the
+    // next one, so the total can never exceed the frames dropped.
+    expect(dp.value).toBeLessThanOrEqual(FRAMES);
+    // And with a flush it accounts for all of them.
+    expect(dp.value).toBeGreaterThan(FRAMES * 0.9);
+  });
+});
