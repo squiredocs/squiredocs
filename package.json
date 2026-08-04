@@ -99,6 +99,7 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "cacheDirectory": "<rootDir>/.jest-cache",
     "testMatch": [
       "**/__tests__/**/*.test.js",
       "**/?(*.)+(spec|test).js"

@@ -6,7 +6,7 @@ on:
       - '*'
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
 
     services:
@@ -44,11 +44,20 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # Jest's Babel transform cache. Additive to the npm cache above: that one
+      # caches package tarballs, this one caches transform output. A stale or
+      # missing entry can only cost time, never change a result — Jest
+      # re-transforms whenever content does not match.
+      - name: Cache Jest transform output
+        uses: actions/cache@v4
+        with:
+          path: .jest-cache
+          key: jest-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            jest-cache-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm ci
-
-      - name: Install client dependencies
-        run: cd client && npm ci
 
       - name: Run server tests
         env:
@@ -57,9 +66,27 @@ jobs:
           REDIS_PORT: 6379
         run: npm run test:server
 
+  client:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
       - name: Run client tests
         run: npm run test:client
 
       - name: Run first-run rehearsal suite (deterministic — bundle drift, content budgets, grader regressions)
         run: npm run test:first-run
-

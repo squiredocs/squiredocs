@@ -10,6 +10,8 @@ test-data-integration/
 *.log
 coverage/
 .nyc_output/
+# Jest transform cache (feature 051) — repo-local so CI can restore it between runs
+.jest-cache/
 .cursor
 k8s/postgres-secret.yaml
 k8s/mcp-auth-secret.yaml
