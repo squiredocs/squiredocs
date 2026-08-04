@@ -198,3 +198,26 @@ any existing assertion proves.
   removed and are actively misleading now; the backend annotations are merely generous.
 - **Reviewer's remedy if overturned**: restore the two client annotations — they are
   harmless either way.
+
+### RBD-050-10 — SC-004's "Vitest wall under 10s" is reported MISSED, not worked around
+
+- **Decision**: report SC-004 as partially met and stop, rather than touch any file
+  outside this feature's scope to buy the last second.
+- **Measured**: client wall **18.10 s → 11.06-11.28 s** (three repeats). The file half
+  of SC-004 is met decisively: `AiChatContext.banner-persistence.test.jsx` goes
+  14 794 ms → 439 ms, a 34x cut, against a target of "about a second".
+- **Why the wall stops at ~11.1 s**: after the fix no test file is slow — the slowest is
+  2 772 ms. The residual wall is per-file fixed overhead across 72 files on 10 workers
+  (environment 27.3 s + setup 11.8 s + collect 10.5 s + transform 3.2 s summed, versus
+  29.5 s of actual test time). jsdom environment construction and module loading now
+  dominate, so no further single-file fix reaches 10 s.
+- **Why not fixed here**: reducing per-file environment cost or sharding the run is
+  Train B (§1.3 CI split/cache) and Train C (Part 2 parallel isolation), both explicitly
+  out of scope (FR-009). Chasing the number by excluding a file or relaxing an assertion
+  is forbidden by FR-006.
+- **What the spec assumed**: that banner-persistence was the whole gap between 18.2 s and
+  the target. It was the whole gap between 18.2 s and ~11 s; the last 1.1 s was never in
+  this train's reach.
+- **Reviewer's remedy if overturned**: re-target SC-004's wall half at Train B/C, or
+  restate it as "wall under 12 s" for Train A. Either is a spec/design amendment, not an
+  implementation change.
