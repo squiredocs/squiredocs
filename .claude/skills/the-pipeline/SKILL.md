@@ -54,6 +54,7 @@ Deploy is NOT part of the agent pipeline: after the queue is green, tell Sam wha
 - Stay on the current branch; never create/switch branches, never commit (docs agents) — implementers branch in their own worktree only.
 - Never run create-new-feature.sh, never write `.specify/feature.json` (shared, racy); mkdir the pre-assigned `specs/NNN-slug/` and copy the template. Pre-assign feature numbers up front so parallel runs never race.
 - Prefix any .specify script with `SPECIFY_FEATURE=<dir> SPECIFY_FEATURE_DIRECTORY=<abs-path>` per call.
+- `check-prerequisites.sh` WRITES `.specify/feature.json` unless called with `--paths-only` (the only read-only flag combination) — the analyze skill's mandated `--json --require-tasks --include-tasks` invocation clobbers sibling agents' pointers (hit 2026-08-04 by 051's analyze; agent self-detected and restored). Parallel agents: source `common.sh` and use `get_feature_paths --no-persist`, or restore the file's prior value immediately after.
 - Never edit `CLAUDE.md`, `README.md`, or `docs/dev.md` from a parallel agent — doc updates happen in the merge queue where they can be reconciled (constitution Principle I).
 - No user interaction: defaults + ledger, or stop-and-report when genuinely blocked.
 
