@@ -15,9 +15,15 @@ const http = require('http');
 const { createPool, createPersistence } = require('../../../__tests__/helpers/db');
 const toolRegistry = require('../../tools/index');
 const { setupWSConnection, setPersistence, getYDoc } = require('y-websocket/bin/utils');
+const { ORIGIN_DB_LOAD, parseOrigin } = require('../../../origin');
 const agentPresence = require('../../agent-presence');
 const documents = require('../../../documents');
 const documentService = require('../../../document-service');
+
+// Every per-update store is fire-and-forget; collect the promises so afterAll can
+// flush them before the cleanup DELETEs (otherwise truncation races in-flight
+// writes and strands orphan rows for later suites).
+const pendingOperations = [];
 
 // Mock agent token
 const mockAgentToken = {
@@ -47,19 +53,42 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
       return docName;
     };
 
+    // Per-update, identity-attributed persistence (the post-016 pattern shared with
+    // modify-echo.test.js and modify-conflict-detection.test.js). Each Yjs update is
+    // stored as it streams, tagged with the identity carried on its transaction
+    // origin — which is what modify's durability wait (awaitDurableRange) polls for.
+    // The previous snapshot-only wiring stored one UNATTRIBUTED row on connection
+    // close, so attributed rows never appeared while the tool polled and every
+    // changed modify timed out at EDIT_RANGE_WAIT_MS (5s) and returned
+    // editRangePending.
     setPersistence({
       bindState: async (docName, ydoc) => {
         const docGuid = extractDocGuid(docName);
-        const persistedYdoc = await persistence.getYDoc(docGuid);
-        Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc));
+        // Install the listener BEFORE the initial load so nothing is missed.
+        ydoc.on('update', (update, origin) => {
+          const parsed = parseOrigin(origin);
+          if (!parsed) return;
+          pendingOperations.push(
+            persistence.storeUpdate(docGuid, update, parsed.userId, parsed.agentName)
+              .catch((err) => console.error(`persist err ${docGuid}:`, err))
+          );
+        });
+        try {
+          const persistedYdoc = await persistence.getYDoc(docGuid);
+          // ORIGIN_DB_LOAD is load-bearing: parseOrigin returns null for this
+          // sentinel, so the listener skips the bind's own load instead of
+          // re-storing the whole document as an unattributed row.
+          Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(persistedYdoc), ORIGIN_DB_LOAD);
+        } catch (_) { /* new doc */ }
         // Mirrors the real createBindState's completion mark, which the 048
         // bind-readiness gate in updateDocument waits on.
         ydoc._bindComplete = true;
       },
-      writeState: async (docName, ydoc) => {
-        const docGuid = extractDocGuid(docName);
-        await persistence.storeUpdate(docGuid, Y.encodeStateAsUpdate(ydoc));
-      },
+      // No-op: every update was already stored attributed by the listener above.
+      // Storing a close-time snapshot as well would double-store the document as
+      // unattributed rows.
+      writeState: async () => {},
+      provider: persistence,
     });
 
     // Initialize modules
@@ -69,6 +98,18 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
     // Initialize agent presence with persistence
     agentPresence.init(persistence);
+
+    // Create the test user BEFORE the server starts accepting connections, so the
+    // identity stamped onto each socket below provably exists first.
+    const userResult = await pool.query(
+      `INSERT INTO users (google_id, name, email, picture)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      ['test-google-id-' + Date.now(), 'Test User', 'test-' + Date.now() + '@example.com', 'https://example.com/avatar.jpg']
+    );
+    testUserId = userResult.rows[0].id;
+    mockAgentToken.userId = testUserId;
+    mockAgentToken.rawToken = 'mock-jwt-token-' + Date.now(); // Set token for WebSocket auth
 
     // Create HTTP server
     httpServer = http.createServer();
@@ -80,6 +121,13 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
     });
 
     wss.on('connection', (ws, req) => {
+      // Production stamps these in the auth middleware (server/index.js) before
+      // setupWSConnection. Without them, updates arriving over the presence
+      // sockets parse as an unrecognized origin and persist unattributed.
+      // 'Test Agent' must match mockAgentToken.agentName — the durability wait
+      // filters rows by (userId, agentName).
+      ws.userId = testUserId;
+      ws.agentName = 'Test Agent';
       setupWSConnection(ws, req, {
         gc: false // Disable garbage collection to keep documents in memory
       });
@@ -96,17 +144,6 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
         resolve();
       });
     });
-
-    // Create test user
-    const userResult = await pool.query(
-      `INSERT INTO users (google_id, name, email, picture)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id`,
-      ['test-google-id-' + Date.now(), 'Test User', 'test-' + Date.now() + '@example.com', 'https://example.com/avatar.jpg']
-    );
-    testUserId = userResult.rows[0].id;
-    mockAgentToken.userId = testUserId;
-    mockAgentToken.rawToken = 'mock-jwt-token-' + Date.now(); // Set token for WebSocket auth
 
     // Create test document with initial content
     const ydoc = new Y.Doc();
@@ -159,6 +196,11 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
     // Wait for any pending writeState callbacks to complete
     await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Flush every in-flight per-update store before the cleanup DELETEs below,
+    // so truncation can't race a write and strand orphan rows for later suites.
+    await Promise.all(pendingOperations);
+    pendingOperations.length = 0;
 
     // Clean up test data
     await pool.query('DELETE FROM yjs_updates WHERE doc_guid = $1', [testDocGuid]);
@@ -225,6 +267,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script },
         mockAgentToken
       );
+      expect(modifyResult.editRangePending).toBeUndefined();
       expect(modifyResult.changed).toBeDefined();
       console.log(`✓ modify completed with ${modifyResult.operationCount} operations`);
 
@@ -297,6 +340,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script },
         mockAgentToken
       );
+      expect(modifyResult.editRangePending).toBeUndefined();
 
       expect(modifyResult.changed).toBeDefined();
       console.log(`✓ modify completed`);
@@ -355,6 +399,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script: badScript },
         mockAgentToken
       );
+      expect(badResult.editRangePending).toBeUndefined();
       // Edit still applied (non-blocking) but the error is surfaced.
       expect(badResult.changed).toBe(true);
       expect(Array.isArray(badResult.mermaidErrors)).toBe(true);
@@ -376,6 +421,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script: fixScript },
         mockAgentToken
       );
+      expect(fixResult.editRangePending).toBeUndefined();
       expect(fixResult.changed).toBe(true);
       expect(fixResult.mermaidErrors).toBeUndefined();
 
@@ -417,6 +463,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script: badScript },
         mockAgentToken
       );
+      expect(badResult.editRangePending).toBeUndefined();
       // Edit still applied (non-blocking) but the problem is surfaced.
       expect(badResult.changed).toBe(true);
       expect(Array.isArray(badResult.svgErrors)).toBe(true);
@@ -438,6 +485,7 @@ export default function edit(doc) {
         { docGuid: newDocGuid, script: fixScript },
         mockAgentToken
       );
+      expect(fixResult.editRangePending).toBeUndefined();
       expect(fixResult.changed).toBe(true);
       expect(fixResult.svgErrors).toBeUndefined();
 
@@ -537,6 +585,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -663,6 +712,7 @@ export default function edit(doc) {
         { docGuid: bugTestDocGuid, script: initScript },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
       expect(result.changed).toBeDefined();
       console.log('✓ Step 1: Initial content added');
 
@@ -699,6 +749,7 @@ export default function edit(doc) {
         { docGuid: bugTestDocGuid, script },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -768,6 +819,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -806,6 +858,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -857,6 +910,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -888,6 +942,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result.changed).toBeDefined();
 
@@ -919,6 +974,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -964,6 +1020,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -1009,6 +1066,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -1076,6 +1134,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
@@ -1096,7 +1155,7 @@ export default function edit(doc) {
     test('undo should succeed', async () => {
       // First make a change
       const executeScript = toolRegistry.getTool('modify');
-      await executeScript.handler(
+      const setupResult = await executeScript.handler(
         {
           docGuid: testDocGuid,
           script: `
@@ -1111,6 +1170,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(setupResult.editRangePending).toBeUndefined();
 
       // Now undo it
       const undo = toolRegistry.getTool('undo');
@@ -1132,7 +1192,7 @@ export default function edit(doc) {
     test('redo should succeed', async () => {
       // First make a change
       const executeScript = toolRegistry.getTool('modify');
-      await executeScript.handler(
+      const setupResult = await executeScript.handler(
         {
           docGuid: testDocGuid,
           script: `
@@ -1147,6 +1207,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(setupResult.editRangePending).toBeUndefined();
 
       // Undo it
       const undo = toolRegistry.getTool('undo');
@@ -1244,6 +1305,7 @@ export default function edit(doc) {
         },
         mockAgentToken
       );
+      expect(result.editRangePending).toBeUndefined();
 
       expect(result).toBeDefined();
       expect(result.changed).toBeDefined();
