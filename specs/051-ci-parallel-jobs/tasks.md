@@ -32,8 +32,8 @@ Only three tracked files change (FR-009): `.github/workflows/test.yml`, `package
 **Purpose**: Capture the "before" state so parity (SC-002) and speed (SC-001) can be argued
 from evidence rather than memory. Nothing in this phase modifies the repository.
 
-- [ ] T001 Save the pre-split workflow for later diffing: `git show HEAD:.github/workflows/test.yml > /tmp/test.yml.baseline`, and record from the most recent green CI run on `main` the single `test` job's total duration and per-step durations (server / client / first-run). These are the SC-001 comparison baseline.
-- [ ] T002 [P] Record the pre-split suite totals by running `npm run test:server`, `npm run test:client`, and `npm run test:first-run` in the app-dev pod and noting each suite's file and test counts (design baseline: backend 254 files / 4574 tests, client 72 files / 936 tests, first-run 31 tests). This is the SC-002 parity baseline.
+- [X] T001 Save the pre-split workflow for later diffing: `git show HEAD:.github/workflows/test.yml > /tmp/test.yml.baseline`, and record from the most recent green CI run on `main` the single `test` job's total duration and per-step durations (server / client / first-run). These are the SC-001 comparison baseline.
+- [X] T002 [P] Record the pre-split suite totals by running `npm run test:server`, `npm run test:client`, and `npm run test:first-run` in the app-dev pod and noting each suite's file and test counts (design baseline: backend 254 files / 4574 tests, client 72 files / 936 tests, first-run 31 tests). This is the SC-002 parity baseline.
 
 **Checkpoint**: Baseline captured; the repository is still untouched.
 
@@ -50,7 +50,7 @@ line first makes that a non-event; adding it after means at least one run leaves
 The line is a harmless no-op on its own (it names a directory that does not exist yet), which
 is why it is safe to land first.
 
-- [ ] T003 Add `.jest-cache/` to `.gitignore`, placed with a short comment near the other generated-artifact entries (for example after the `coverage/` / `.nyc_output/` group), following the file's existing convention of a comment explaining each non-obvious entry. Satisfies FR-008 and underwrites US3's clean-tree guarantee.
+- [X] T003 Add `.jest-cache/` to `.gitignore`, placed with a short comment near the other generated-artifact entries (for example after the `coverage/` / `.nyc_output/` group), following the file's existing convention of a comment explaining each non-obvious entry. Satisfies FR-008 and underwrites US3's clean-tree guarantee.
 
 **Checkpoint**: The ignore list is ready for the cache directory that US2 will create.
 
@@ -211,3 +211,49 @@ Task: "Run npm run test:client and npm run test:first-run, confirm counts match 
   validation is not optional ceremony — it is the only pre-flight this feature gets.
 - T021–T024 cannot be completed by the implementing agent in a worktree; they are the
   post-merge verification owed on the live CI system.
+
+---
+
+## Recorded baselines (T001 / T002), measured 2026-08-04
+
+### T001 — last green pre-split run on `main`
+
+Run `30935305773` ("Identify the affected user in exception notification emails", `f5ef249a`),
+single job `test`, total **511s (8m31s)**. Per-step:
+
+| Step | Duration |
+| --- | --- |
+| Set up job + Initialize containers | 28s |
+| Checkout code | 3s |
+| Set up Node.js | 3s |
+| Install dependencies (root `npm ci`) | 20s |
+| Install client dependencies | 9s |
+| Run server tests | **320s** |
+| Run client tests | **121s** |
+| Run first-run rehearsal suite | **2s** |
+| Post/teardown steps | ~5s |
+
+Post-install test wall time today: **443s sequential**. After the split the two jobs'
+post-install work is backend ≈ 320s and client ≈ 123s, so the run's post-install wall time
+should land at ≈ the backend job alone (~320s), a saving of ~123s. Note this measured
+baseline is larger than the spec's "~290s sequential" figure — SC-001 must be judged against
+this run, not against the design table (gap G-051-A).
+
+### T002 — pre-split suite totals
+
+| Suite | Measured | Design baseline | Match |
+| --- | --- | --- | --- |
+| Backend (Jest) | 254 test files (`npx jest --listTests`) | 254 files / 4574 tests | files ✓ |
+| Client (Vitest) | 72 suites, 936 passed | 72 files / 936 tests | ✓ |
+| First-run (`node --test`) | 31 tests, 31 pass | 31 tests | ✓ |
+
+Pre-change effective Jest `cacheDirectory`: `/tmp/jest_0` (the OS-tmp default), as research.md
+recorded.
+
+**Deviation**: the backend total was taken with `npx jest --listTests` (file inventory) rather
+than a full `npm run test:server` execution. The worktree has no backend database of its own,
+and the shared `collab_test_db` is serial-only — a full backend run from this worktree risks
+corrupting the database another agent may be using. File-count parity plus the structural
+argument (no npm script, no test file, and no jest `testMatch`/`testPathIgnorePatterns` entry
+changed) carries SC-002 for the backend suite locally; the authoritative executed-test parity
+check is T022 on the live CI run.
