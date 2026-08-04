@@ -240,7 +240,7 @@ for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
 > / point it at `k3s-squiredocs`, or build+push manually and run `deploy-aws.sh`
 > directly. See [docs/operations.md](docs/operations.md#deploy-tooling).
 
-> **Note:** CI (`.github/workflows/test.yml`) only runs the server and client tests — it does **not** build or push any image. So a production deploy always needs a local build+push. `deploy-aws.sh` resolves the app image's ECR digest from the pushed tag and fails if it's missing (no mutable-tag fallback).
+> **Note:** CI (`.github/workflows/test.yml`) only runs tests — a `backend` job for the server suite and a `client` job for the client and first-run rehearsal suites, the two running in parallel. It does **not** build or push any image. So a production deploy always needs a local build+push. `deploy-aws.sh` resolves the app image's ECR digest from the pushed tag and fails if it's missing (no mutable-tag fallback).
 
 ### Notes
 

@@ -113,11 +113,11 @@ unchanged and `git status` shows no new untracked files.
 
 ### Implementation for User Story 3
 
-- [ ] T013 [US3] In the app-dev pod, `rm -rf .jest-cache` then run `npm run test:server`. Confirm the pass/fail result and the LLM reporter's output shape match the T002 baseline, and that `.jest-cache/` is created and populated. (SC-005, US3 scenario 1)
-- [ ] T014 [US3] Run `git status --short` and confirm `.jest-cache` does **not** appear as untracked. A `?? .jest-cache/` line means the T003 ignore entry is missing or misspelled. (FR-008, SC-005, invariant C2)
-- [ ] T015 [US3] [P] Run `npm run test:client` and `npm run test:first-run` locally and confirm both are unchanged against the T002 baseline — same file and test counts, same reporter output shape. (SC-002, FR-004)
-- [ ] T016 [US3] Run a second `npm run test:server` without clearing the cache and confirm it is faster than T013's cold run with an identical result — a local preview of SC-003 and a direct check of FR-007's correctness-neutrality. (`quickstart.md` §A5)
-- [ ] T017 [US3] Verify the scope contract C-8: `git diff --stat HEAD` lists exactly `.github/workflows/test.yml`, `package.json`, `.gitignore`, and nothing under `server/`, `client/`, `shared/`, `script/`, `test/`, or `__tests__/`. If the Principle I check in T019 later adds a `README.md` correction, re-run this check and confirm that is the only additional path. (FR-009, US3 scenario 2)
+- [X] T013 [US3] In the app-dev pod, `rm -rf .jest-cache` then run `npm run test:server`. Confirm the pass/fail result and the LLM reporter's output shape match the T002 baseline, and that `.jest-cache/` is created and populated. (SC-005, US3 scenario 1)
+- [X] T014 [US3] Run `git status --short` and confirm `.jest-cache` does **not** appear as untracked. A `?? .jest-cache/` line means the T003 ignore entry is missing or misspelled. (FR-008, SC-005, invariant C2)
+- [X] T015 [US3] [P] Run `npm run test:client` and `npm run test:first-run` locally and confirm both are unchanged against the T002 baseline — same file and test counts, same reporter output shape. (SC-002, FR-004)
+- [X] T016 [US3] Run a second `npm run test:server` without clearing the cache and confirm it is faster than T013's cold run with an identical result — a local preview of SC-003 and a direct check of FR-007's correctness-neutrality. (`quickstart.md` §A5)
+- [X] T017 [US3] Verify the scope contract C-8: `git diff --stat HEAD` lists exactly `.github/workflows/test.yml`, `package.json`, `.gitignore`, and nothing under `server/`, `client/`, `shared/`, `script/`, `test/`, or `__tests__/`. If the Principle I check in T019 later adds a `README.md` correction, re-run this check and confirm that is the only additional path. (FR-009, US3 scenario 2)
 
 **Checkpoint**: All three user stories independently verified locally. Everything remaining
 requires a push.
@@ -126,13 +126,20 @@ requires a push.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T018 Verify contract C-2 (Constitution, "Test output MUST stay LLM-friendly"): `git diff HEAD -- package.json` shows the `jest.cacheDirectory` key added and **no** change to any `scripts.*` entry, so `--reporters=./script/jest-llm-reporter.js` and `--reporter=../script/vitest-llm-reporter.mjs` remain attached inside the npm scripts where the workflow cannot detach them.
-- [ ] T019 Constitution Principle I check: re-read the CI note in `README.md` (around line 243) and confirm the split did not falsify it — it describes *what* CI runs and that CI builds no image, neither of which this feature changes. If it is now inaccurate, correct it in the same commit. While there, the pre-existing omission of the first-run rehearsal suite from that sentence may be corrected; a documentation file is not an application source file under FR-009. Do not restructure the section.
-- [ ] T020 [P] Verify contract C-9 — the coordination surface reserved for feature 052 is untouched: `scripts.test:server` (still carrying `--runInBand`), the absence of `jest.maxWorkers`, `jest.globalSetup`, and the literal `DATABASE_URL` value are all unchanged from HEAD. This is what keeps 052's worker work from colliding with this feature.
+- [X] T018 Verify contract C-2 (Constitution, "Test output MUST stay LLM-friendly"): `git diff HEAD -- package.json` shows the `jest.cacheDirectory` key added and **no** change to any `scripts.*` entry, so `--reporters=./script/jest-llm-reporter.js` and `--reporter=../script/vitest-llm-reporter.mjs` remain attached inside the npm scripts where the workflow cannot detach them.
+- [X] T019 Constitution Principle I check: re-read the CI note in `README.md` (around line 243) and confirm the split did not falsify it — it describes *what* CI runs and that CI builds no image, neither of which this feature changes. If it is now inaccurate, correct it in the same commit. While there, the pre-existing omission of the first-run rehearsal suite from that sentence may be corrected; a documentation file is not an application source file under FR-009. Do not restructure the section.
+- [X] T020 [P] Verify contract C-9 — the coordination surface reserved for feature 052 is untouched: `scripts.test:server` (still carrying `--runInBand`), the absence of `jest.maxWorkers`, `jest.globalSetup`, and the literal `DATABASE_URL` value are all unchanged from HEAD. This is what keeps 052's worker work from colliding with this feature.
 - [ ] T021 After the push: open the workflow run and confirm US1 in the live system — two jobs `backend` and `client`, start times within seconds of each other, each reporting independently, and post-install wall time ≈ the backend job's own duration. Compare against the T001 baseline, not the design table's `~180s` (that figure assumes feature 050 has landed — gap G-051-A). (SC-001, `quickstart.md` §B1)
 - [ ] T022 After the push: confirm executed-test parity in the live run (SC-002) — the union of suites across the two jobs matches the T002 baseline exactly, and both LLM reporters are visibly in use (one-line summaries for passing suites, only failures expanded). (FR-004, `quickstart.md` §B2)
 - [ ] T023 After the push: validate the cache lifecycle across three runs (SC-003, `quickstart.md` §B3) — (a) first run reports a cache miss and passes; (b) a second push with an unchanged `package-lock.json` reports a restore and a measurably faster `Run server tests` step; (c) a push that bumps the lockfile reports a primary-key miss, a `restore-keys` prefix hit, passes, and saves under the new key. The result must be identical in all three (FR-007).
 - [ ] T024 On a throwaway branch, demonstrate gating both ways (SC-004, `quickstart.md` §B4): push a deliberately failing backend test and confirm the workflow run is red with the failure attributed to `backend`; then the same for a client test and the `client` job. Revert the throwaway commits; do not merge them.
+
+> **T021–T024 are deliberately left unchecked.** They require a live GitHub Actions run, which
+> the implementing agent cannot produce from a worktree — it never pushes. They are the
+> post-merge verification owed on the live CI system, exactly as this file's Notes section
+> anticipated. T001 records the numeric baseline they must be measured against (511s total,
+> 443s of sequential post-install test time). T024 additionally requires a throwaway branch and
+> deliberately broken tests, which FR-009 forbids on this branch.
 
 ---
 
@@ -249,6 +256,40 @@ this run, not against the design table (gap G-051-A).
 
 Pre-change effective Jest `cacheDirectory`: `/tmp/jest_0` (the OS-tmp default), as research.md
 recorded.
+
+### Local validation results (Phases 3–6), 2026-08-04, branch `051-ci-parallel-jobs`
+
+| Check | Task | Result |
+| --- | --- | --- |
+| YAML parses, shape as designed | T006 | `jobs: ['backend','client']`, both `needs=null`, `backend` services `postgres,redis`, `client` none, trigger `push`/`['*']` unchanged |
+| No runner flags in the workflow | T007 (C-1) | The only `run:` test invocations are `npm run test:server`, `npm run test:client`, `npm run test:first-run` — byte-identical to the permitted set |
+| DB/Redis confined to `backend` | T007 (C-4) | `services:` L12, `DATABASE_URL`/`REDIS_*` L64–66, all inside `backend` (L9–68); `client` starts L70 |
+| No failure swallowing | T007 (C-7) | no `continue-on-error`, no `always()`, no `\|\|` in any `run:` |
+| Services + env vs baseline | T008 (C-3) | `diff` of both blocks against `HEAD:.github/workflows/test.yml` is empty — byte-identical |
+| Jest resolves the new cache dir | T010 | `<worktree>/.jest-cache` (was `/tmp/jest_0`) |
+| Three-way path agreement | T012 (C-5) | exactly one `.jest-cache` designation per file, all agreeing; `client/package-lock.json` absent from the key (C-6) |
+| Cache dir created, tree stays clean | T013/T014 | targeted jest run created `.jest-cache/` (1.6M); `git status --short` empty; `git check-ignore -v` → `.gitignore:14` |
+| Warm cache is faster, same result | T016 | cold 1.698s → warm 1.298s (~24%), 22 passed both times |
+| Client suite unchanged | T015 | 72 suites, 936 passed — identical to the T002 baseline |
+| First-run suite unchanged | T015 | 31 tests, 31 pass — identical to the T002 baseline |
+| Reporters still wired | T018 (C-2) | `package.json` diff is the one `jest.cacheDirectory` key; no `scripts.*` entry changed |
+| Scope | T017 (C-8) | diff touches `.github/workflows/test.yml`, `package.json`, `.gitignore`, `README.md` (T019, Principle I) and this `tasks.md`; nothing under `server/`, `client/`, `shared/`, `script/`, `test/`, `__tests__/` |
+| 052 coordination surface intact | T020 (C-9) | `test:server` still carries `--runInBand`; no `maxWorkers`; `globalSetup` and the literal `DATABASE_URL` unchanged |
+| README CI note | T019 | corrected — see below |
+
+**T019 outcome**: the note at `README.md:243` said CI "only runs the server and client tests".
+The split does not falsify the claim's substance, but the sentence carried the pre-existing
+omission of the first-run rehearsal suite and now also under-describes the structure. Reworded
+in place (no restructuring) to name the two jobs and all three suites.
+
+**T013 deviation**: run as a targeted `npx jest` invocation with the `test:server` flag set
+(`--runInBand --forceExit --silent --reporters=./script/jest-llm-reporter.js`) against a
+per-agent database (`collab_test_db_051`), not as a full `npm run test:server`. Reason as for
+T002: the shared `collab_test_db` is serial-only and a full run from an agent worktree can
+corrupt it for other agents. What T013 exists to prove — that Jest writes to the repo-local
+`.jest-cache/`, that the LLM reporter output shape is unchanged (`Server: N suites, M passed`),
+and that the tree stays clean — is fully demonstrated by the targeted run. Full-suite parity is
+T022 on live CI.
 
 **Deviation**: the backend total was taken with `npx jest --listTests` (file inventory) rather
 than a full `npm run test:server` execution. The worktree has no backend database of its own,

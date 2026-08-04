@@ -71,6 +71,42 @@ verify and slim this, but must not go below this floor without proof.
 
 ---
 
+## CN-051-04 — README CI-note wording — RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-04)
+
+**Question**: T019 requires re-reading the CI note at `README.md:243` and correcting it if the
+split falsified it. The note said CI "only runs the server and client tests". How much should
+change?
+
+**Default taken**: Reworded in place, no restructuring:
+
+> CI (`.github/workflows/test.yml`) only runs tests — a `backend` job for the server suite and
+> a `client` job for the client and first-run rehearsal suites, the two running in parallel. It
+> does **not** build or push any image.
+
+**Rationale**: The sentence's load-bearing claim (CI builds no image, so a prod deploy needs a
+local build+push) is untouched by this feature and stays word-for-word. Two accuracy problems
+are fixed in one edit: the pre-existing omission of the first-run rehearsal suite, which T019
+explicitly puts in bounds, and the now-stale implication of a single sequential job. Naming the
+job names is what makes a red run readable against the README. Constitution Principle I is the
+authority here; a documentation file is not an application source file under FR-009.
+
+---
+
+## CN-051-05 — Cache step position within the backend job — RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-04)
+
+**Question**: T011 places `actions/cache@v4` "after `Set up Node.js` and before the
+`Run server tests` step" — a window that contains the `Install dependencies` step, so two slots
+qualify.
+
+**Default taken**: Immediately after `Set up Node.js`, before `Install dependencies`.
+
+**Rationale**: Matches the task's first-named anchor literally, and groups the two cache
+restores (npm tarballs, then Jest transform output) adjacently so a reader sees the caching
+strategy in one place. Functionally equivalent to the later slot: `npm ci` only removes
+`node_modules` and never touches `.jest-cache`.
+
+---
+
 ## Flagged gaps (informational, no decision required)
 
 - **G-051-A — Wall-time target is train-order dependent**: the design's "~180s, jobs in
