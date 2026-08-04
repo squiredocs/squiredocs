@@ -3,19 +3,67 @@
  *
  * Provides a single source of truth for database connections in tests.
  * All tests should import from this module instead of creating their own pools.
+ *
+ * ── PER-WORKER ISOLATION (feature 052) ──────────────────────────────────────
+ * Every Jest worker runs against its own database, copied from a per-run
+ * template. A URL is never used verbatim: the URL the run starts from is a
+ * BASE, and this module derives `<base>_w<JEST_WORKER_ID>` from it. Under
+ * `--runInBand` there is no JEST_WORKER_ID, so the run is worker 1.
  */
 
 const { Pool } = require('pg');
 const { PostgresPersistence } = require('../../postgres-persistence');
 
+/**
+ * The BASE database name — the name the run derives FROM, not the name tests
+ * connect to. A suite that connects to this database directly is on the wrong
+ * database: it is deliberately left empty, and under parallel execution it is
+ * not even migrated. Use `getTestDatabaseUrl()` / `getDbConfig()` instead.
+ */
 const TEST_DB_NAME = 'collab_test_db';
 
 /**
- * Build a DATABASE_URL for the test database.
- * Uses the same host/port/credentials as the app, but always targets collab_test_db.
- * Respects DATABASE_URL if already set (e.g., in CI).
+ * Legal base database names. Derived names are always double-quoted into DDL
+ * (so a hyphenated worktree base like `collab_test_db_agent-1` works), but a
+ * positive charset check still runs first so a misconfigured DATABASE_URL fails
+ * with an actionable message rather than a baffling syntax error (research R6).
  */
-function getTestDatabaseUrl() {
+const BASE_DB_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_$-]*$/;
+
+/** Throw a message naming the offending value and the accepted charset. */
+function assertValidBaseDbName(name) {
+  if (typeof name !== 'string' || !BASE_DB_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid test database base name: ${JSON.stringify(name)}. ` +
+      `Base names must match the charset ${BASE_DB_NAME_PATTERN.source} ` +
+      '(letter, digit or underscore first; then letters, digits, underscore, $ or -). ' +
+      'Fix the database segment of DATABASE_URL.'
+    );
+  }
+  return name;
+}
+
+/**
+ * Double-quote an identifier for safe interpolation into DDL (INV-11).
+ * Derived names are built from an already-validated base plus a `_wN` /
+ * `_template` suffix, so they satisfy the same charset; re-checking here means
+ * nothing reaches DDL unvalidated regardless of the call path.
+ */
+function quoteDatabaseIdentifier(name) {
+  return `"${assertValidBaseDbName(name)}"`;
+}
+
+/**
+ * The BASE URL this run derives from.
+ *
+ * Order: the frozen base published by globalSetup, then an externally supplied
+ * DATABASE_URL (CI, pipeline worktrees), then the built-in local default. The
+ * frozen base comes first so derivation is idempotent: setup.js pins
+ * DATABASE_URL to the worker's URL, and without the frozen base the next call
+ * would derive `..._w3_w3` from it (INV-5, research R3).
+ */
+function getBaseDatabaseUrl() {
+  if (process.env.TEST_BASE_DATABASE_URL) return process.env.TEST_BASE_DATABASE_URL;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const host = process.env.DB_HOST || 'localhost';
   const port = process.env.DB_PORT || 5432;
@@ -23,6 +71,51 @@ function getTestDatabaseUrl() {
   const password = process.env.DB_PASSWORD || '';
   const auth = password ? `${user}:${password}` : user;
   return `postgresql://${auth}@${host}:${port}/${TEST_DB_NAME}`;
+}
+
+/** The database name in a base URL, validated. */
+function getBaseDatabaseName(baseUrl = getBaseDatabaseUrl()) {
+  const name = decodeURIComponent(new URL(baseUrl).pathname.replace(/^\//, ''));
+  return assertValidBaseDbName(name);
+}
+
+/** This process's Jest worker id. Unset (i.e. --runInBand) means worker 1. */
+function getWorkerId() {
+  return Number(process.env.JEST_WORKER_ID || 1);
+}
+
+/** `<base>_w<N>` — the database exactly one worker owns. */
+function getWorkerDatabaseName(baseName, workerId) {
+  return `${assertValidBaseDbName(baseName)}_w${Number(workerId)}`;
+}
+
+/**
+ * `<base>_template` — derived per base, not a global literal, so two concurrent
+ * worktree runs with different bases never race on one template (RBD-052-1).
+ */
+function getTemplateDatabaseName(baseName) {
+  return `${assertValidBaseDbName(baseName)}_template`;
+}
+
+/**
+ * Splice a database name into a base URL, replacing ONLY the pathname so
+ * credentials, host, port and query string survive byte-for-byte (INV-4).
+ */
+function deriveDatabaseUrl(baseUrl, dbName) {
+  const url = new URL(baseUrl);
+  url.pathname = `/${dbName}`;
+  return url.toString();
+}
+
+/**
+ * Build a DATABASE_URL for THIS worker's test database.
+ * Same host/port/credentials as the base; the database name is the base's plus
+ * this worker's suffix (FR-002).
+ */
+function getTestDatabaseUrl() {
+  const baseUrl = getBaseDatabaseUrl();
+  const workerDbName = getWorkerDatabaseName(getBaseDatabaseName(baseUrl), getWorkerId());
+  return deriveDatabaseUrl(baseUrl, workerDbName);
 }
 
 /**
@@ -125,6 +218,14 @@ async function cleanupDocRows(pool, docGuid) {
 
 module.exports = {
   TEST_DB_NAME,
+  BASE_DB_NAME_PATTERN,
+  getBaseDatabaseUrl,
+  getBaseDatabaseName,
+  getWorkerId,
+  getWorkerDatabaseName,
+  getTemplateDatabaseName,
+  deriveDatabaseUrl,
+  quoteDatabaseIdentifier,
   getTestDatabaseUrl,
   getDbConfig,
   createPool,

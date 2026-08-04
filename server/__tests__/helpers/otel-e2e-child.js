@@ -40,7 +40,13 @@ process.on('uncaughtException', fail);
 
 (async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  const redis = new Redis({ host: process.env.REDIS_HOST || 'localhost' });
+  // This is the one Redis client in the test tree that does not come from
+  // server/redis.js, so it honors the worker's REDIS_DB assignment by hand
+  // (feature 052). Same conditional shape: no `db` key when the var is unset.
+  const redis = new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    ...(process.env.REDIS_DB ? { db: Number(process.env.REDIS_DB) } : {}),
+  });
   const app = express();
   app.get('/api/docs/:docId', async (req, res) => {
     await pool.query('SELECT 1 AS ok');

@@ -16,6 +16,15 @@ const REDIS_CONFIG = {
     return delay;
   },
   ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+  // REDIS_DB (feature 052, US2/FR-006): select a logical database. Same
+  // conditional-spread shape as the password knob for the same reason — when
+  // unset the `db` key is not present at all, so the config is byte-identical
+  // to the pre-feature behavior and production/development are provably
+  // unchanged. The test suite sets it per Jest worker so workers cannot see
+  // each other's keys or pub/sub messages; nothing sets it outside tests.
+  // An explicit REDIS_DB=0 is honored: '0' is a non-empty string, so it is
+  // truthy here. Do not "correct" this into a numeric check.
+  ...(process.env.REDIS_DB ? { db: Number(process.env.REDIS_DB) } : {}),
 };
 
 // Singleton Redis client

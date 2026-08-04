@@ -40,6 +40,8 @@ describe('HTTP → PG → Redis single trace (real boot order, child process)', 
           ...process.env,
           DATABASE_URL: getTestDatabaseUrl(),
           REDIS_HOST: process.env.REDIS_HOST || 'localhost',
+          // Keep the child inside this worker's isolation (feature 052).
+          REDIS_DB: process.env.REDIS_DB,
         },
         timeout: 30000,
         encoding: 'utf8',
