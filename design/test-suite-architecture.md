@@ -42,7 +42,7 @@ document-editing-workflow.test.js predates 016 and still uses snapshot-only pers
 
 ### 1.2 Client: real sleeps waiting out real reconnect windows (18.2s to ~7s)
 
-`AiChatContext.banner-persistence.test.jsx` takes 14.8 seconds, more than the next ten client files combined, and it is the wall-clock critical path of the Vitest run. Its recovery tests wait out the real 5-second reconnect-establish window with real sleeps (5600ms, 6500ms plus 3200ms, 5500ms against `RECONNECT_ESTABLISH_MS`).
+`AiChatContext.banner-persistence.test.jsx` takes 14.8 seconds, more than the next ten client files combined, and it is the wall-clock critical path of the Vitest run. Its recovery tests wait out the real 5-second reconnect-establish window with real sleeps (5600ms, 5500ms, and 3200ms against `RECONNECT_ESTABLISH_MS`; a further 6500ms timer models slow stream delivery, not a sleep). (Corrected 2026-08-04 during 050 spec verification: an earlier draft misread the 6500ms delivery timer as a fourth sleep.)
 
 **Change:** switch the file to fake timers, or make the establish window injectable so tests can shrink it. Either collapses the file to under a second. The test semantics do not change: the tests assert what happens when the window elapses, not that 5 real seconds passed.
 
@@ -101,7 +101,7 @@ The amendment is a sole-maintainer commit to main per the Governance section. Th
 | After Part 1 | ~175s | ~7s | ~180s, jobs in parallel |
 | After Part 2 (6-8 workers) | 30-50s | ~7s | ~40-60s |
 
-Part 2 also removes the shared-database flake class (reindexStale orphans, fixed-key collisions) by construction, which is worth as much as the speed.
+The table totals are reference-machine expectations (the 10-core dev pod), not merge gates; the gates are the per-defect criteria in Verification. Part 2 also removes the shared-database flake class (reindexStale orphans, fixed-key collisions) by construction, which is worth as much as the speed. (Clarified 2026-08-04, G-050-2.)
 
 ## Verification
 
