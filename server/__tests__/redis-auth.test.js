@@ -21,6 +21,13 @@ jest.mock('ioredis', () => {
 const MockRedis = require('ioredis');
 
 const SAVED_PASSWORD = process.env.REDIS_PASSWORD;
+// The suite asserts the PRE-FEATURE key set, so it has to own every optional
+// knob that can add a key — not just the one it is about. Feature 052 added
+// REDIS_DB, which the test runner sets on every worker; clear it here so these
+// assertions keep meaning "no stray additions" instead of quietly tracking
+// whatever the runner happens to set. REDIS_DB's own behavior is asserted in
+// db-isolation.test.js.
+const SAVED_DB = process.env.REDIS_DB;
 
 function loadRedisFresh() {
   let mod;
@@ -32,10 +39,13 @@ describe('redis auth config (FR-024)', () => {
   beforeEach(() => {
     MockRedis.ctorArgs.length = 0;
     process.env.REDIS_HOST = process.env.REDIS_HOST || 'collab-redis';
+    delete process.env.REDIS_DB;
   });
   afterAll(() => {
     if (SAVED_PASSWORD === undefined) delete process.env.REDIS_PASSWORD;
     else process.env.REDIS_PASSWORD = SAVED_PASSWORD;
+    if (SAVED_DB === undefined) delete process.env.REDIS_DB;
+    else process.env.REDIS_DB = SAVED_DB;
   });
 
   it('omits the password key entirely when REDIS_PASSWORD is unset (byte-identical)', () => {

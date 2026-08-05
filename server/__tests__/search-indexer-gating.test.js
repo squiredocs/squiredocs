@@ -369,19 +369,34 @@ describe('search indexer content-hash gating (017)', () => {
       expect((await getIndexRow(docGuid)).content_hash).toBe(before.content_hash); // same text, same hash
     });
 
-    // reindexStale() scans the whole shared test DB, so stragglers from a prior
-    // killed run (stale indexed_at / flipped model on leaked fixture docs) can
-    // inflate the global embed-call counts asserted below. Heal the DB first so
-    // only THIS suite's fixtures are repair-eligible (post-merge review F4).
+    // reindexStale() scans this worker's WHOLE database, so documents left
+    // behind by any suite that ran earlier on the same worker can inflate the
+    // global embed-call counts asserted below. Heal first, so only THIS suite's
+    // fixtures are repair-eligible (post-merge review F4; extended by 052).
+    //
+    // The heal must cover every branch of reindexStale's predicate, or it
+    // silently covers only some leftovers. There are three.
     async function healStragglers() {
+      // Branch 1: `si.doc_id IS NULL` — a leftover document with no index row
+      // at all. Give it one, dated now, so it is not repair-eligible. This is
+      // the branch that was missing, and it is the expensive one: each such
+      // document costs a full embed cycle.
+      await pool.query(
+        `INSERT INTO document_search_index (doc_id, indexed_at)
+         SELECT d.id, now() FROM documents d
+         LEFT JOIN document_search_index si ON si.doc_id = d.id
+         WHERE si.doc_id IS NULL`
+      );
+      // Branch 2: `si.indexed_at < d.updated_at` — an index row older than its
+      // document.
       await pool.query(
         `UPDATE document_search_index SET indexed_at = now()
          WHERE doc_id IN (SELECT id FROM documents)`
       );
+      // Branch 3: a chunk row on the wrong model, or (per 018's legacy
+      // predicate) with no embedded_text — both make their document repair-
+      // eligible however fresh its index row is.
       await pool.query('UPDATE document_embeddings SET embedding_model = $1', [EMBEDDING_MODEL]);
-      // 018 added the legacy predicate (embedded_text IS NULL) to reindexStale,
-      // so leaked NULL-embedded rows from other suites also trigger repair —
-      // remove them or the exact embed-count assertions inflate.
       await pool.query('DELETE FROM document_embeddings WHERE embedded_text IS NULL');
     }
 

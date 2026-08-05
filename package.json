@@ -11,7 +11,7 @@
     "start": "node server/index.js",
     "test": "npm run test:server && npm run test:client",
     "test:watch": "concurrently \"npm run test:server:watch\" \"npm run test:client:watch\"",
-    "test:server": "REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --forceExit --silent --reporters=./script/jest-llm-reporter.js",
+    "test:server": "REDIS_HOST=${REDIS_HOST:-localhost} jest ${JEST_MAX_WORKERS:+--maxWorkers=$JEST_MAX_WORKERS} --forceExit --silent --reporters=./script/jest-llm-reporter.js",
     "test:server:watch": "REDIS_HOST=${REDIS_HOST:-localhost} jest --watch",
     "test:coverage": "REDIS_HOST=${REDIS_HOST:-localhost} jest --runInBand --coverage",
     "test:client": "cd client && npx vitest run --reporter=../script/vitest-llm-reporter.mjs",
@@ -99,6 +99,7 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "maxWorkers": "50%",
     "cacheDirectory": "<rootDir>/.jest-cache",
     "testMatch": [
       "**/__tests__/**/*.test.js",

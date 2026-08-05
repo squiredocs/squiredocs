@@ -64,6 +64,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/collab_test_db
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          # Explicit worker count, sized to the runner (ubuntu-latest reports 4
+          # via os.availableParallelism()). CI pins a number rather than the
+          # local 50% so the value is visible and reviewable here.
+          JEST_MAX_WORKERS: 4
         run: npm run test:server
 
   client:
