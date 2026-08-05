@@ -76,7 +76,7 @@ Mechanics for the recommended approach: globalSetup creates and migrates `collab
 
 ### 2.2 Redis isolation
 
-server/redis.js currently has no database or key-prefix knob. Add `REDIS_DB` support to REDIS_CONFIG (default 0, so production config is byte-identical when unset), and have the test setup assign each worker its own logical database from JEST_WORKER_ID. Redis ships 16 logical databases, which caps workers at 15; that is far above the useful worker count on our runners. Suites that exercise pub/sub keep working because both the shared client and pub/sub clients read the same config.
+server/redis.js currently has no database or key-prefix knob. Add `REDIS_DB` support to REDIS_CONFIG (default 0, so production config is byte-identical when unset), and have the test setup assign each worker its own logical database from JEST_WORKER_ID. Redis ships 16 logical databases, which caps workers at 15; that is far above the useful worker count on our runners. AMENDED 2026-08-05 (RBD-052-7, verified during 052 implementation): logical databases isolate the KEYSPACE only (presence claims, rate-limit counters, locks) — Redis Pub/Sub ignores database numbers entirely, so cross-worker channel messages are NOT isolated by this mechanism. Verified through ioredis and raw redis-cli. In practice the suites are safe: app channels are guid-scoped and the one fixed-name channel (presence-claim) carries per-worker claim keys; the limitation is pinned by an explicit KNOWN LIMITATION test in db-isolation.test.js. If true channel isolation is ever needed, that is a per-worker channel prefix — a further amendment to this section, not a patch.
 
 ### 2.3 Constitution amendment (Principle II)
 
