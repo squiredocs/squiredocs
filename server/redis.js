@@ -21,7 +21,10 @@ const REDIS_CONFIG = {
   // unset the `db` key is not present at all, so the config is byte-identical
   // to the pre-feature behavior and production/development are provably
   // unchanged. The test suite sets it per Jest worker so workers cannot see
-  // each other's keys or pub/sub messages; nothing sets it outside tests.
+  // each other's KEYS — keys only: Redis Pub/Sub ignores database numbers, so
+  // channels stay global across workers (see the KNOWN LIMITATION test in
+  // server/__tests__/db-isolation.test.js and RBD-052-7). Nothing sets it
+  // outside tests.
   // An explicit REDIS_DB=0 is honored: '0' is a non-empty string, so it is
   // truthy here. Do not "correct" this into a numeric check.
   ...(process.env.REDIS_DB ? { db: Number(process.env.REDIS_DB) } : {}),

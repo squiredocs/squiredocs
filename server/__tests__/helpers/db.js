@@ -30,6 +30,15 @@ const TEST_DB_NAME = 'collab_test_db';
  */
 const BASE_DB_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_$-]*$/;
 
+/**
+ * Longest base name whose every derivative still fits Postgres's 63-byte
+ * identifier limit: `_template` is the longest suffix (9 chars), 63 - 9 = 54.
+ * Beyond the limit Postgres TRUNCATES with only a NOTICE, so over-long bases
+ * would collapse `<base>_w1..wN` into one colliding 63-byte prefix and
+ * silently defeat worker isolation (review 052 LOW-1).
+ */
+const MAX_BASE_DB_NAME_LENGTH = 54;
+
 /** Throw a message naming the offending value and the accepted charset. */
 function assertValidBaseDbName(name) {
   if (typeof name !== 'string' || !BASE_DB_NAME_PATTERN.test(name)) {
@@ -38,6 +47,17 @@ function assertValidBaseDbName(name) {
       `Base names must match the charset ${BASE_DB_NAME_PATTERN.source} ` +
       '(letter, digit or underscore first; then letters, digits, underscore, $ or -). ' +
       'Fix the database segment of DATABASE_URL.'
+    );
+  }
+  // 63 = Postgres identifier max. Derived names (base + _template / _wN) are
+  // re-checked here via quoteDatabaseIdentifier, so this catches any name that
+  // would silently truncate; the tighter base-specific bound lives in
+  // getBaseDatabaseName.
+  if (name.length > 63) {
+    throw new Error(
+      `Test database name ${JSON.stringify(name)} is ${name.length} chars; ` +
+      'Postgres truncates identifiers to 63 bytes with only a NOTICE, which ' +
+      'would collapse per-worker databases into colliding names.'
     );
   }
   return name;
@@ -76,7 +96,16 @@ function getBaseDatabaseUrl() {
 /** The database name in a base URL, validated. */
 function getBaseDatabaseName(baseUrl = getBaseDatabaseUrl()) {
   const name = decodeURIComponent(new URL(baseUrl).pathname.replace(/^\//, ''));
-  return assertValidBaseDbName(name);
+  assertValidBaseDbName(name);
+  if (name.length > MAX_BASE_DB_NAME_LENGTH) {
+    throw new Error(
+      `Test database base name ${JSON.stringify(name)} is ${name.length} chars; ` +
+      `the maximum is ${MAX_BASE_DB_NAME_LENGTH} so every derivative ` +
+      '(_template, _wN) fits Postgres\'s 63-byte identifier limit without ' +
+      'silent truncation. Shorten the database segment of DATABASE_URL.'
+    );
+  }
+  return name;
 }
 
 /** This process's Jest worker id. Unset (i.e. --runInBand) means worker 1. */

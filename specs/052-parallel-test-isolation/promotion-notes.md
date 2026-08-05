@@ -79,3 +79,17 @@ argument and the follow-on option for Sam: RBD-052-7 in `clarifications-needed.m
   here because it is outside this feature's scope.
 - **Two suites were fixed as suite bugs, per FR-017.** Neither was resolved by reverting to
   serial or lowering the worker count. See commit 9a3ef967 and the gate ledger.
+
+## Post-merge review dispositions (2026-08-04, verdict: clean at HIGH, 1 MEDIUM, 3 LOW)
+
+All four findings fixed same-day in one commit:
+- **MEDIUM-1** (redis.js comment claimed pub/sub isolation — the exact folklore RBD-052-7
+  kills): comment now says keys only, pointing at the KNOWN LIMITATION test and RBD-052-7.
+- **LOW-1** (no length bound; >54-char bases would silently truncate derivatives into
+  colliding names): assertValidBaseDbName caps any name at 63; getBaseDatabaseName caps
+  bases at MAX_BASE_DB_NAME_LENGTH=54; boundary pinned by a new db-isolation test.
+- **LOW-2** (pg-pool-limits comment claimed per-file processes): reworded — a worker
+  process runs many suite files; env restore is required for that reason.
+- **LOW-3** (SKILL.md overstated worktree isolation): qualified — Postgres only; concurrent
+  invocations still share Redis logical DBs (N-052-A).
+Constitution footer nit (Last Amended 2026-08-04 vs 08-05 merge) accepted as-is per review.

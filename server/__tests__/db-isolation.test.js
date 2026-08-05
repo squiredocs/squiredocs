@@ -161,6 +161,17 @@ describe('052 US1: name and URL derivation', () => {
     expect(quoteDatabaseIdentifier('collab_test_db_agent-1_template'))
       .toBe('"collab_test_db_agent-1_template"');
   });
+
+  test('a base name too long for its derivatives is rejected, never truncated (review 052 LOW-1)', () => {
+    // 55 chars: charset-legal, but <base>_template would exceed Postgres's
+    // 63-byte identifier limit, which truncates with only a NOTICE and would
+    // collapse the per-worker family into colliding names.
+    const tooLong = 'x'.repeat(55);
+    expect(() => getBaseDatabaseName(`postgresql://u@h:5432/${tooLong}`)).toThrow(/54/);
+    // 54 chars is the boundary and stays accepted.
+    const atLimit = 'x'.repeat(54);
+    expect(getBaseDatabaseName(`postgresql://u@h:5432/${atLimit}`)).toBe(atLimit);
+  });
 });
 
 describe('052 US1: rows written by one worker are invisible to another', () => {
