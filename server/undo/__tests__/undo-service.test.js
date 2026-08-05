@@ -11,7 +11,7 @@
  *    recorded (the editRangePending window) must refuse honestly instead of
  *    silently undoing an OLDER edit.
  *
- * DB-backed, serial only (shared collab_test_db).
+ * DB-backed: runs against this Jest worker's own database, via helpers/db.js.
  */
 const { randomUUID } = require('crypto');
 const Y = require('yjs');

@@ -1,26 +1,40 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.1 → 1.2.0 (MINOR: new Principle VII — Horizontally Scalable App Pods;
-directed by Sam 2026-08-03)
-Modified principles: none renamed
-Added sections:
-  - Principle VII: Horizontally Scalable App Pods (app-tier correctness MUST NOT
-    depend on replica count; process-local memory is cache only; single-replica
-    preconditions are deploy-gating violations, not accepted residuals)
+Version change: 1.2.0 → 1.3.0 (MINOR: Principle II's execution-model clause is replaced —
+materially changed guidance, not a redefinition; feature 052, design
+test-suite-architecture.md §2.3, ratified as D1 by Sam 2026-08-04. The MINOR-vs-MAJOR
+level is argued and recorded as RBD-052-6 in
+specs/052-parallel-test-isolation/clarifications-needed.md.)
+Modified principles:
+  - Principle II (Test-Backed Changes): its closing execution-model sentence — which
+    required backend tests to share one database and run serially — is replaced with the
+    design §2.3 isolation invariant, verbatim: every Jest worker and every concurrent
+    invocation gets its own database and Redis logical database, derived from
+    JEST_WORKER_ID. Principle II keeps its number, name and thrust; only the trailing
+    execution-model constraint changes, and it changes to a stronger invariant.
+    (The superseded sentence is quoted in full in design/test-suite-architecture.md §2.3
+    and in specs/052-parallel-test-isolation/spec.md; it is deliberately not reproduced
+    here, so that a grep of this file for the old mandate stays clean — SC-007.)
 Consequences recorded elsewhere:
-  - RBD-045-12 (specs/045-resupply-attribution/clarifications-needed.md) OVERTURNED
-    by this principle: "per-identity server docs" is promoted from scale-out
-    precondition to required follow-on work; single-replica operation is no longer
-    an acceptable standing posture.
-Prior history: 1.1.1 (PATCH, skill rename /design-pipeline → /the-pipeline);
-  1.1.0 added Principle VI (Design Docs Are Ground Truth); 1.0.0 (2026-07-13)
-  adopted Core Principles I-V, Technology & Architecture Constraints,
+  - Development Workflow & Quality Gates: the change gate's parenthetical qualifying the
+    test step as serial for backend is dropped — it contradicted the amended principle and
+    would have kept instructing agents to defeat the parallel default (RBD-052-4).
+  - Coherence sweep in the same change: .claude/skills/the-pipeline/SKILL.md (worktree
+    guidance and merge-queue step), docs/dev.md's serial-only paragraph, and the
+    suite-cleanup convention comment in server/__tests__/helpers/db.js. The one-run-at-a-time
+    rule for whole INVOCATIONS survives everywhere it appears — ratified D3 keeps it.
+Prior history: 1.2.0 added Principle VII (Horizontally Scalable App Pods; MINOR, directed by
+  Sam 2026-08-03, and OVERTURNED RBD-045-12 so per-identity server docs became required
+  follow-on work rather than a scale-out precondition); 1.1.1 (PATCH, skill rename
+  /design-pipeline → /the-pipeline); 1.1.0 added Principle VI (Design Docs Are Ground Truth);
+  1.0.0 (2026-07-13) adopted Core Principles I-V, Technology & Architecture Constraints,
   Development Workflow & Quality Gates, Governance.
 Removed sections: none
 Templates requiring updates:
   ✅ .specify/templates/plan-template.md — Constitution Check gate is generic
-     ("[Gates determined based on constitution file]"); derives from this file at plan time.
+     ("[Gates determined based on constitution file]"); derives from this file at plan time,
+     so the amended Principle II is picked up with no template edit.
   ✅ .specify/templates/spec-template.md — no constitution-specific references; no change needed.
   ✅ .specify/templates/tasks-template.md — no constitution-specific references; no change needed.
 Follow-up TODOs: promote per-identity Y.Docs for server-side write paths to its own
@@ -50,8 +64,11 @@ Every behavioral change MUST be covered by tests and the affected suites MUST pa
 commit. Backend tests run under Jest (`server/__tests__/`, `__tests__/integration/`),
 frontend under Vitest (`client/src/**/__tests__/`). Format/serialization changes MUST extend
 the registry-driven round-trip suite (`server/__tests__/format-roundtrip.test.js`) so new
-marks and nodes get bidirectional coverage by construction. Backend tests share one database
-and MUST run serially — never launch concurrent backend test runs against the same DB.
+marks and nodes get bidirectional coverage by construction. Backend test runs MUST be
+isolated: each Jest worker (and each concurrent invocation) gets its own database and Redis
+logical database, derived from JEST_WORKER_ID. Two runs or workers MUST never share a
+database. Suites must not assume they own the only database; fixed-key rows stay scoped to
+the suite that creates them.
 
 Rationale: with no code review, the test suite is the only reviewer; round-trip invariants
 are what keep the CRDT, serializer, and parser honest with each other.
@@ -145,7 +162,7 @@ correctness incident.
 
 - Development happens in the Minikube `app-dev` pod (see `docs/dev.md`); commands run inside
   the pod. Mutagen sync can leave a running dev server on stale code — restart it when in doubt.
-- Gate for every change: affected tests pass (serially for backend) → docs updated if behavior
+- Gate for every change: affected tests pass → docs updated if behavior
   changed (Principle I) → commit to `main` → deploy via the deploy scripts.
 - Feature work driven through spec-kit artifacts (`.specify/`) MUST pass the plan-phase
   Constitution Check against this document; violations require an entry in the plan's
@@ -168,4 +185,4 @@ gates or required sections change. Compliance is reviewed at spec-kit plan time 
 Check gate) and whenever an agent session begins work that touches a governed area. Runtime
 agent guidance lives in `CLAUDE.md`; where they conflict, this constitution wins.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-08-03
+**Version**: 1.3.0 | **Ratified**: 2026-07-13 | **Last Amended**: 2026-08-04

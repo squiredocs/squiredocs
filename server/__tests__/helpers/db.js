@@ -175,28 +175,36 @@ async function cleanupTestUser(pool, userId) {
 }
 
 /**
- * ── SUITE CLEANUP CONVENTION (feature 043, US8/FR-010, ledger D3) ───────────
+ * ── SUITE CLEANUP CONVENTION (feature 043 US8; rationale updated by 052) ────
  *
  * EVERY suite that causes `yjs_updates` rows to exist — by raw INSERT, by
  * `storeUpdate`, or INDIRECTLY through a WebSocket connection, a restore or an
  * undo — MUST delete them by `doc_guid` in `finally` / `afterAll`, using this
  * helper.
  *
- * WHY. The backend test database is shared and serial (Constitution II), and
- * `cleanupTestUser` above does NOT touch `yjs_updates` or `search_index` — it
- * only clears ai_extra_credits, agent_activity_log, agent_delegations,
- * document_shares, documents and users. So update-log rows written by a suite
- * outlive it, with no matching `search_index` row. The search indexer's global
- * `reindexStale` scan later finds those orphans and works on them, which is the
- * known CI flake where suites go red on CI while passing locally (auto-memory
- * `ci-reindexstale-shared-db-flakiness`). Orphans from one suite surface as a
- * failure in an unrelated one, which is the worst possible failure to debug.
+ * WHY, STILL (rewritten for feature 052). Within one worker, suites run
+ * sequentially against one database, and `cleanupTestUser` above does NOT touch
+ * `yjs_updates` or `search_index` — it only clears ai_extra_credits,
+ * agent_activity_log, agent_delegations, document_shares, documents and users.
+ * So update-log rows written by a suite outlive it, with no matching
+ * `search_index` row, and the search indexer's global `reindexStale` scan in a
+ * LATER SUITE ON THE SAME WORKER finds those orphans and works on them. A suite
+ * still gets to poison its own worker's later suites, and that is the failure
+ * this convention exists to prevent.
+ *
+ * WHAT NO LONGER APPLIES. The convention used to be the whole defense against a
+ * shared, serial database (the old Constitution II), where every suite in the
+ * run shared one database and orphans crossed freely between them and between
+ * runs. Neither is true now: each worker owns its own database, so orphans can
+ * never reach a suite on a different worker, and each worker's database is
+ * created fresh from the template at run start, so nothing accumulates across
+ * runs at all. Do not cite either as the live threat — the live threat is
+ * within-worker suite ordering, and it is enough on its own.
  *
  * WHY NOT a per-suite search_index heal. Inserting matching `search_index` rows
  * would make the orphan well-formed instead of removing it — it papers over the
- * shape rather than deleting it, and leaves the rows to accumulate anyway. The
- * real fix is per-run database isolation, which is tracked separately; until
- * then, deleting what you created is both cheaper and complete (D3).
+ * shape rather than deleting it. Deleting what you created is cheaper and
+ * complete (feature 043 ledger D3).
  *
  * IN `finally`/`afterAll`, NOT INLINE: a suite whose server crashes or whose
  * client disconnects mid-test must still clean up, and inline cleanup is
