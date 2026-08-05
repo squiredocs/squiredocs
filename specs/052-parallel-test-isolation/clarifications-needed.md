@@ -138,6 +138,40 @@ explicit maxWorkers in CI). They are spec'd as first-class requirements
   if he reads "redefinition" more broadly — the amendment text itself is
   unaffected either way.
 
+### RBD-052-7 — **RATIFIED-BY-DEFAULT (implementation, 2026-08-05)** — Redis logical databases isolate keys, not pub/sub channels
+
+- **Added at implement time**, when the test written for US2 scenario 3 failed.
+- **Question**: the design (§2.2), the spec (US2 scenario 3) and the plan all
+  assume that giving each worker its own Redis logical database stops workers
+  hearing each other's pub/sub messages. Implementation found that assumption is
+  false. Verified twice — once through ioredis in
+  `server/__tests__/db-isolation.test.js`, once through raw `redis-cli` to rule
+  out a client quirk: a message published while SELECTed into DB 14 is delivered
+  to a subscriber in DB 15. Redis Pub/Sub is documented as having no relation to
+  the keyspace, database numbers included.
+- **Why it matters**: it is the difference between per-worker Redis isolation
+  being total and being partial. `REDIS_DB` does isolate the **keyspace** —
+  presence claims, rate-limit counters, locks, every `GET`/`SET` — which is the
+  larger share of what the suites use Redis for. It does **not** scope channel
+  names, so two workers publishing on the same channel name do hear each other.
+- **Default chosen**: implement `REDIS_DB` exactly as ratified (D1/§2.2), and
+  correct the test to assert what is true rather than what was assumed. US2
+  scenario 3 as written is not achievable by the ratified mechanism; the test
+  file asserts keyspace isolation positively AND pins the pub/sub limitation
+  with an explicit `KNOWN LIMITATION` test, so the constraint is a tested fact
+  rather than folklore. No channel prefix was added — that is a design change,
+  not an implementer's call.
+- **Rationale**: the suite is safe in practice, and the five-run gate agrees.
+  Every app channel is either document-scoped by a random guid
+  (`AWARENESS_PREFIX + docId`, `UPDATES_PREFIX + docId`) or, in the one
+  fixed-name case (`presence-claim`), carries a payload keyed to a claimKey of
+  the form `agent-presence:{userId}:{agentId}:{docGuid}` that no other worker
+  can match, with self-messages already filtered by instance-ID framing. So a
+  foreign worker's message is a no-op rather than a corruption. This is an
+  operating property of today's channel naming, not an invariant — **for Sam**:
+  if channel-level isolation is ever wanted, it takes a per-worker channel
+  prefix in `server/redis-pubsub.js`, which is a design amendment to §2.2.
+
 ---
 
 ## B. Noted gaps (flagged, no decision required)

@@ -194,15 +194,19 @@ diff /tmp/052-final-serial.txt /tmp/052-final-parallel.txt && echo "PASS LISTS I
 
 An empty diff is the proof that no suite's outcome depends on execution mode. A non-empty diff names the mode-dependent suites; fix them and re-run the gate from part 1.
 
-### Gate ledger (fill in during Phase D)
+### Gate ledger (filled in 2026-08-05, base `collab_test_db_052`, 10-core dev pod)
 
 | Gate item | Evidence | Status |
 |---|---|---|
-| 5 consecutive green local parallel runs | run logs `/tmp/052-parallel-1..5.log` | ☐ |
-| 5 consecutive green CI backend jobs | CI run URLs | ☐ |
-| Serial vs parallel pass-list diff empty | `diff` output | ☐ |
-| SC-001 timing measured on the 10-core pod | `time` output + worker count | ☐ |
-| Coupling failures fixed as suite bugs (list them) | commit refs | ☐ |
+| 5 consecutive green local parallel runs | `/tmp/052-parallel-1..5.log`, all `255 suites, 4593 passed`: run 1 34.6s, run 2 34.8s, run 3 36.3s, run 4 45.7s, run 5 932.5s. No red run, so the counter never reset. | ☑ |
+| 5 consecutive green CI backend jobs | **Owed post-merge** — the `JEST_MAX_WORKERS: 4` line takes effect on the push that introduces it, so the runs cannot exist pre-merge. See promotion-notes.md §1. | ☐ |
+| Serial vs parallel pass-list diff empty | `diff /tmp/052-final-serial.txt /tmp/052-final-parallel.txt` → **no output**, 4593 lines each. No suite's outcome depends on execution mode. Against the pre-change baseline (`/tmp/052-passlist-serial.txt`, 4574 lines) the only delta is the 19 new `db-isolation.test.js` tests — every pre-existing test still passes. | ☑ |
+| SC-001 timing measured on the 10-core pod | **5 workers** (`50%` of `availableParallelism() === 10`, confirmed by globalSetup's own log line). Parallel **34.6–36.3s** on an unloaded pod vs a **177.2s** serial baseline — inside the 30–50s band, so no D4 amendment is needed (research R10 anticipated it might not be). Serial mode measured at 166.6s and stays green. | ☑ |
+| Coupling failures fixed as suite bugs (list them) | Commit `9a3ef967`. (1) `redis-auth.test.js` asserted the exact pre-feature `REDIS_CONFIG` key set while controlling only `REDIS_PASSWORD`, so the runner's new `REDIS_DB` leaked into its "no stray additions" check — it now clears every optional knob it asserts about. (2) `search-indexer-gating.test.js`'s `healStragglers` covered only two of `reindexStale`'s three branches; a leftover document with **no index row at all** was still repair-eligible and cost a full embed cycle each, giving 26 calls against an expected 2 — the heal now covers the `si.doc_id IS NULL` branch. Neither was resolved by reverting to serial (FR-017) or by lowering the worker count (FR-018). | ☑ |
+
+**Run 5's 932.5s is contention, not flakiness**: the dev pod is shared and another agent's jest
+run had been executing for over an hour. The run was green, with no timing failures at roughly
+a 25x contention factor — which is the property FR-018 asks for, demonstrated by accident.
 
 ---
 

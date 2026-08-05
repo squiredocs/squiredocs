@@ -353,12 +353,12 @@ kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run tes
 ```
 
 **Always run backend tests via `npm run test:server`, not bare `npx jest`.** The
-script supplies `--runInBand --forceExit`, and `--forceExit` is load-bearing: a
+script supplies `--forceExit`, and `--forceExit` is load-bearing: a
 Redis client stays connected after the suite finishes, so plain `npx jest` never
 exits on its own. Interactively that looks like a hang; piped or captured (as an
 agent runs it) the command blocks indefinitely and returns nothing, which reads
 like a broken test run rather than a finished one. If you need to run a single
-suite, keep the flags: `npx jest path/to/file.test.js --runInBand --forceExit`.
+suite, keep the flags: `npx jest path/to/file.test.js --forceExit`.
 The hang is caused by the missing `--forceExit` alone. An earlier version of
 this note also blamed a missing `REDIS_HOST`; that was wrong, and measurably so
 — without it a Redis-touching suite FAILS in under a second with explicit
@@ -369,10 +369,24 @@ than `npm run test:server` does. Set it deliberately (`REDIS_HOST=collab-redis`)
 rather than copying a default. Note also that
 `npm run test:server -- path/to/file.test.js` does NOT work: the
 positional lands after `--reporters=` and jest rejects it as a custom reporter.
-Backend tests are serial-only against one database — never run two suites
-concurrently against the same `DATABASE_URL`; they delete each other's fixture
-rows and fail with confusing foreign-key errors. Use a per-worktree database
-(`createdb collab_test_db_<n>` + `DATABASE_URL=...`) when working in parallel.
+Backend tests run in **parallel workers by default** (`maxWorkers: 50%`, set in
+the `jest` block of `package.json`; `JEST_MAX_WORKERS` overrides it, and CI pins
+an explicit count). Each worker is isolated: global setup migrates one template
+database and gives every worker its own copy of it, plus its own Redis logical
+database (worker N → Redis DB N, so tests never touch DB 0). `--runInBand` is
+still fully supported and runs as worker 1 — use it to bisect a failure serially.
+
+**`DATABASE_URL` is now a BASE name, not the database tests use.** This is the
+one breaking change to be aware of: setting
+`DATABASE_URL=postgres://.../collab_test_db_7` makes the run create and use
+`collab_test_db_7_template` and `collab_test_db_7_w1`, `_w2`, … — the base
+database itself stays EMPTY, so inspecting it after a run shows no rows. Look in
+the `_wN` databases instead. The per-worktree convention is unchanged and still
+recommended (`createdb collab_test_db_<n>` + `DATABASE_URL=...`): distinct bases
+derive disjoint database families, which is what keeps concurrent worktree
+agents from colliding. Still run **one invocation at a time per base** — two
+runs against the same base derive the same worker names and will fight over
+them.
 
 **Test conventions this repo enforces (feature 043).** Two rules keep the suite
 honest, and both exist because it had already gone wrong:
@@ -381,7 +395,9 @@ honest, and both exist because it had already gone wrong:
   inserts `yjs_updates` rows must delete its own rows in `finally`/`afterAll`,
   keyed on the document GUIDs it created. Rows left behind (particularly ones
   with no matching `search_index` entry) surface later as failures in unrelated
-  suites — the CI flake class this convention replaced.
+  suites **on the same worker**. Per-worker isolation ended the cross-worker and
+  cross-run versions of that flake class; within one worker, suites still share
+  a database in sequence, so the convention still earns its keep.
 - *Test production code, not a copy of it.* Several suites used to hand-roll a
   "mirror" of a production function — a local re-implementation of the bindState
   listener, the Redis skip-list, or a route handler — and assert against the

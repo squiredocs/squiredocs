@@ -4,8 +4,10 @@
  * fails an unrelated request fast, a runaway statement is killed, and the pool
  * self-recovers without a restart.
  *
- * Sets the DB_POOL_* env vars small for the test and restores them afterward
- * (the serial runner shares process.env with other suites).
+ * Sets the DB_POOL_* env vars small for the test and restores them afterward.
+ * Under Jest workers each suite file gets its own process, so this suite's
+ * env no longer leaks across suites — but suites sharing a worker still run in
+ * one process, so restoring remains required.
  */
 const { PostgresPersistence } = require('../postgres-persistence');
 const { getDbConfig } = require('./helpers/db');

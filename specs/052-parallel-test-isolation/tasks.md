@@ -24,9 +24,9 @@ description: "Task list for 052-parallel-test-isolation"
 
 **Purpose**: 051 is rewriting `.github/workflows/test.yml` concurrently. Starting before it merges guarantees a conflict on the one file both features touch (N-052-B).
 
-- [ ] **T001** [—] Confirm **050-test-timeout-defects** and **051-ci-parallel-jobs** are merged to `main`: `git -C /local-dev log --oneline main | grep -E '05[01]-'`. If either is missing, **STOP** — do not begin implementation.
-- [ ] **T002** [—] Re-read `.github/workflows/test.yml` as 051 left it. Record the backend job name, its `env:` block, its `run:` line, and the `POSTGRES_DB` / `DATABASE_URL` values. If 051 introduced **sharding or a matrix** on the backend job, **STOP and re-plan** — concurrent shards are concurrent whole invocations against one base, which ratified D3 does not cover (plan.md, Rebase-on-051 protocol step 5).
-- [ ] **T003** [—] Capture the pre-change baseline per [quickstart.md](./quickstart.md) S0: serial wall time to `/tmp/052-baseline-serial.log` and the sorted serial pass list to `/tmp/052-passlist-serial.txt`. **This is unrecoverable once the default flips** — SC-003's diff needs it.
+- [x] **T001** [—] Confirm **050-test-timeout-defects** and **051-ci-parallel-jobs** are merged to `main`: `git -C /local-dev log --oneline main | grep -E '05[01]-'`. If either is missing, **STOP** — do not begin implementation.
+- [x] **T002** [—] Re-read `.github/workflows/test.yml` as 051 left it. Record the backend job name, its `env:` block, its `run:` line, and the `POSTGRES_DB` / `DATABASE_URL` values. If 051 introduced **sharding or a matrix** on the backend job, **STOP and re-plan** — concurrent shards are concurrent whole invocations against one base, which ratified D3 does not cover (plan.md, Rebase-on-051 protocol step 5).
+- [x] **T003** [—] Capture the pre-change baseline per [quickstart.md](./quickstart.md) S0: serial wall time to `/tmp/052-baseline-serial.log` and the sorted serial pass list to `/tmp/052-passlist-serial.txt`. **This is unrecoverable once the default flips** — SC-003's diff needs it.
 
 **Checkpoint**: gate cleared, baseline captured.
 
@@ -38,12 +38,12 @@ description: "Task list for 052-parallel-test-isolation"
 
 **⚠️ CRITICAL**: no user story work begins until this phase is complete.
 
-- [ ] **T004** [—] Write the derivation unit tests **first, and confirm they FAIL**, in new file `server/__tests__/db-isolation.test.js`: distinct workers → distinct names (INV-1); `JEST_WORKER_ID` unset → worker 1 (INV-2); credentials, host, port and query string preserved through splicing (INV-4); `derive(derive(x)) === derive(x)` (INV-5); distinct bases → disjoint `{template, worker}` families (INV-6); a base name failing `^[A-Za-z0-9_][A-Za-z0-9_$-]*$` is rejected with a message naming the value and the charset (INV-11).
-- [ ] **T005** [—] Implement the derivation helpers in `server/__tests__/helpers/db.js`, exporting `getBaseDatabaseUrl()`, `getWorkerId()`, `getWorkerDatabaseName(baseName, workerId)`, `getTemplateDatabaseName(baseName)` and `deriveDatabaseUrl(baseUrl, dbName)` per [contracts/naming-and-env.md](./contracts/naming-and-env.md) §2–3. Base resolution order: `TEST_BASE_DATABASE_URL` → `DATABASE_URL` → built-in default (research R3). Parse and splice with `new URL`, replacing **only** `pathname` (research R7).
-- [ ] **T006** [—] Add base-name charset validation and an identifier-quoting helper in `server/__tests__/helpers/db.js`; every name interpolated into DDL is double-quoted (research R6, Constitution Principle V).
-- [ ] **T007** [—] Change `getTestDatabaseUrl()` in `server/__tests__/helpers/db.js` from returning `DATABASE_URL` verbatim (current `:19`) to returning the worker-derived URL. Keep the signature. Keep `getDbConfig`, `createPool`, `createPersistence`, `createTestUser`, `cleanupTestUser`, `cleanupDocRows` unchanged (contract §3).
-- [ ] **T008** [—] Update the `TEST_DB_NAME` export's doc comment in `server/__tests__/helpers/db.js` to state it is the **base** name, not the name tests connect to. A stale reading of this constant is the most likely way a suite ends up on the wrong database.
-- [ ] **T009** [—] Run T004's tests to green: `npx jest server/__tests__/db-isolation.test.js --runInBand`.
+- [x] **T004** [—] Write the derivation unit tests **first, and confirm they FAIL**, in new file `server/__tests__/db-isolation.test.js`: distinct workers → distinct names (INV-1); `JEST_WORKER_ID` unset → worker 1 (INV-2); credentials, host, port and query string preserved through splicing (INV-4); `derive(derive(x)) === derive(x)` (INV-5); distinct bases → disjoint `{template, worker}` families (INV-6); a base name failing `^[A-Za-z0-9_][A-Za-z0-9_$-]*$` is rejected with a message naming the value and the charset (INV-11).
+- [x] **T005** [—] Implement the derivation helpers in `server/__tests__/helpers/db.js`, exporting `getBaseDatabaseUrl()`, `getWorkerId()`, `getWorkerDatabaseName(baseName, workerId)`, `getTemplateDatabaseName(baseName)` and `deriveDatabaseUrl(baseUrl, dbName)` per [contracts/naming-and-env.md](./contracts/naming-and-env.md) §2–3. Base resolution order: `TEST_BASE_DATABASE_URL` → `DATABASE_URL` → built-in default (research R3). Parse and splice with `new URL`, replacing **only** `pathname` (research R7).
+- [x] **T006** [—] Add base-name charset validation and an identifier-quoting helper in `server/__tests__/helpers/db.js`; every name interpolated into DDL is double-quoted (research R6, Constitution Principle V).
+- [x] **T007** [—] Change `getTestDatabaseUrl()` in `server/__tests__/helpers/db.js` from returning `DATABASE_URL` verbatim (current `:19`) to returning the worker-derived URL. Keep the signature. Keep `getDbConfig`, `createPool`, `createPersistence`, `createTestUser`, `cleanupTestUser`, `cleanupDocRows` unchanged (contract §3).
+- [x] **T008** [—] Update the `TEST_DB_NAME` export's doc comment in `server/__tests__/helpers/db.js` to state it is the **base** name, not the name tests connect to. A stale reading of this constant is the most likely way a suite ends up on the wrong database.
+- [x] **T009** [—] Run T004's tests to green: `npx jest server/__tests__/db-isolation.test.js --runInBand`.
 
 **Checkpoint**: derivation is correct and proven. User stories may begin.
 
@@ -59,18 +59,18 @@ description: "Task list for 052-parallel-test-isolation"
 
 ### Tests for US1
 
-- [ ] **T010** [P] [US1] Extend `server/__tests__/db-isolation.test.js` with the cross-worker isolation case: two workers each insert the *same* fixed-key row and both succeed, with neither row visible from the other's database (US1 scenario 6, SC-005).
+- [x] **T010** [P] [US1] Extend `server/__tests__/db-isolation.test.js` with the cross-worker isolation case: two workers each insert the *same* fixed-key row and both succeed, with neither row visible from the other's database (US1 scenario 6, SC-005).
 
 ### Implementation for US1
 
-- [ ] **T011** [US1] Rewrite `server/__tests__/globalSetup.js` to accept `(globalConfig, projectConfig)` and read `globalConfig.maxWorkers` as the worker count (research R1). Resolve the base URL once and publish it as `process.env.TEST_BASE_DATABASE_URL` before any worker spawns (research R3).
-- [ ] **T012** [US1] Implement the template lifecycle in `server/__tests__/globalSetup.js`: create `<base>_template` if absent → `npm run migrate` against it → on failure, drop and rebuild once → on second failure, abort re-raising the **original** error (research R4, RBD-052-5, INV-3). Never copy from a template whose migration did not complete. The `script/migrate.js` phantom-`pgmigrations` guards (`:15–27`, `:29–45`) are inherited automatically — do not duplicate them.
-- [ ] **T013** [US1] Implement per-worker provisioning in `server/__tests__/globalSetup.js`: for each worker `1..maxWorkers`, `DROP DATABASE IF EXISTS "<base>_wN" WITH (FORCE)` then `CREATE DATABASE "<base>_wN" TEMPLATE "<base>_template"` (FR-001, research R5). Force-drop worker copies; do **not** force-drop the template.
-- [ ] **T014** [US1] Replace the admin-URL derivation in `server/__tests__/globalSetup.js` (current regex at `:11`) with `deriveDatabaseUrl(base, 'postgres')`. This retires the live latent bug at `:14–19`, which probes/creates the constant `TEST_DB_NAME` while `:37` migrates whatever `DATABASE_URL` names (research R7).
-- [ ] **T015** [US1] Wrap the provisioning failures in `server/__tests__/globalSetup.js` with the actionable messages required by contract §5: template-in-use (name the template, the connection holder, and the D3 one-run-at-a-time rule) and worker-drop-failed (name the database and the leaked-process cause). Postgres fails these immediately — wrap and re-raise, do **not** add timeouts.
-- [ ] **T016** [US1] In `server/__tests__/setup.js`, set `process.env.DATABASE_URL` to the worker's derived URL **unconditionally**, replacing the current `if (!process.env.DATABASE_URL)` guard. This is what makes raw-`process.env.DATABASE_URL` readers correct for free (research R3).
-- [ ] **T017** [US1] Sweep for suites or helpers that name a database directly instead of going through the helper, and fix them (spec Edge Cases, FR-004). Known starting points from the plan's sweep: `server/__tests__/helpers/otel-e2e-child.js:42` (raw env in a spawned child — resolved by T016 + T023) and `server/__tests__/ping-pool-release.test.js:39` (a deliberately unreachable URL for a failure-path test — verify it is intentional and leave it).
-- [ ] **T018** [US1] Validate US1 per [quickstart.md](./quickstart.md) S1: provisioning check via `psql -l`; stale-copy replacement; external base honored as a base; two concurrent worktree-style bases not colliding (RBD-052-1).
+- [x] **T011** [US1] Rewrite `server/__tests__/globalSetup.js` to accept `(globalConfig, projectConfig)` and read `globalConfig.maxWorkers` as the worker count (research R1). Resolve the base URL once and publish it as `process.env.TEST_BASE_DATABASE_URL` before any worker spawns (research R3).
+- [x] **T012** [US1] Implement the template lifecycle in `server/__tests__/globalSetup.js`: create `<base>_template` if absent → `npm run migrate` against it → on failure, drop and rebuild once → on second failure, abort re-raising the **original** error (research R4, RBD-052-5, INV-3). Never copy from a template whose migration did not complete. The `script/migrate.js` phantom-`pgmigrations` guards (`:15–27`, `:29–45`) are inherited automatically — do not duplicate them.
+- [x] **T013** [US1] Implement per-worker provisioning in `server/__tests__/globalSetup.js`: for each worker `1..maxWorkers`, `DROP DATABASE IF EXISTS "<base>_wN" WITH (FORCE)` then `CREATE DATABASE "<base>_wN" TEMPLATE "<base>_template"` (FR-001, research R5). Force-drop worker copies; do **not** force-drop the template.
+- [x] **T014** [US1] Replace the admin-URL derivation in `server/__tests__/globalSetup.js` (current regex at `:11`) with `deriveDatabaseUrl(base, 'postgres')`. This retires the live latent bug at `:14–19`, which probes/creates the constant `TEST_DB_NAME` while `:37` migrates whatever `DATABASE_URL` names (research R7).
+- [x] **T015** [US1] Wrap the provisioning failures in `server/__tests__/globalSetup.js` with the actionable messages required by contract §5: template-in-use (name the template, the connection holder, and the D3 one-run-at-a-time rule) and worker-drop-failed (name the database and the leaked-process cause). Postgres fails these immediately — wrap and re-raise, do **not** add timeouts.
+- [x] **T016** [US1] In `server/__tests__/setup.js`, set `process.env.DATABASE_URL` to the worker's derived URL **unconditionally**, replacing the current `if (!process.env.DATABASE_URL)` guard. This is what makes raw-`process.env.DATABASE_URL` readers correct for free (research R3).
+- [x] **T017** [US1] Sweep for suites or helpers that name a database directly instead of going through the helper, and fix them (spec Edge Cases, FR-004). Known starting points from the plan's sweep: `server/__tests__/helpers/otel-e2e-child.js:42` (raw env in a spawned child — resolved by T016 + T023) and `server/__tests__/ping-pool-release.test.js:39` (a deliberately unreachable URL for a failure-path test — verify it is intentional and leave it).
+- [x] **T018** [US1] Validate US1 per [quickstart.md](./quickstart.md) S1: provisioning check via `psql -l`; stale-copy replacement; external base honored as a base; two concurrent worktree-style bases not colliding (RBD-052-1).
 
 **Checkpoint**: US1 fully functional. Postgres isolation holds; the suite is still serial.
 
@@ -84,17 +84,17 @@ description: "Task list for 052-parallel-test-isolation"
 
 ### Tests for US2
 
-- [ ] **T019** [P] [US2] Add the byte-identity test to `server/__tests__/db-isolation.test.js`: with `REDIS_DB` unset, the constructed `REDIS_CONFIG` has **no `db` key at all** — assert `('db' in config) === false`, *not* `db === 0`. Those are different objects and only the former satisfies SC-004 / INV-7. Also assert an explicit `REDIS_DB=0` **is** honored (the string `'0'` is truthy), so nobody later "fixes" the truthiness check and silently breaks it.
-- [ ] **T020** [P] [US2] Add the cross-worker pub/sub silence test to `server/__tests__/db-isolation.test.js` (US2 scenario 3), and the worker-cap fail-fast assertion (US2 scenario 4).
+- [x] **T019** [P] [US2] Add the byte-identity test to `server/__tests__/db-isolation.test.js`: with `REDIS_DB` unset, the constructed `REDIS_CONFIG` has **no `db` key at all** — assert `('db' in config) === false`, *not* `db === 0`. Those are different objects and only the former satisfies SC-004 / INV-7. Also assert an explicit `REDIS_DB=0` **is** honored (the string `'0'` is truthy), so nobody later "fixes" the truthiness check and silently breaks it.
+- [x] **T020** [P] [US2] Add the cross-worker pub/sub silence test to `server/__tests__/db-isolation.test.js` (US2 scenario 3), and the worker-cap fail-fast assertion (US2 scenario 4).
 
 ### Implementation for US2
 
-- [ ] **T021** [US2] Add the `REDIS_DB` knob to `REDIS_CONFIG` in `server/redis.js`, immediately after the `REDIS_PASSWORD` conditional spread at `:18`, using the identical pattern so the key is absent when unset (FR-006). Both `new Redis(REDIS_CONFIG)` sites (`:32` shared singleton, `:98` pub/sub factory) inherit it with no further plumbing (FR-007, INV-8) — confirm no third construction site has appeared.
-- [ ] **T022** [US2] In `server/__tests__/setup.js`, set `process.env.REDIS_DB = String(workerId)` — logical DB = `JEST_WORKER_ID` verbatim, so tests never touch DB 0 (RBD-052-2, INV-9). `setupFilesAfterEnv` runs before the test file loads, and `REDIS_CONFIG` is built at `require`-time of `server/redis.js`, so the ordering is already correct — no new `setupFiles` entry is needed.
-- [ ] **T023** [US2] Plumb the assignment into the spawned child: pass `REDIS_DB: process.env.REDIS_DB` in the child env at `server/__tests__/telemetry-traces.test.js:38–43`, and honor it in `server/__tests__/helpers/otel-e2e-child.js:43` (`new Redis({ host, ...(process.env.REDIS_DB ? { db: Number(process.env.REDIS_DB) } : {}) })`). This is the one Redis construction path that bypasses `server/redis.js`.
-- [ ] **T024** [US2] Implement the >15-worker fail-fast in `server/__tests__/globalSetup.js`, using the same `globalConfig.maxWorkers` value as T011 (FR-008, INV-10). Abort **before any test runs**, with a message naming the requested count, the cap of 15, the reason (16 logical DBs, DB 0 reserved for non-test consumers), and the fix (`JEST_MAX_WORKERS` / `--maxWorkers`). Never silently share, never silently clamp (RBD-052-3).
-- [ ] **T025** [US2] Verify within-worker pub/sub still passes: `npx jest server/__tests__/redis-pubsub-integration.test.js --runInBand` (US2 scenario 2) and `npx jest server/__tests__/rate-limit-degrade.test.js --runInBand`.
-- [ ] **T026** [US2] Validate US2 per [quickstart.md](./quickstart.md) S2, including the cap fail-fast producing **no test output at all**: `JEST_MAX_WORKERS=16 npm run test:server`.
+- [x] **T021** [US2] Add the `REDIS_DB` knob to `REDIS_CONFIG` in `server/redis.js`, immediately after the `REDIS_PASSWORD` conditional spread at `:18`, using the identical pattern so the key is absent when unset (FR-006). Both `new Redis(REDIS_CONFIG)` sites (`:32` shared singleton, `:98` pub/sub factory) inherit it with no further plumbing (FR-007, INV-8) — confirm no third construction site has appeared.
+- [x] **T022** [US2] In `server/__tests__/setup.js`, set `process.env.REDIS_DB = String(workerId)` — logical DB = `JEST_WORKER_ID` verbatim, so tests never touch DB 0 (RBD-052-2, INV-9). `setupFilesAfterEnv` runs before the test file loads, and `REDIS_CONFIG` is built at `require`-time of `server/redis.js`, so the ordering is already correct — no new `setupFiles` entry is needed.
+- [x] **T023** [US2] Plumb the assignment into the spawned child: pass `REDIS_DB: process.env.REDIS_DB` in the child env at `server/__tests__/telemetry-traces.test.js:38–43`, and honor it in `server/__tests__/helpers/otel-e2e-child.js:43` (`new Redis({ host, ...(process.env.REDIS_DB ? { db: Number(process.env.REDIS_DB) } : {}) })`). This is the one Redis construction path that bypasses `server/redis.js`.
+- [x] **T024** [US2] Implement the >15-worker fail-fast in `server/__tests__/globalSetup.js`, using the same `globalConfig.maxWorkers` value as T011 (FR-008, INV-10). Abort **before any test runs**, with a message naming the requested count, the cap of 15, the reason (16 logical DBs, DB 0 reserved for non-test consumers), and the fix (`JEST_MAX_WORKERS` / `--maxWorkers`). Never silently share, never silently clamp (RBD-052-3).
+- [x] **T025** [US2] Verify within-worker pub/sub still passes: `npx jest server/__tests__/redis-pubsub-integration.test.js --runInBand` (US2 scenario 2) and `npx jest server/__tests__/rate-limit-degrade.test.js --runInBand`.
+- [x] **T026** [US2] Validate US2 per [quickstart.md](./quickstart.md) S2, including the cap fail-fast producing **no test output at all**: `JEST_MAX_WORKERS=16 npm run test:server`.
 
 **Checkpoint**: US1 + US2 both hold. The suite is parallel-*safe*; it is not yet parallel-*by-default*.
 
@@ -108,15 +108,15 @@ description: "Task list for 052-parallel-test-isolation"
 
 **Note**: these four files were deliberately **not** edited during planning (pipeline parallel-agent overrides). They are edited here, in the implement phase, in one commit.
 
-- [ ] **T027** [US3] Amend Principle II in `.specify/memory/constitution.md`: replace the sentence "Backend tests share one database and MUST run serially — never launch concurrent backend test runs against the same DB." with the ratified design §2.3 replacement text, **character-for-character** as quoted in FR-009. Diff it against the design doc; do not retype from memory.
-- [ ] **T028** [US3] In the same file, make the Development Workflow gate coherent: "affected tests pass (serially for backend)" → drop the serial qualifier (FR-011, RBD-052-4, research R9 site 1).
-- [ ] **T029** [US3] In the same file, bump the version **1.2.0 → 1.3.0** (MINOR) per Governance and per **RBD-052-6** in [clarifications-needed.md](./clarifications-needed.md) — the level was arguable between MINOR and MAJOR and is recorded there rather than decided in passing. Update the Sync Impact Report comment: version change, the Principle II modification, the Development Workflow gate consequence, and the templates-propagation note (the plan-template's Constitution Check is generic, so no template edit is required — state that explicitly, as the 1.2.0 report did).
-- [ ] **T030** [P] [US3] Update `.claude/skills/the-pipeline/SKILL.md:64` (worktree guidance): keep the per-agent database requirement, describe the per-agent `DATABASE_URL` as a **base** the helper derives from, and remove "Within one DB, backend tests are serial-only (`--runInBand` is already wired in; don't defeat it)" — which would otherwise instruct every implementer agent to defeat the new default (research R9 site 2). State the observable consequence of base-URL semantics explicitly (analyze M4): an agent that sets `DATABASE_URL=.../collab_test_db_042` no longer runs IN that database — workers run in `collab_test_db_042_w1..wN`, and `collab_test_db_042` itself stays EMPTY after the run.
-- [ ] **T031** [P] [US3] Update `.claude/skills/the-pipeline/SKILL.md:46` (merge-queue step): drop the "serial-only" framing but **keep** "never overlap another backend run on the same DB" — that clause remains true under ratified D3 (research R9 site 3). This site was not enumerated in FR-011; it is the same ratified coherence principle applied to the complete set.
-- [ ] **T032** [P] [US3] Update `docs/dev.md:372–375`: replace the "Backend tests are serial-only against one database" paragraph with the isolation invariant. Keep the per-worktree-database advice (now base-URL semantics), keep the `REDIS_HOST` warning at `:365–369`, and keep the `--forceExit` / `--reporters=` positional-argument notes at `:356–361` (research R9 site 4, Constitution Principle I). Spell out the M4 breaking-change consequence here too: an explicitly-set `DATABASE_URL` is now a BASE name — the run happens in `<base>_wN` derivative databases, and inspecting the base database after a run shows no rows.
-- [ ] **T033** [US3] Rewrite the `cleanupDocRows` convention comment in `server/__tests__/helpers/db.js:84–114`. The convention **stays** (FR-010); only the rationale changes: within one worker, suites still run sequentially against one database, so deleting what you created still protects suite ordering. The cross-suite orphan flake class is eliminated by construction between workers, and cross-run accumulation entirely by fresh-from-template creation — neither may still be cited as the live threat.
-- [ ] **T034** [P] [US3] Fix the two stale in-code comments the sweep found: `server/undo/__tests__/undo-service.test.js:14` ("DB-backed, serial only (shared collab_test_db)") and `server/__tests__/pg-pool-limits.test.js:7–8` (which claims safety because "the serial runner shares process.env with other suites" — under workers each suite gets its own process, so the reasoning changed even though the conclusion holds).
-- [ ] **T035** [US3] Validate US3 per [quickstart.md](./quickstart.md) S3: all four greps return nothing (SC-007), and Principle II diffs clean against design §2.3.
+- [x] **T027** [US3] Amend Principle II in `.specify/memory/constitution.md`: replace the sentence "Backend tests share one database and MUST run serially — never launch concurrent backend test runs against the same DB." with the ratified design §2.3 replacement text, **character-for-character** as quoted in FR-009. Diff it against the design doc; do not retype from memory.
+- [x] **T028** [US3] In the same file, make the Development Workflow gate coherent: "affected tests pass (serially for backend)" → drop the serial qualifier (FR-011, RBD-052-4, research R9 site 1).
+- [x] **T029** [US3] In the same file, bump the version **1.2.0 → 1.3.0** (MINOR) per Governance and per **RBD-052-6** in [clarifications-needed.md](./clarifications-needed.md) — the level was arguable between MINOR and MAJOR and is recorded there rather than decided in passing. Update the Sync Impact Report comment: version change, the Principle II modification, the Development Workflow gate consequence, and the templates-propagation note (the plan-template's Constitution Check is generic, so no template edit is required — state that explicitly, as the 1.2.0 report did).
+- [x] **T030** [P] [US3] Update `.claude/skills/the-pipeline/SKILL.md:64` (worktree guidance): keep the per-agent database requirement, describe the per-agent `DATABASE_URL` as a **base** the helper derives from, and remove "Within one DB, backend tests are serial-only (`--runInBand` is already wired in; don't defeat it)" — which would otherwise instruct every implementer agent to defeat the new default (research R9 site 2). State the observable consequence of base-URL semantics explicitly (analyze M4): an agent that sets `DATABASE_URL=.../collab_test_db_042` no longer runs IN that database — workers run in `collab_test_db_042_w1..wN`, and `collab_test_db_042` itself stays EMPTY after the run.
+- [x] **T031** [P] [US3] Update `.claude/skills/the-pipeline/SKILL.md:46` (merge-queue step): drop the "serial-only" framing but **keep** "never overlap another backend run on the same DB" — that clause remains true under ratified D3 (research R9 site 3). This site was not enumerated in FR-011; it is the same ratified coherence principle applied to the complete set.
+- [x] **T032** [P] [US3] Update `docs/dev.md:372–375`: replace the "Backend tests are serial-only against one database" paragraph with the isolation invariant. Keep the per-worktree-database advice (now base-URL semantics), keep the `REDIS_HOST` warning at `:365–369`, and keep the `--forceExit` / `--reporters=` positional-argument notes at `:356–361` (research R9 site 4, Constitution Principle I). Spell out the M4 breaking-change consequence here too: an explicitly-set `DATABASE_URL` is now a BASE name — the run happens in `<base>_wN` derivative databases, and inspecting the base database after a run shows no rows.
+- [x] **T033** [US3] Rewrite the `cleanupDocRows` convention comment in `server/__tests__/helpers/db.js:84–114`. The convention **stays** (FR-010); only the rationale changes: within one worker, suites still run sequentially against one database, so deleting what you created still protects suite ordering. The cross-suite orphan flake class is eliminated by construction between workers, and cross-run accumulation entirely by fresh-from-template creation — neither may still be cited as the live threat.
+- [x] **T034** [P] [US3] Fix the two stale in-code comments the sweep found: `server/undo/__tests__/undo-service.test.js:14` ("DB-backed, serial only (shared collab_test_db)") and `server/__tests__/pg-pool-limits.test.js:7–8` (which claims safety because "the serial runner shares process.env with other suites" — under workers each suite gets its own process, so the reasoning changed even though the conclusion holds).
+- [x] **T035** [US3] Validate US3 per [quickstart.md](./quickstart.md) S3: all four greps return nothing (SC-007), and Principle II diffs clean against design §2.3.
 
 **Checkpoint**: the written rules no longer forbid US4. All three P1/P2 stories complete.
 
@@ -130,26 +130,26 @@ description: "Task list for 052-parallel-test-isolation"
 
 ### Configuration
 
-- [ ] **T036** [US4] Add `"maxWorkers": "50%"` to the `"jest"` config block in `package.json` (D4, FR-013). Verified honored from the config file — `getMaxWorkers` consults it, and `--runInBand` still short-circuits to 1 ahead of it (research R1).
-- [ ] **T037** [US4] Change `test:server` in `package.json:14` to drop `--runInBand` and add `${JEST_MAX_WORKERS:+--maxWorkers=$JEST_MAX_WORKERS}` (research R8). **Preserve `--forceExit`, `--silent`, and `--reporters=./script/jest-llm-reporter.js` last in the flag order** — `docs/dev.md:361` documents that positionals landing after `--reporters=` are misparsed (FR-015).
-- [ ] **T038** [US4] Leave `test:coverage` (`package.json:16`) on `--runInBand` — serial coverage is intentional and unaffected. Confirm `test:server:watch` (`:15`), already parallel, now picks up isolation.
-- [ ] **T039** [US4] **Rebase-on-051 CI edit**: add exactly one entry, `JEST_MAX_WORKERS: <n>`, to the **existing** `env:` block of the post-051 backend job in `.github/workflows/test.yml` (D4, FR-013). Do not touch the `run:` line, the services, or the client job. If 051 changed `POSTGRES_DB` or `DATABASE_URL`, no further edit is needed — those become the base by construction.
+- [x] **T036** [US4] Add `"maxWorkers": "50%"` to the `"jest"` config block in `package.json` (D4, FR-013). Verified honored from the config file — `getMaxWorkers` consults it, and `--runInBand` still short-circuits to 1 ahead of it (research R1).
+- [x] **T037** [US4] Change `test:server` in `package.json:14` to drop `--runInBand` and add `${JEST_MAX_WORKERS:+--maxWorkers=$JEST_MAX_WORKERS}` (research R8). **Preserve `--forceExit`, `--silent`, and `--reporters=./script/jest-llm-reporter.js` last in the flag order** — `docs/dev.md:361` documents that positionals landing after `--reporters=` are misparsed (FR-015).
+- [x] **T038** [US4] Leave `test:coverage` (`package.json:16`) on `--runInBand` — serial coverage is intentional and unaffected. Confirm `test:server:watch` (`:15`), already parallel, now picks up isolation.
+- [x] **T039** [US4] **Rebase-on-051 CI edit**: add exactly one entry, `JEST_MAX_WORKERS: <n>`, to the **existing** `env:` block of the post-051 backend job in `.github/workflows/test.yml` (D4, FR-013). Do not touch the `run:` line, the services, or the client job. If 051 changed `POSTGRES_DB` or `DATABASE_URL`, no further edit is needed — those become the base by construction.
   - **Choosing `<n>` (decision rule, so the implementer does not guess)**: set it to the runner's core count as reported by `node -e 'console.log(require("os").availableParallelism())'` in a CI step, capped at 15. For GitHub-hosted `ubuntu-latest` at time of planning that is **4**, so `JEST_MAX_WORKERS: 4` is the default to land. D4 requires an *explicit* count in CI rather than a percentage precisely so this value is visible and reviewable in the workflow file — do not substitute `50%`. If T043's five CI runs show contention flakiness at that count, the remedy is the flaking suite's timing ceiling (FR-018), not a lower `<n>`.
 
 ### Fix the coupling tail
 
-- [ ] **T040** [US4] Run the full suite in parallel and triage every failure. Each failure that traces to cross-suite coupling is fixed as a bug **in the offending suite's own setup/cleanup** (FR-017) — reverting to serial is not an acceptable resolution. Each suite that flakes under CPU contention gets its **timing ceiling** reviewed and adjusted (FR-018) — lowering the worker count is not an acceptable resolution. Record each fix and its resolution in the gate ledger. Expect a short, bounded tail (design §2.4).
-- [ ] **T041** [US4] Confirm the LLM reporter is the active reporter in **both** modes (FR-015, SC-006): `npm run test:server | head -3` and `npm run test:server -- --runInBand | head -3`.
+- [x] **T040** [US4] Run the full suite in parallel and triage every failure. Each failure that traces to cross-suite coupling is fixed as a bug **in the offending suite's own setup/cleanup** (FR-017) — reverting to serial is not an acceptable resolution. Each suite that flakes under CPU contention gets its **timing ceiling** reviewed and adjusted (FR-018) — lowering the worker count is not an acceptable resolution. Record each fix and its resolution in the gate ledger. Expect a short, bounded tail (design §2.4).
+- [x] **T041** [US4] Confirm the LLM reporter is the active reporter in **both** modes (FR-015, SC-006): `npm run test:server | head -3` and `npm run test:server -- --runInBand | head -3`.
 
 ### ⛔ THE VERIFICATION GATE (FR-016 / SC-002 / SC-003)
 
 **The serial default MUST NOT be considered dropped until every task below is recorded complete.** These are gates, not smoke tests. Procedure in [quickstart.md](./quickstart.md) S5.
 
-- [ ] **T042** [US4] **Five consecutive green full parallel runs locally.** Consecutive is literal — any red run resets the counter to zero; fix the suite (T040) and restart from run 1. Logs to `/tmp/052-parallel-1..5.log`.
-- [ ] **T043** [US4] **Five consecutive green parallel backend jobs in CI** on the post-051 workflow with `JEST_MAX_WORKERS` set. Record the five run URLs.
-- [ ] **T044** [US4] **Serial-vs-parallel pass-list diff is empty** (SC-003). Generate both sorted pass lists and `diff` them. A non-empty diff names the mode-dependent suites — fix them and restart the gate from T042.
-- [ ] **T045** [US4] Measure SC-001: full parallel suite wall time on the 10-core dev pod, plus the worker count actually used. Note that `50%` yields **5** workers here, not the design table's "6–8" — the ratified knob wins and this is not a defect (research R10). If 5 workers land outside the 30–50 s band, **report the timing to Sam** alongside measurements at other counts; changing the percentage is a D4 amendment and is Sam's call, not the implementer's.
-- [ ] **T046** [US4] Fill in the gate ledger in [quickstart.md](./quickstart.md) S5 with evidence for every row, then mark the serial default formally dropped.
+- [x] **T042** [US4] **Five consecutive green full parallel runs locally.** Consecutive is literal — any red run resets the counter to zero; fix the suite (T040) and restart from run 1. Logs to `/tmp/052-parallel-1..5.log`.
+- [ ] **T043** [US4] **Five consecutive green parallel backend jobs in CI** on the post-051 workflow with `JEST_MAX_WORKERS` set. Record the five run URLs. — **UNCHECKED BY DESIGN (post-merge/post-push).** The `JEST_MAX_WORKERS: 4` line takes effect on the push that introduces it, so these runs cannot exist before the merge; same shape as 051's live-CI tasks T021–T024. Owed to Sam; see promotion-notes.md §1.
+- [x] **T044** [US4] **Serial-vs-parallel pass-list diff is empty** (SC-003). Generate both sorted pass lists and `diff` them. A non-empty diff names the mode-dependent suites — fix them and restart the gate from T042.
+- [x] **T045** [US4] Measure SC-001: full parallel suite wall time on the 10-core dev pod, plus the worker count actually used. Note that `50%` yields **5** workers here, not the design table's "6–8" — the ratified knob wins and this is not a defect (research R10). If 5 workers land outside the 30–50 s band, **report the timing to Sam** alongside measurements at other counts; changing the percentage is a D4 amendment and is Sam's call, not the implementer's.
+- [x] **T046** [US4] Fill in the gate ledger in [quickstart.md](./quickstart.md) S5 with evidence for every row, then mark the serial default formally dropped.
 
 **Checkpoint**: all four user stories complete and the gate is green.
 
@@ -157,11 +157,11 @@ description: "Task list for 052-parallel-test-isolation"
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] **T047** [—] Run the whole of [quickstart.md](./quickstart.md) S1–S4 end to end as a final regression pass.
-- [ ] **T048** [P] [—] Verify the full command matrix from contract §4 is green: `npm run test:server`, `npm run test:server -- --runInBand`, `npm run test:coverage`, `npx jest <one file>`.
-- [ ] **T049** [P] [—] Confirm `npm run test:first-run` still passes untouched (`test/first-run/matrix-runner.mjs` reads `DATABASE_URL` directly and sees the unchanged base — out of scope, verified not regressed).
-- [ ] **T050** [—] Clean up the quickstart's scratch databases per [quickstart.md](./quickstart.md) S6. Leave the suite's own `_template` / `_wN` databases in place — that is intentional (data-model.md §4).
-- [ ] **T051** [—] Update `clarifications-needed.md` with any decision the implementation forced, and record in the feature ledger: tasks n/n, the coupling failures fixed in T040, and the SC-001 measurement.
+- [x] **T047** [—] Run the whole of [quickstart.md](./quickstart.md) S1–S4 end to end as a final regression pass.
+- [x] **T048** [P] [—] Verify the full command matrix from contract §4 is green: `npm run test:server`, `npm run test:server -- --runInBand`, `npm run test:coverage`, `npx jest <one file>`.
+- [x] **T049** [P] [—] Confirm `npm run test:first-run` still passes untouched (`test/first-run/matrix-runner.mjs` reads `DATABASE_URL` directly and sees the unchanged base — out of scope, verified not regressed).
+- [x] **T050** [—] Clean up the quickstart's scratch databases per [quickstart.md](./quickstart.md) S6. Leave the suite's own `_template` / `_wN` databases in place — that is intentional (data-model.md §4).
+- [x] **T051** [—] Update `clarifications-needed.md` with any decision the implementation forced, and record in the feature ledger: tasks n/n, the coupling failures fixed in T040, and the SC-001 measurement.
 
 ---
 
@@ -234,3 +234,45 @@ Steps 2–4 are each safely landable and revertible on their own. Step 5 is the 
 - Commit after each task or logical group; this repo commits straight to `main` for normal work, and the constitution amendment (T027–T029) is by Governance a sole-maintainer commit to `main`.
 - The four documentation files in Phase 4 were read but deliberately not edited during planning (pipeline parallel-agent overrides); Phase 4 is where they change.
 - **Never** resolve a parallel-run failure by reverting to serial (FR-017) or by lowering the worker count (FR-018). Those are the two failure modes the gate exists to prevent, and both would look locally reasonable in the moment.
+
+---
+
+## Implementation record (2026-08-05)
+
+**Tasks: 50/51.** The one open task is **T043** (five green CI backend jobs), unchecked by
+design — those runs cannot exist before the push that introduces `JEST_MAX_WORKERS: 4`. Owed
+to Sam; promotion-notes.md §1.
+
+**Environment**: 10-core Minikube dev pod, base `collab_test_db_052`, shared Redis.
+
+### Measured results
+
+| Measurement | Value |
+|---|---|
+| Serial baseline, pre-change (T003) | **177.2s**, 254 suites, 4574 passed |
+| Parallel default, post-change (SC-001) | **34.6–36.3s**, 255 suites, 4593 passed, **5 workers** |
+| Serial, post-change (FR-014 / SC-006) | **166.6s**, green, LLM reporter unchanged |
+| Speed-up | **~4.9x** — inside the design's 30–50s band without tuning the ratified 50% knob |
+| Five-run gate (T042) | 34.6s / 34.8s / 36.3s / 45.7s / 932.5s — all green, no reset. Run 5 was CPU-starved by another agent's long-running suite on the shared pod, and still passed with no timing failures. |
+| Pass-list diff (T044) | **empty** — 4593 lines each, serial and parallel identical |
+
+### Coupling failures fixed as suite bugs (T040, FR-017)
+
+Two, both in commit `9a3ef967`; neither fixed by reverting to serial or lowering workers.
+
+1. **`server/__tests__/redis-auth.test.js`** — asserted the exact pre-feature `REDIS_CONFIG`
+   key set ("no stray additions") while controlling only `REDIS_PASSWORD`. The runner's new
+   `REDIS_DB` leaked in. It now clears every optional knob it makes assertions about.
+2. **`server/__tests__/search-indexer-gating.test.js`** — its `healStragglers` covered two of
+   `reindexStale`'s three predicate branches. A leftover document with **no index row at all**
+   (`si.doc_id IS NULL`) stayed repair-eligible and cost a full embed cycle each: 26 calls
+   against an expected 2. This is the `reindexStale` orphan flake class, met between this
+   feature's own workers exactly as predicted. The heal now covers the missing-row branch.
+
+### Decision forced by implementation
+
+**RBD-052-7** (clarifications-needed.md): Redis logical databases isolate the keyspace but
+**not** pub/sub channels, so US2 scenario 3 is not achievable by the ratified mechanism.
+`REDIS_DB` was implemented as ratified; the test asserts keyspace isolation positively and
+pins the pub/sub limitation explicitly. Flagged for Sam — a channel prefix would be a design
+amendment to §2.2.
