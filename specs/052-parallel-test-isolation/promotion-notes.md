@@ -71,5 +71,11 @@ argument and the follow-on option for Sam: RBD-052-7 in `clarifications-needed.m
   the same commit: the script supplies `--forceExit`, not `--runInBand`. The `--forceExit`
   hang note and the `--reporters=` positional-argument note both survive verbatim; they are
   still true and still load-bearing.
+- **`npm run test:coverage` passes but does not self-exit** — 255 suites / 4593 tests green,
+  serial as intended, then the process hangs because that script has no `--forceExit` (only
+  `test:server` does). This is **pre-existing and unrelated to 052**: it is exactly the hang
+  `docs/dev.md` documents, and the script was not touched (T038 leaves it on `--runInBand`).
+  Adding `--forceExit` there would be a reasonable one-line follow-on, deliberately not taken
+  here because it is outside this feature's scope.
 - **Two suites were fixed as suite bugs, per FR-017.** Neither was resolved by reverting to
   serial or lowering the worker count. See commit 9a3ef967 and the gate ledger.

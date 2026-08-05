@@ -158,8 +158,8 @@ description: "Task list for 052-parallel-test-isolation"
 ## Phase 6: Polish & Cross-Cutting
 
 - [x] **T047** [—] Run the whole of [quickstart.md](./quickstart.md) S1–S4 end to end as a final regression pass.
-- [ ] **T048** [P] [—] Verify the full command matrix from contract §4 is green: `npm run test:server`, `npm run test:server -- --runInBand`, `npm run test:coverage`, `npx jest <one file>`.
-- [ ] **T049** [P] [—] Confirm `npm run test:first-run` still passes untouched (`test/first-run/matrix-runner.mjs` reads `DATABASE_URL` directly and sees the unchanged base — out of scope, verified not regressed).
+- [x] **T048** [P] [—] Verify the full command matrix from contract §4 is green: `npm run test:server`, `npm run test:server -- --runInBand`, `npm run test:coverage`, `npx jest <one file>`.
+- [x] **T049** [P] [—] Confirm `npm run test:first-run` still passes untouched (`test/first-run/matrix-runner.mjs` reads `DATABASE_URL` directly and sees the unchanged base — out of scope, verified not regressed).
 - [x] **T050** [—] Clean up the quickstart's scratch databases per [quickstart.md](./quickstart.md) S6. Leave the suite's own `_template` / `_wN` databases in place — that is intentional (data-model.md §4).
 - [x] **T051** [—] Update `clarifications-needed.md` with any decision the implementation forced, and record in the feature ledger: tasks n/n, the coupling failures fixed in T040, and the SC-001 measurement.
 
