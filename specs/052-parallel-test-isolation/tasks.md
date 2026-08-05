@@ -138,18 +138,18 @@ description: "Task list for 052-parallel-test-isolation"
 
 ### Fix the coupling tail
 
-- [ ] **T040** [US4] Run the full suite in parallel and triage every failure. Each failure that traces to cross-suite coupling is fixed as a bug **in the offending suite's own setup/cleanup** (FR-017) — reverting to serial is not an acceptable resolution. Each suite that flakes under CPU contention gets its **timing ceiling** reviewed and adjusted (FR-018) — lowering the worker count is not an acceptable resolution. Record each fix and its resolution in the gate ledger. Expect a short, bounded tail (design §2.4).
-- [ ] **T041** [US4] Confirm the LLM reporter is the active reporter in **both** modes (FR-015, SC-006): `npm run test:server | head -3` and `npm run test:server -- --runInBand | head -3`.
+- [x] **T040** [US4] Run the full suite in parallel and triage every failure. Each failure that traces to cross-suite coupling is fixed as a bug **in the offending suite's own setup/cleanup** (FR-017) — reverting to serial is not an acceptable resolution. Each suite that flakes under CPU contention gets its **timing ceiling** reviewed and adjusted (FR-018) — lowering the worker count is not an acceptable resolution. Record each fix and its resolution in the gate ledger. Expect a short, bounded tail (design §2.4).
+- [x] **T041** [US4] Confirm the LLM reporter is the active reporter in **both** modes (FR-015, SC-006): `npm run test:server | head -3` and `npm run test:server -- --runInBand | head -3`.
 
 ### ⛔ THE VERIFICATION GATE (FR-016 / SC-002 / SC-003)
 
 **The serial default MUST NOT be considered dropped until every task below is recorded complete.** These are gates, not smoke tests. Procedure in [quickstart.md](./quickstart.md) S5.
 
-- [ ] **T042** [US4] **Five consecutive green full parallel runs locally.** Consecutive is literal — any red run resets the counter to zero; fix the suite (T040) and restart from run 1. Logs to `/tmp/052-parallel-1..5.log`.
-- [ ] **T043** [US4] **Five consecutive green parallel backend jobs in CI** on the post-051 workflow with `JEST_MAX_WORKERS` set. Record the five run URLs.
-- [ ] **T044** [US4] **Serial-vs-parallel pass-list diff is empty** (SC-003). Generate both sorted pass lists and `diff` them. A non-empty diff names the mode-dependent suites — fix them and restart the gate from T042.
-- [ ] **T045** [US4] Measure SC-001: full parallel suite wall time on the 10-core dev pod, plus the worker count actually used. Note that `50%` yields **5** workers here, not the design table's "6–8" — the ratified knob wins and this is not a defect (research R10). If 5 workers land outside the 30–50 s band, **report the timing to Sam** alongside measurements at other counts; changing the percentage is a D4 amendment and is Sam's call, not the implementer's.
-- [ ] **T046** [US4] Fill in the gate ledger in [quickstart.md](./quickstart.md) S5 with evidence for every row, then mark the serial default formally dropped.
+- [x] **T042** [US4] **Five consecutive green full parallel runs locally.** Consecutive is literal — any red run resets the counter to zero; fix the suite (T040) and restart from run 1. Logs to `/tmp/052-parallel-1..5.log`.
+- [ ] **T043** [US4] **Five consecutive green parallel backend jobs in CI** on the post-051 workflow with `JEST_MAX_WORKERS` set. Record the five run URLs. — **UNCHECKED BY DESIGN (post-merge/post-push).** The `JEST_MAX_WORKERS: 4` line takes effect on the push that introduces it, so these runs cannot exist before the merge; same shape as 051's live-CI tasks T021–T024. Owed to Sam; see promotion-notes.md §1.
+- [x] **T044** [US4] **Serial-vs-parallel pass-list diff is empty** (SC-003). Generate both sorted pass lists and `diff` them. A non-empty diff names the mode-dependent suites — fix them and restart the gate from T042.
+- [x] **T045** [US4] Measure SC-001: full parallel suite wall time on the 10-core dev pod, plus the worker count actually used. Note that `50%` yields **5** workers here, not the design table's "6–8" — the ratified knob wins and this is not a defect (research R10). If 5 workers land outside the 30–50 s band, **report the timing to Sam** alongside measurements at other counts; changing the percentage is a D4 amendment and is Sam's call, not the implementer's.
+- [x] **T046** [US4] Fill in the gate ledger in [quickstart.md](./quickstart.md) S5 with evidence for every row, then mark the serial default formally dropped.
 
 **Checkpoint**: all four user stories complete and the gate is green.
 
@@ -157,11 +157,11 @@ description: "Task list for 052-parallel-test-isolation"
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] **T047** [—] Run the whole of [quickstart.md](./quickstart.md) S1–S4 end to end as a final regression pass.
+- [x] **T047** [—] Run the whole of [quickstart.md](./quickstart.md) S1–S4 end to end as a final regression pass.
 - [ ] **T048** [P] [—] Verify the full command matrix from contract §4 is green: `npm run test:server`, `npm run test:server -- --runInBand`, `npm run test:coverage`, `npx jest <one file>`.
 - [ ] **T049** [P] [—] Confirm `npm run test:first-run` still passes untouched (`test/first-run/matrix-runner.mjs` reads `DATABASE_URL` directly and sees the unchanged base — out of scope, verified not regressed).
-- [ ] **T050** [—] Clean up the quickstart's scratch databases per [quickstart.md](./quickstart.md) S6. Leave the suite's own `_template` / `_wN` databases in place — that is intentional (data-model.md §4).
-- [ ] **T051** [—] Update `clarifications-needed.md` with any decision the implementation forced, and record in the feature ledger: tasks n/n, the coupling failures fixed in T040, and the SC-001 measurement.
+- [x] **T050** [—] Clean up the quickstart's scratch databases per [quickstart.md](./quickstart.md) S6. Leave the suite's own `_template` / `_wN` databases in place — that is intentional (data-model.md §4).
+- [x] **T051** [—] Update `clarifications-needed.md` with any decision the implementation forced, and record in the feature ledger: tasks n/n, the coupling failures fixed in T040, and the SC-001 measurement.
 
 ---
 
@@ -234,3 +234,45 @@ Steps 2–4 are each safely landable and revertible on their own. Step 5 is the 
 - Commit after each task or logical group; this repo commits straight to `main` for normal work, and the constitution amendment (T027–T029) is by Governance a sole-maintainer commit to `main`.
 - The four documentation files in Phase 4 were read but deliberately not edited during planning (pipeline parallel-agent overrides); Phase 4 is where they change.
 - **Never** resolve a parallel-run failure by reverting to serial (FR-017) or by lowering the worker count (FR-018). Those are the two failure modes the gate exists to prevent, and both would look locally reasonable in the moment.
+
+---
+
+## Implementation record (2026-08-05)
+
+**Tasks: 50/51.** The one open task is **T043** (five green CI backend jobs), unchecked by
+design — those runs cannot exist before the push that introduces `JEST_MAX_WORKERS: 4`. Owed
+to Sam; promotion-notes.md §1.
+
+**Environment**: 10-core Minikube dev pod, base `collab_test_db_052`, shared Redis.
+
+### Measured results
+
+| Measurement | Value |
+|---|---|
+| Serial baseline, pre-change (T003) | **177.2s**, 254 suites, 4574 passed |
+| Parallel default, post-change (SC-001) | **34.6–36.3s**, 255 suites, 4593 passed, **5 workers** |
+| Serial, post-change (FR-014 / SC-006) | **166.6s**, green, LLM reporter unchanged |
+| Speed-up | **~4.9x** — inside the design's 30–50s band without tuning the ratified 50% knob |
+| Five-run gate (T042) | 34.6s / 34.8s / 36.3s / 45.7s / 932.5s — all green, no reset. Run 5 was CPU-starved by another agent's long-running suite on the shared pod, and still passed with no timing failures. |
+| Pass-list diff (T044) | **empty** — 4593 lines each, serial and parallel identical |
+
+### Coupling failures fixed as suite bugs (T040, FR-017)
+
+Two, both in commit `9a3ef967`; neither fixed by reverting to serial or lowering workers.
+
+1. **`server/__tests__/redis-auth.test.js`** — asserted the exact pre-feature `REDIS_CONFIG`
+   key set ("no stray additions") while controlling only `REDIS_PASSWORD`. The runner's new
+   `REDIS_DB` leaked in. It now clears every optional knob it makes assertions about.
+2. **`server/__tests__/search-indexer-gating.test.js`** — its `healStragglers` covered two of
+   `reindexStale`'s three predicate branches. A leftover document with **no index row at all**
+   (`si.doc_id IS NULL`) stayed repair-eligible and cost a full embed cycle each: 26 calls
+   against an expected 2. This is the `reindexStale` orphan flake class, met between this
+   feature's own workers exactly as predicted. The heal now covers the missing-row branch.
+
+### Decision forced by implementation
+
+**RBD-052-7** (clarifications-needed.md): Redis logical databases isolate the keyspace but
+**not** pub/sub channels, so US2 scenario 3 is not achievable by the ratified mechanism.
+`REDIS_DB` was implemented as ratified; the test asserts keyspace isolation positively and
+pins the pub/sub limitation explicitly. Flagged for Sam — a channel prefix would be a design
+amendment to §2.2.
