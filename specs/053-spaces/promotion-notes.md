@@ -217,3 +217,23 @@ written twice.
 **Test.** `spaces-api.test.js` → "a malformed :id is the same 404, with no
 exception notification", across all seven `/:id` routes, asserting the
 notifier was never called. Fails pre-fix with 500.
+
+## Post-ship: navigateToSpace prop never threaded (Sam-reported, 2026-08-07)
+
+**Finding.** Reported by Sam from the local dev server: the /docs page crashed
+whole-screen with `Uncaught ReferenceError: navigateToSpace is not defined`
+(App.jsx:408, inside AuthenticatedApp). The callback was defined in AppContent
+(line 190) and referenced in AuthenticatedApp's JSX, but never added to
+AuthenticatedApp's prop list nor passed at its render site. No suite caught it
+because DocList's tests mount DocList directly and nothing mounted the real
+AppContent → AuthenticatedApp wiring; the client has no ESLint no-undef net.
+
+**Fix.** Pass `navigateToSpace` at the AuthenticatedApp render site and accept
+it in the prop list (two lines, App.jsx).
+
+**Test.** New `client/src/__tests__/App.mount.test.jsx`: full App mount with
+pages mocked, covering the /docs view (asserts every navigate prop DocList
+receives is a function), the onNavigateToSpace → space view transition, and a
+direct /space/:id mount. 2 of 3 fail pre-fix with the exact ReferenceError.
+This is the suite that closes the "wiring between AppContent and
+AuthenticatedApp is untested" gap for future navigate props.

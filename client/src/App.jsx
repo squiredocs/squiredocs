@@ -309,7 +309,8 @@ function AppContent() {
         navigateToDocs={navigateToDocs} navigateToDoc={navigateToDoc}
         navigateToVersions={navigateToVersions} navigateToSettings={navigateToSettings}
         navigateToSupport={navigateToSupport}
-        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat} />
+        navigateToAdmin={navigateToAdmin} navigateToChat={navigateToChat}
+        navigateToSpace={navigateToSpace} />
     </ByokProvider>
   );
 }
@@ -318,7 +319,7 @@ function AppContent() {
  * Authenticated shell — renders the current page plus the AI panel.
  * Separated so useAiPanel/useAiChat hooks are only called when logged in.
  */
-function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat }) {
+function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc, navigateToVersions, navigateToSettings, navigateToSupport, navigateToAdmin, navigateToChat, navigateToSpace }) {
   const aiPanel = useAiPanel();
   const aiChat = useAiChat();
   const isMobile = useMobile();
