@@ -4,6 +4,7 @@ import UserProfileBadge from './UserProfileBadge';
 import ViewToggleButton from './ViewToggleButton';
 import ShareDialog from './ShareDialog';
 import MoveToSpaceDialog from './MoveToSpaceDialog';
+import CreateSpaceDialog from './CreateSpaceDialog';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
@@ -66,6 +67,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
   const [space, setSpace] = useState(initialSpace || 'all');
   const [spaces, setSpaces] = useState([]);
   const [moveDoc, setMoveDoc] = useState(null);
+  const [showCreateSpace, setShowCreateSpace] = useState(false);
   const menuRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
@@ -352,7 +354,15 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
           <select
             className="doc-list-space"
             value={space}
-            onChange={(e) => setSpace(e.target.value)}
+            onChange={(e) => {
+              // The last option is an action, not a scope: keep the current
+              // scope selected and open the create dialog instead.
+              if (e.target.value === '__create__') {
+                setShowCreateSpace(true);
+                return;
+              }
+              setSpace(e.target.value);
+            }}
             aria-label="Space"
           >
             <option value="all">All documents</option>
@@ -360,6 +370,7 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
             {spaces.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
+            <option value="__create__">+ New space…</option>
           </select>
 
           <div className="doc-list-search">
@@ -549,6 +560,21 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
           onMoved={() => fetchDocs()}
         />
       )}
+
+      {/* Create-space dialog (feature 053): lands on the new space's settings
+          page, where inviting members lives. */}
+      <CreateSpaceDialog
+        isOpen={showCreateSpace}
+        onClose={() => setShowCreateSpace(false)}
+        onCreated={(created) => {
+          setSpaces((prev) => [...prev, created]);
+          if (onNavigateToSpace) {
+            onNavigateToSpace(created.id);
+          } else {
+            setSpace(created.id);
+          }
+        }}
+      />
 
       {/* Share dialog */}
       {shareDocId && (

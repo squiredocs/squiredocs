@@ -1,0 +1,155 @@
+/* Create-space dialog (feature 053). Mirrors MoveToSpaceDialog.css /
+   ShareDialog.css so the space dialogs read as one family, in both themes. */
+
+.create-space-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2010; /* above the move dialog, which can open this one */
+  padding: 20px;
+}
+
+.create-space-dialog {
+  background: var(--surface-overlay);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px var(--shadow-color);
+}
+
+.create-space-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.create-space-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.create-space-close {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background-color 0.15s ease;
+}
+
+.create-space-close:hover {
+  background-color: var(--surface-hover);
+}
+
+.create-space-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.create-space-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.create-space-body {
+  padding: 16px 24px 24px;
+}
+
+.create-space-hint {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.create-space-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+}
+
+.create-space-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.create-space-body input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.create-space-body input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.create-space-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.create-space-cancel,
+.create-space-submit {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: var(--text-base);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.create-space-cancel {
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.create-space-cancel:hover {
+  background: var(--surface-hover);
+}
+
+.create-space-submit {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.create-space-submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.create-space-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

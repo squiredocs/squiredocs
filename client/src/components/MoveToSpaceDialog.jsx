@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import CreateSpaceDialog from './CreateSpaceDialog';
 import './MoveToSpaceDialog.css';
 
 /**
@@ -21,6 +22,7 @@ function MoveToSpaceDialog({ docId, docTitle, currentSpaceId, isOpen, onClose, o
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState(false);
   const [error, setError] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -109,11 +111,31 @@ function MoveToSpaceDialog({ docId, docTitle, currentSpaceId, isOpen, onClose, o
             ))}
             {spaces.length === 0 && (
               <li className="move-space-empty">
-                You are not an editor or owner of any space yet. Create one from the document list.
+                You are not an editor or owner of any space yet.
               </li>
             )}
+            <li>
+              <button
+                className="move-space-option move-space-create"
+                onClick={() => setShowCreate(true)}
+                disabled={moving}
+              >
+                <span className="move-space-name">+ New space…</span>
+              </button>
+            </li>
           </ul>
         )}
+
+        {/* Create-then-move: a space created from here is immediately the
+            move target — that is what opening this dialog asked for. */}
+        <CreateSpaceDialog
+          isOpen={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={(created) => {
+            setSpaces((prev) => [...prev, created]);
+            move(created.id);
+          }}
+        />
       </div>
     </div>
   );

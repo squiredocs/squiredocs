@@ -88,7 +88,49 @@ describe('DocList — spaces', () => {
     renderList();
     const selector = await screen.findByLabelText('Space');
     const options = Array.from(selector.querySelectorAll('option')).map((o) => o.textContent);
-    expect(options).toEqual(['All documents', 'My Docs', 'Platform', 'Design']);
+    expect(options).toEqual(['All documents', 'My Docs', 'Platform', 'Design', '+ New space…']);
+  });
+
+  it('treats "+ New space…" as an action: opens the create dialog, keeps the scope', async () => {
+    renderList();
+    await screen.findByLabelText('Space');
+    await userEvent.selectOptions(screen.getByLabelText('Space'), '__create__');
+
+    // Dialog is open, the scope did not change to the sentinel.
+    expect(await screen.findByRole('heading', { name: 'New space' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Space').value).toBe('all');
+    // No docs request was made for the sentinel value.
+    expect(docUrls().some((u) => u.includes('__create__'))).toBe(false);
+  });
+
+  it('creating a space posts the name and navigates to the new space\'s settings', async () => {
+    const onNavigateToSpace = vi.fn();
+    mockPost.mockResolvedValue({
+      data: { space: { id: 'space-new', name: 'Growth', role: 'owner', memberCount: 1 } },
+    });
+    renderList({ onNavigateToSpace });
+
+    await screen.findByLabelText('Space');
+    await userEvent.selectOptions(screen.getByLabelText('Space'), '__create__');
+    await userEvent.type(await screen.findByLabelText('Name'), 'Growth');
+    await userEvent.click(screen.getByRole('button', { name: 'Create space' }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/spaces', { name: 'Growth' }));
+    await waitFor(() => expect(onNavigateToSpace).toHaveBeenCalledWith('space-new'));
+  });
+
+  it('surfaces the server\'s refusal verbatim when creation fails', async () => {
+    mockPost.mockRejectedValue({ response: { data: { error: 'Space name is required' } } });
+    renderList();
+
+    await screen.findByLabelText('Space');
+    await userEvent.selectOptions(screen.getByLabelText('Space'), '__create__');
+    await userEvent.type(await screen.findByLabelText('Name'), '   x');
+    await userEvent.click(screen.getByRole('button', { name: 'Create space' }));
+
+    expect(await screen.findByText('Space name is required')).toBeInTheDocument();
+    // Dialog stays open for a retry.
+    expect(screen.getByRole('heading', { name: 'New space' })).toBeInTheDocument();
   });
 
   it('shows each row\'s space as a chip, and none for a personal document', async () => {

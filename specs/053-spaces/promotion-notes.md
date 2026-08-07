@@ -237,3 +237,27 @@ receives is a function), the onNavigateToSpace → space view transition, and a
 direct /space/:id mount. 2 of 3 fail pre-fix with the exact ReferenceError.
 This is the suite that closes the "wiring between AppContent and
 AuthenticatedApp is untested" gap for future navigate props.
+
+## Post-ship: no way to create a space (Sam-reported, 2026-08-07)
+
+**Finding.** Sam could not find any UI to create or manage spaces. There was
+none: the scope selector listed existing spaces only, the manage chip appears
+only inside a space scope, and the move dialog's empty state pointed at a
+"create from the document list" affordance that did not exist. Root cause is a
+spec gap, not an implementation miss: the spec named every space surface
+(FR-040..045) except the creation affordance, so 94/94 tasks completed with
+the feature unreachable. Analyze's FR→task coverage check cannot see a missing
+FR.
+
+**Fix.** New CreateSpaceDialog; the scope selector ends with a "+ New space…"
+action option (sentinel value, never becomes the scope); the move dialog
+offers the same action and moves the document into the just-created space
+(Sam's requested flow). Creation from the list navigates to the new space's
+settings page, where inviting members lives. Spec gains FR-048; the design
+doc's Product Surface gained the matching bullet (Squire-amended, same pass).
+
+**Test.** DocList.spaces.test.jsx: sentinel opens the dialog and never becomes
+a scope or a docs request; create posts the name and navigates; server
+refusals surface verbatim. MoveToSpaceDialog.create.test.jsx: the option is
+offered even with zero valid targets, and create-then-move issues the POST
+then the PUT and closes. Client suite 78/978 green.

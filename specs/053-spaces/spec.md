@@ -202,6 +202,7 @@ An admin reviewing a user's sharing detail sees, for every share, who granted it
 - **FR-043**: The share dialog on a space document MUST remain unchanged for direct shares and additionally show a read-only line stating the space grant (for example "Everyone in Platform can edit (12 members)"), so the effective audience is visible.
 - **FR-044**: Creating a document while viewing a space MUST set that space as its home at creation; the creator still gets a direct owner share, so their access never depends on their membership.
 - **FR-045**: An empty space MUST offer "Move documents here" and "New document".
+- **FR-048**: The UI MUST offer a way to create a space: the document list's scope selector ends with a "New space" action, and the move dialog offers the same action, creating and then moving the document in one step; creation lands on the space settings page. (Added 2026-08-07, Sam-reported: the original spec listed every space surface except the way to create one, so the feature shipped unreachable. Design amended in the same pass.)
 
 **Agent surface**
 

@@ -152,3 +152,9 @@
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
 }
+
+/* The create entry is an action, not a destination — accent it. */
+.move-space-create .move-space-name {
+  color: var(--accent);
+  font-weight: var(--font-medium);
+}

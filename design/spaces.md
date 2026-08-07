@@ -187,6 +187,7 @@ sk_sqd_ tokens and OAuth delegations are user-scoped and re-derive document acce
 - Share dialog on a space document: unchanged for direct shares, plus a read-only line stating the space grant, for example "Everyone in Platform can edit (12 members)", so the effective audience is visible.
 - New-document flow: creating a document while viewing a space sets space_id at creation. The creator still gets a direct owner share row, so their access never depends on their membership.
 - Empty space: offers "Move documents here" and "New document".
+- Creating a space: the document list’s scope selector ends with a "New space" action, and the move dialog offers the same action (create, then move the document into the new space in one step). Creation lands on the space settings page, where inviting members lives. (Added 2026-08-07: the surface list above implied spaces exist but named no way to create one; the built UI shipped without any creation affordance until Sam reported it.)
 
 ## REST API
 
