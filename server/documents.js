@@ -75,6 +75,30 @@ async function getRole(docId, userId) {
 }
 
 /**
+ * Decide what a live connection's periodic access re-check should do.
+ *
+ * Extracted from the 60-second interval in `server/index.js` so the DECISION is
+ * executable in a test without sleeping a minute or standing up a socket
+ * (feature 053 SC-003). The interval keeps the side effects — closing the
+ * socket with 4403, the degraded-capability bookkeeping — and this owns the
+ * question they act on.
+ *
+ * Since spaces exist, `revoked` is true for a member who was removed from the
+ * space, whose space was deleted, or whose document was moved out of it, by
+ * exactly the same path a revoked direct share already took.
+ *
+ * @param {string} docId
+ * @param {string} userId
+ * @param {boolean} tokenMayWrite - a re-check must never WIDEN what the token allows
+ * @returns {Promise<{revoked: boolean, role: string|null, canEdit: boolean}>}
+ */
+async function evaluateAccessRecheck(docId, userId, tokenMayWrite) {
+  const role = await getRole(docId, userId);
+  if (!role) return { revoked: true, role: null, canEdit: false };
+  return { revoked: false, role, canEdit: !!tokenMayWrite && ROLES[role] >= ROLES.editor };
+}
+
+/**
  * Check if user has at least the required role
  * @param {string} docId - Document UUID
  * @param {string} userId - User UUID
@@ -505,6 +529,7 @@ module.exports = {
   init,
   normalizeSpaceScope,
   getRole,
+  evaluateAccessRecheck,
   hasRole,
   hasAccess,
   canEdit,

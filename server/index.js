@@ -2067,14 +2067,18 @@ wss.on('connection', (ws, req) => {
   const ROLE_RECHECK_INTERVAL = 60000;
   const roleCheckInterval = setInterval(async () => {
     try {
-      const currentRole = await documents.getRole(docId, userId);
-      if (!currentRole) {
+      // The decision lives in documents.evaluateAccessRecheck so it can be
+      // exercised without a socket or a 60-second wait; the side effects stay
+      // here. Since feature 053 a removed space member, a deleted space and a
+      // moved-out document all reach `revoked` through the same path a revoked
+      // direct share already did.
+      const { revoked, canEdit } = await documents.evaluateAccessRecheck(docId, userId, tokenMayWrite);
+      if (revoked) {
         console.log(`[WS:${connId}] User ${userId} lost access to doc ${docId}, disconnecting`);
         ws.close(4403, 'Access revoked');
         return;
       }
-      // Re-checking the role must never widen what the token allows.
-      currentCanEdit = tokenMayWrite && documents.ROLES[currentRole] >= documents.ROLES['editor'];
+      currentCanEdit = canEdit;
       // A successful re-check is a VERDICT: whatever `currentCanEdit` now says
       // is backed by the DB. If it says false, this is a genuine downgrade and
       // the gate's drop-and-stay-open policy is the correct answer.

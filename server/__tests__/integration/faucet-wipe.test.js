@@ -183,6 +183,148 @@ describe('Feature 029 US1 — faucet + synthetic wipe', () => {
       expect(v.rows.length).toBe(0);
     });
 
+    /**
+     * RBD-053-11 / LOUD FLAG 2. `document_shares.granted_by` is NOT NULL with
+     * ON DELETE NO ACTION, so an account that granted a share on someone
+     * ELSE'S document pins a foreign key across the final `DELETE FROM users`.
+     * Reachable today: REQUIRED_ROLES.share is 'viewer', so any collaborator
+     * can share onward. Without the reassignment step in deleteUserByEmail the
+     * whole wipe transaction rolls back.
+     */
+    test("a wipe succeeds when the account granted a share on someone else's document", async () => {
+      const r = await request(app).post('/auth/dev-login').send({ fresh: true, nonce: 'wipegrant' });
+      const granterId = r.body.user.id;
+
+      const ownerRes = await pool.query(
+        "INSERT INTO users (google_id, email, name) VALUES ('grant-owner-053', 'grantowner-053@example.com', 'Owner') RETURNING id"
+      );
+      const ownerId = ownerRes.rows[0].id;
+      const recipientRes = await pool.query(
+        "INSERT INTO users (google_id, email, name) VALUES ('grant-recip-053', 'grantrecip-053@example.com', 'Recipient') RETURNING id"
+      );
+      const recipientId = recipientRes.rows[0].id;
+
+      const docRes = await pool.query(
+        "INSERT INTO documents (id, creator_id, title) VALUES (gen_random_uuid(), $1, 'someone elses doc') RETURNING id",
+        [ownerId]
+      );
+      const docId = docRes.rows[0].id;
+      await pool.query(
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+        [docId, ownerId]
+      );
+      // The synthetic account holds an editor share and shares onward.
+      await pool.query(
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $3)",
+        [docId, granterId, ownerId]
+      );
+      await pool.query(
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'viewer', $3)",
+        [docId, recipientId, granterId]
+      );
+
+      try {
+        const wipe = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+wipegrant@test.local' });
+        expect(wipe.status).toBe(200);
+        expect(wipe.body.deleted).toBe(true);
+
+        // The granter is gone; the recipient's share SURVIVES, reassigned to
+        // the document's current owner.
+        expect((await pool.query('SELECT 1 FROM users WHERE id = $1', [granterId])).rows).toHaveLength(0);
+        const surviving = await pool.query(
+          'SELECT role, granted_by FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+          [docId, recipientId]
+        );
+        expect(surviving.rows).toHaveLength(1);
+        expect(surviving.rows[0].role).toBe('viewer');
+        expect(surviving.rows[0].granted_by).toBe(ownerId);
+      } finally {
+        await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
+        await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
+        await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[ownerId, recipientId]]);
+      }
+    });
+
+    /**
+     * The U1 constraint, made executable. deleteUserByEmail enumerates the
+     * account's documents from `document_shares` DIRECTLY. Since spaces exist,
+     * routing that through `document_access` would report every document in a
+     * space the account owns as theirs — and the wipe would delete other
+     * people's work.
+     */
+    test('a space owner\'s wipe deletes only the documents they DIRECTLY own', async () => {
+      const r = await request(app).post('/auth/dev-login').send({ fresh: true, nonce: 'wipespace' });
+      const curatorId = r.body.user.id;
+
+      const authorRes = await pool.query(
+        "INSERT INTO users (google_id, email, name) VALUES ('space-author-053', 'spaceauthor-053@example.com', 'Author') RETURNING id"
+      );
+      const authorId = authorRes.rows[0].id;
+
+      const spaceRes = await pool.query(
+        "INSERT INTO spaces (name, created_by) VALUES ('Wipe Space', $1) RETURNING id",
+        [authorId]
+      );
+      const spaceId = spaceRes.rows[0].id;
+      await pool.query(
+        "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+        [spaceId, authorId]
+      );
+      await pool.query(
+        "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $3)",
+        [spaceId, curatorId, authorId]
+      );
+
+      // One document the AUTHOR owns, living in the space the curator co-owns.
+      const authorDocRes = await pool.query(
+        "INSERT INTO documents (id, creator_id, title, space_id) VALUES (gen_random_uuid(), $1, 'author doc', $2) RETURNING id",
+        [authorId, spaceId]
+      );
+      const authorDocId = authorDocRes.rows[0].id;
+      await pool.query(
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+        [authorDocId, authorId]
+      );
+      // One the curator genuinely owns.
+      const curatorDocRes = await pool.query(
+        "INSERT INTO documents (id, creator_id, title, space_id) VALUES (gen_random_uuid(), $1, 'curator doc', $2) RETURNING id",
+        [curatorId, spaceId]
+      );
+      const curatorDocId = curatorDocRes.rows[0].id;
+      await pool.query(
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+        [curatorDocId, curatorId]
+      );
+
+      // Precondition: the view really does call the curator an owner of both.
+      const passthrough = await pool.query(
+        'SELECT role FROM document_access WHERE doc_id = $1 AND user_id = $2',
+        [authorDocId, curatorId]
+      );
+      expect(passthrough.rows[0].role).toBe('owner');
+
+      try {
+        const wipe = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+wipespace@test.local' });
+        expect(wipe.status).toBe(200);
+        expect(wipe.body.docCount).toBe(1);
+
+        expect((await pool.query('SELECT 1 FROM documents WHERE id = $1', [curatorDocId])).rows).toHaveLength(0);
+        // The author's document is untouched — content and ownership intact.
+        const survivor = await pool.query('SELECT space_id FROM documents WHERE id = $1', [authorDocId]);
+        expect(survivor.rows).toHaveLength(1);
+        expect(survivor.rows[0].space_id).toBe(spaceId);
+        expect(
+          (await pool.query("SELECT 1 FROM document_shares WHERE doc_id = $1 AND user_id = $2 AND role = 'owner'", [authorDocId, authorId])).rows
+        ).toHaveLength(1);
+      } finally {
+        await pool.query('DELETE FROM document_shares WHERE doc_id = ANY($1::uuid[])', [[authorDocId, curatorDocId]]);
+        await pool.query('DELETE FROM documents WHERE id = ANY($1::uuid[])', [[authorDocId, curatorDocId]]);
+        await pool.query('DELETE FROM space_members WHERE space_id = $1', [spaceId]);
+        await pool.query('DELETE FROM spaces WHERE id = $1', [spaceId]);
+        await pool.query('DELETE FROM users WHERE id = $1', [authorId]);
+      }
+    });
+
     test('wiping a non-existent synthetic account is an idempotent no-op success', async () => {
       const res = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+ghost@test.local' });
       expect(res.status).toBe(200);
