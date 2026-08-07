@@ -1,7 +1,7 @@
 <!-- source: https://squiredocs.com/d/03bac6c7-78e3-449d-ab94-806580fa5a52
      synced-by: design/sync.mjs — DO NOT HAND-EDIT; amend the Squire doc and re-sync -->
 
-# Proposal: Spaces (Shared Team Workspaces)
+# Squire Spaces (Shared Team Workspaces)
 
 _Status: Ratified 2026-08-07 (Sam; D7 ratified as a starting point, open to revision once spaces are in use) · Scope: a named container for documents with a member list, so a team shares a set of documents by joining one space instead of sharing each document individually. Also adds granted_by attribution to document shares._
 
@@ -154,7 +154,7 @@ Leaving and removal:
 
 ## granted_by on Document Shares
 
-document_shares has no record of who granted a share, so the admin sharing view can only infer the grantor for owner-granted shares. This proposal closes that gap while the sharing surface is being touched anyway (D8):
+document_shares has no record of who granted a share, so the admin sharing view can only infer the grantor for owner-granted shares. This design closes that gap while the sharing surface is being touched anyway (D8):
 
 - Add a granted_by column to document_shares referencing users(id), NOT NULL once the backfill has run.
 - Backfill: existing rows get the document's current owner (the role='owner' share row for that document). A document whose owner account was deleted falls back to documents.creator_id, then to the share's own user_id, so the constraint holds everywhere. Backfilled values record the most likely grantor, not a verified one; only rows written after this change are exact.

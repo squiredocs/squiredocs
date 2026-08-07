@@ -19,6 +19,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 ## Platform
 
 - [Squire Authentication and Sharing](https://squiredocs.com/d/503fb6a8-d165-49c7-bc98-883a68b14540) — Google OAuth and JWTs, document roles and permission enforcement, sharing, the admin area
+- [Squire Spaces (Shared Team Workspaces)](https://squiredocs.com/d/03bac6c7-78e3-449d-ab94-806580fa5a52) — shared team workspaces: a named container for documents with a member list; membership grants a role on every document in the space, unioned with direct shares. Adds granted_by attribution to document shares.
 - [Squire Content Search](https://squiredocs.com/d/187b0da3-1004-4273-82f8-062f6a903f14) — hybrid full-text + pgvector semantic search fused with Reciprocal Rank Fusion
 - [Squire Media and Diagram Blocks](https://squiredocs.com/d/9bb17cdc-0b56-4c87-8b4e-d3686029cb8a) — the S3 image pipeline and app-URL indirection, Mermaid/SVG blocks and the sanitization policy
 - [Squire UI Theming and Dark Mode](https://squiredocs.com/d/43a8653c-28f0-4598-9f92-9122ba686883) — the semantic color-token layer, Light/Dark/System appearance selection, the light "paper" document canvas, AA contrast
@@ -33,7 +34,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 
 - [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0) — generalize the markdown parser, expose import, and sync repo files as an offline CRDT collaborator
 - [Proposal: Test Suite Architecture (Speed and Isolation)](https://squiredocs.com/d/f4f95e7b-ace9-4363-8ef9-05b009140d76) — fix the two measured timeout defects (5s edit-range waits, real reconnect sleeps), split CI into parallel jobs, and move the backend suite to isolated-parallel execution with per-worker databases
-- [Proposal: Spaces (Shared Team Workspaces)](https://squiredocs.com/d/03bac6c7-78e3-449d-ab94-806580fa5a52) — shared team workspaces: a named container for documents with a member list; membership grants a baseline role on every document in the space, unioned with direct shares. Adds granted_by attribution to document shares.
 
 ## Repo Sync Manifest
 
@@ -54,6 +54,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Squire Observability and Telemetry | `design/observability-and-telemetry.md` | Ratified design |
 | Squire Docs Plugin Packaging & Marketplace Publishing | `design/plugin-marketplace-publishing.md` | Ratified design |
 | Proposal: Test Suite Architecture (Speed and Isolation) | design/test-suite-architecture.md | Ratified design |
-| Proposal: Spaces (Shared Team Workspaces) | `design/spaces.md` | Ratified design |
+| Squire Spaces (Shared Team Workspaces) | `design/spaces.md` | Ratified design |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).
