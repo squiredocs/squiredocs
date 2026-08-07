@@ -3,7 +3,7 @@
 
 # Proposal: Spaces (Shared Team Workspaces)
 
-_Status: Draft 2026-08-07 (D1 to D5 and D8 decided by Sam; D6 and D7 proposed defaults) · Scope: a named container for documents with a member list, so a team shares a set of documents by joining one space instead of sharing each document individually. Also adds granted_by attribution to document shares._
+_Status: Ratified 2026-08-07 (Sam; D7 ratified as a starting point, open to revision once spaces are in use) · Scope: a named container for documents with a member list, so a team shares a set of documents by joining one space instead of sharing each document individually. Also adds granted_by attribution to document shares._
 
 ## Summary
 
@@ -222,8 +222,8 @@ GET /api/docs gains a space parameter (a space id, personal, or all).
 | D3 | Union model: effective role is the stronger of the direct share and the space role; a move never revokes access | Decided 2026-08-07 (Sam) |
 | D4 | Email invites only in v1; no join links | Decided 2026-08-07 (Sam) |
 | D5 | The space role passes through uncapped: a space-owner member holds owner on every document in the space, including deletion, direct-share management, and move-out | Decided 2026-08-07 (Sam) |
-| D6 | Document-level REQUIRED_ROLES unchanged in v1 (a viewer can share onward, an editor can manage shares) | Proposed default |
-| D7 | Move-in requires direct document ownership plus editor membership in the target; move-out requires document ownership or space ownership | Proposed default |
+| D6 | Document-level REQUIRED_ROLES unchanged in v1 (a viewer can share onward, an editor can manage shares) | Decided 2026-08-07 (Sam) |
+| D7 | Move-in requires direct document ownership plus editor membership in the target; move-out requires document ownership or space ownership | Decided 2026-08-07 (Sam; a starting point, open to revision once spaces are in use) |
 | D8 | granted_by is added to document_shares as NOT NULL: existing rows are backfilled with the document's owner, and every new grant records the acting user | Decided 2026-08-07 (Sam; amended same day: backfill with the document owner, then disallow null) |
 
 ## Non-Goals (Deferred)
