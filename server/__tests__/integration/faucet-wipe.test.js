@@ -325,6 +325,168 @@ describe('Feature 029 US1 — faucet + synthetic wipe', () => {
       }
     });
 
+    /**
+     * RBD-053-17 (post-merge review M2). `space_members` CASCADEs with the user
+     * row, so wiping the SOLE owner of a space used to leave that space with
+     * members and zero owners — permanently unmanageable. The space is deleted
+     * with the account instead; documents revert to personal, nobody is
+     * promoted.
+     */
+    describe('RBD-053-17 — spaces the account is the LAST owner of', () => {
+      /** A user + a space they own + a document of theirs living in it. */
+      async function makeOutsider(tag) {
+        const { rows } = await pool.query(
+          'INSERT INTO users (google_id, email, name) VALUES ($1, $2, $3) RETURNING id',
+          [`m2-${tag}-053`, `m2-${tag}-053@example.com`, `M2 ${tag}`]
+        );
+        return rows[0].id;
+      }
+
+      test('the space is deleted, its documents revert to personal, direct shares survive', async () => {
+        const r = await request(app).post('/auth/dev-login').send({ fresh: true, nonce: 'lastowner' });
+        const ownerId = r.body.user.id;
+        const memberId = await makeOutsider('member');
+        const authorId = await makeOutsider('author');
+
+        const spaceRes = await pool.query(
+          "INSERT INTO spaces (name, created_by) VALUES ('Sole Owner Space', $1) RETURNING id",
+          [ownerId]
+        );
+        const spaceId = spaceRes.rows[0].id;
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+          [spaceId, ownerId]
+        );
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $3)",
+          [spaceId, memberId, ownerId]
+        );
+        await pool.query(
+          "INSERT INTO space_invites (space_id, email, role, invited_by_user_id) VALUES ($1, 'pending-m2@example.com', 'viewer', $2)",
+          [spaceId, ownerId]
+        );
+
+        // A document owned by SOMEONE ELSE, living in the doomed space, with a
+        // direct share to the member.
+        const docRes = await pool.query(
+          "INSERT INTO documents (id, creator_id, title, space_id) VALUES (gen_random_uuid(), $1, 'author doc', $2) RETURNING id",
+          [authorId, spaceId]
+        );
+        const docId = docRes.rows[0].id;
+        await pool.query(
+          "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+          [docId, authorId]
+        );
+        await pool.query(
+          "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'viewer', $3)",
+          [docId, memberId, authorId]
+        );
+
+        try {
+          const wipe = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+lastowner@test.local' });
+          expect(wipe.status).toBe(200);
+          expect(wipe.body.deleted).toBe(true);
+
+          // The space and everything space-shaped about it is gone.
+          expect((await pool.query('SELECT 1 FROM spaces WHERE id = $1', [spaceId])).rows).toHaveLength(0);
+          expect((await pool.query('SELECT 1 FROM space_members WHERE space_id = $1', [spaceId])).rows).toHaveLength(0);
+          expect((await pool.query('SELECT 1 FROM space_invites WHERE space_id = $1', [spaceId])).rows).toHaveLength(0);
+
+          // The other user's document survives, personal again.
+          const doc = await pool.query('SELECT space_id FROM documents WHERE id = $1', [docId]);
+          expect(doc.rows).toHaveLength(1);
+          expect(doc.rows[0].space_id).toBeNull();
+
+          // Direct shares on it are untouched — the member keeps their viewer
+          // grant, the author keeps owner. Nobody was promoted.
+          const shares = await pool.query(
+            'SELECT user_id, role FROM document_shares WHERE doc_id = $1',
+            [docId]
+          );
+          // Sorted in JS: ORDER BY on doc_role would collate by enum
+          // declaration order, which is not the privilege ladder.
+          expect(shares.rows.sort((a, b) => a.user_id.localeCompare(b.user_id))).toEqual(
+            [
+              { user_id: authorId, role: 'owner' },
+              { user_id: memberId, role: 'viewer' },
+            ].sort((a, b) => a.user_id.localeCompare(b.user_id))
+          );
+        } finally {
+          await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
+          await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
+          await pool.query('DELETE FROM space_members WHERE space_id = $1', [spaceId]);
+          await pool.query('DELETE FROM spaces WHERE id = $1', [spaceId]);
+          await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[memberId, authorId]]);
+        }
+      });
+
+      test('a CO-OWNED space survives with the other owner intact', async () => {
+        const r = await request(app).post('/auth/dev-login').send({ fresh: true, nonce: 'coowner' });
+        const leavingId = r.body.user.id;
+        const stayingId = await makeOutsider('staying');
+
+        const spaceRes = await pool.query(
+          "INSERT INTO spaces (name, created_by) VALUES ('Co-owned Space', $1) RETURNING id",
+          [stayingId]
+        );
+        const spaceId = spaceRes.rows[0].id;
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+          [spaceId, stayingId]
+        );
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $3)",
+          [spaceId, leavingId, stayingId]
+        );
+
+        try {
+          const wipe = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+coowner@test.local' });
+          expect(wipe.status).toBe(200);
+
+          expect((await pool.query('SELECT 1 FROM spaces WHERE id = $1', [spaceId])).rows).toHaveLength(1);
+          const members = await pool.query('SELECT user_id, role FROM space_members WHERE space_id = $1', [spaceId]);
+          expect(members.rows).toEqual([{ user_id: stayingId, role: 'owner' }]);
+        } finally {
+          await pool.query('DELETE FROM space_members WHERE space_id = $1', [spaceId]);
+          await pool.query('DELETE FROM spaces WHERE id = $1', [spaceId]);
+          await pool.query('DELETE FROM users WHERE id = $1', [stayingId]);
+        }
+      });
+
+      test('wiping a NON-OWNER member leaves the space alone', async () => {
+        const r = await request(app).post('/auth/dev-login').send({ fresh: true, nonce: 'justmember' });
+        const memberId = r.body.user.id;
+        const ownerId = await makeOutsider('owner');
+
+        const spaceRes = await pool.query(
+          "INSERT INTO spaces (name, created_by) VALUES ('Someone Elses Space', $1) RETURNING id",
+          [ownerId]
+        );
+        const spaceId = spaceRes.rows[0].id;
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
+          [spaceId, ownerId]
+        );
+        await pool.query(
+          "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $3)",
+          [spaceId, memberId, ownerId]
+        );
+
+        try {
+          const wipe = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+justmember@test.local' });
+          expect(wipe.status).toBe(200);
+
+          expect((await pool.query('SELECT 1 FROM spaces WHERE id = $1', [spaceId])).rows).toHaveLength(1);
+          const members = await pool.query('SELECT user_id, role FROM space_members WHERE space_id = $1', [spaceId]);
+          expect(members.rows).toEqual([{ user_id: ownerId, role: 'owner' }]);
+        } finally {
+          await pool.query('DELETE FROM space_members WHERE space_id = $1', [spaceId]);
+          await pool.query('DELETE FROM spaces WHERE id = $1', [spaceId]);
+          await pool.query('DELETE FROM users WHERE id = $1', [ownerId]);
+        }
+      });
+    });
+
     test('wiping a non-existent synthetic account is an idempotent no-op success', async () => {
       const res = await request(app).post('/auth/dev-wipe-user').send({ email: 'test+ghost@test.local' });
       expect(res.status).toBe(200);

@@ -342,6 +342,10 @@ async function markOnboarded(userId) {
  * embeddings/images/search-index/shares/invites), then deletes the user
  * (cascading delegations/api-tokens/auth-codes/chats/usage/edits/activity).
  *
+ * Spaces this account is the LAST owner of are deleted too (feature 053,
+ * RBD-053-17) — their documents revert to personal, nobody is promoted. Spaces
+ * with another owner just lose this account's membership by cascade.
+ *
  * Registered OAuth *client* rows (`registered_agents`) are global/not user-scoped
  * and are intentionally NOT touched; the user's grants (`agent_delegations`,
  * `mcp_auth_codes`) cascade with the user row.
@@ -391,6 +395,32 @@ async function deleteUserByEmail(email) {
       // Deleting the documents cascades embeddings/images/search-index/shares/invites.
       await client.query('DELETE FROM documents WHERE id = ANY($1::uuid[])', [docIds]);
     }
+
+    // Feature 053 (RBD-053-17, design/spaces.md § Edge Cases): spaces where
+    // this account is the LAST owner are deleted with it. `space_members`
+    // CASCADEs on the user row, so without this a sole-owner wipe left a space
+    // with members and zero owners — every owner-only operation (rename,
+    // delete, invite at owner, member management) refused forever, with no
+    // path back. Documents in it revert to personal through
+    // `documents.space_id ON DELETE SET NULL` and are NOT deleted; direct
+    // shares on them survive.
+    //
+    // Deliberately NO promotion: under D5's uncapped passthrough, promoting a
+    // surviving member would hand them owner over every document in the space,
+    // a grant nobody made.
+    //
+    // Runs BEFORE the granted_by reassignment below so members of a doomed
+    // space are not first reattributed and then deleted anyway.
+    await client.query(
+      `DELETE FROM spaces s
+        WHERE EXISTS (
+                SELECT 1 FROM space_members m
+                 WHERE m.space_id = s.id AND m.user_id = $1 AND m.role = 'owner')
+          AND NOT EXISTS (
+                SELECT 1 FROM space_members o
+                 WHERE o.space_id = s.id AND o.user_id <> $1 AND o.role = 'owner')`,
+      [userId]
+    );
 
     // Feature 053 (D8 / RBD-053-11): `granted_by` is NOT NULL with ON DELETE
     // NO ACTION on both document_shares and space_members, so the delete below
