@@ -44,6 +44,16 @@ sync_name = "app-sync"
 # `collab-devcontainer mounts` heals them on demand.
 host_paths = "~/Desktop,~/Downloads"
 
+# Same mechanism, but bound READ-WRITE — for host repos you want to edit from
+# inside the pod, at the same absolute path. Edits land directly on the host
+# tree (no Mutagen involved), so the pod can rewrite whatever is listed here:
+# only add repos you'd let the sandbox modify. Requires `up`/`restart` to take
+# effect — a running pod keeps whatever access its spec was created with.
+#
+# collab-devcontainer itself is here so the sandbox that this CLI creates can
+# also develop the CLI.
+rw_paths = "~/dev/collab-devcontainer"
+
 [git]
 # Bind-mount the host repo's .git into the pod at <workspace_mount>/.git so
 # in-pod git and gh operate on the real history. .git is excluded from the
