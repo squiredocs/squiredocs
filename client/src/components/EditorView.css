@@ -440,3 +440,19 @@
     opacity: 1;
   }
 }
+
+/* Space chip in the editor header (feature 053). Sits beside the title, styled
+   to recede: the title is the subject, the space is context. */
+.editor-space-chip {
+  flex-shrink: 0;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

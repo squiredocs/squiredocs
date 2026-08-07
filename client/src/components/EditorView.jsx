@@ -6,6 +6,7 @@ import Toolbar from './Toolbar';
 import MobileActionBar from './MobileActionBar';
 import UserProfileBadge from './UserProfileBadge';
 import ShareDialog from './ShareDialog';
+import MoveToSpaceDialog from './MoveToSpaceDialog';
 import VersionHistoryPanel from './VersionHistoryPanel';
 import VersionConfirmDialog from './VersionConfirmDialog';
 import { useRestoreFlow } from '../hooks/useRestoreFlow';
@@ -77,6 +78,11 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [docInfoLoaded, setDocInfoLoaded] = useState(false);
+  // Feature 053: the document's home, and whether this user DIRECTLY owns it.
+  // Passthrough owners see the chip but not the move action (FR-041).
+  const [docSpace, setDocSpace] = useState(null);
+  const [directRole, setDirectRole] = useState(null);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [showLabelsCallback, setShowLabelsCallback] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -292,6 +298,12 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
       try {
         const response = await api.get(`/api/docs/${docGuid}`);
         setUserRole(response.data.role);
+        setDirectRole(response.data.directRole || null);
+        setDocSpace(
+          response.data.doc?.spaceId
+            ? { id: response.data.doc.spaceId, name: response.data.doc.spaceName }
+            : null
+        );
       } catch (err) {
         // If document doesn't exist yet, we'll create it when they edit
         if (err.response?.status === 404 || err.response?.status === 403) {
@@ -575,6 +587,13 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 }
               }}
             />
+            {/* Feature 053: which space this document lives in. Read-only and
+                quiet — it answers "who else can see this" at a glance. */}
+            {docSpace && !isMobile && (
+              <span className="editor-space-chip" title={`In ${docSpace.name}`}>
+                {docSpace.name}
+              </span>
+            )}
           </div>
           <div className="app-header-right">
             {/* Active collaborators (excluding current user) - show fewer on mobile */}
@@ -735,6 +754,18 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                       </svg>
                       <span>Share</span>
                     </button>
+                    {directRole === 'owner' && (
+                      <button
+                        className="tools-menu-item"
+                        onClick={(e) => handleMenuItemClick(e, () => setMoveDialogOpen(true))}
+                        title="Move to a space"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                        </svg>
+                        <span>Move to space</span>
+                      </button>
+                    )}
                     {/* Shown on ALL form factors: the mobile gate predated 024,
                         which made the versions view touch-usable — hiding the
                         entry point made that feature unreachable on mobile. */}
@@ -849,6 +880,16 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
         docTitle={docTitle}
         isOpen={shareDialogOpen}
         onClose={() => setShareDialogOpen(false)}
+      />
+
+      {/* Move-to-space dialog (feature 053) */}
+      <MoveToSpaceDialog
+        docId={docGuid}
+        docTitle={docTitle}
+        currentSpaceId={docSpace?.id || null}
+        isOpen={moveDialogOpen}
+        onClose={() => setMoveDialogOpen(false)}
+        onMoved={(result) => setDocSpace(result.spaceId ? { id: result.spaceId, name: result.spaceName } : null)}
       />
 
     </>

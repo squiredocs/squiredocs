@@ -354,3 +354,33 @@
     width: 100%;
   }
 }
+
+/* Read-only space-grant line (feature 053, FR-043). Deliberately not a list
+   item and not editable: the space is a second access channel, managed on the
+   space page, and conflating it with direct shares here would imply it can be
+   revoked from this dialog. */
+.share-space-grant {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 24px 16px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.share-space-grant svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.share-space-grant strong {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}

@@ -86,12 +86,12 @@ description: "Task list for 053-spaces"
 - [X] T033 [US1] Extend `getAccessibleDocuments` in `server/documents.js:193-275`: `JOIN document_access ds`, `LEFT JOIN spaces s ON s.id = d.space_id`, project `d.space_id` and `s.name AS space_name`, switch `roleCondition` (`:227-233`) to `direct_role` with `shared_with_me` becoming `(ds.direct_role IS NULL OR ds.direct_role <> 'owner')`, and add the `space` option (`all` | `personal` | uuid) that defaults to today's behavior.
 - [X] T034 [US1] Pass `req.query.space` through `GET /api/docs` (`server/index.js:628`) with validation, and add `spaceId`/`spaceName` to the response rows.
 - [X] T035 [US1] Accept an optional `spaceId` on `POST /api/docs` (`server/index.js:724`), authorized by the same move-in rule (editor-or-owner membership of the target); the creator still gets a direct owner share so their access never depends on membership (FR-044).
-- [ ] T036 [P] [US1] Add a `/space/:id` branch to `parseRoute()` in `client/src/App.jsx:26-96`, a `navigateToSpace` helper alongside `navigateToDocs` (`:153-215`), and the corresponding case in the authenticated view switch.
-- [ ] T037 [US1] Add the space scope selector to `client/src/components/DocList.jsx` — "My Docs" first, then one entry per space from `GET /api/spaces`; the existing all/owned/shared_with_me `<select>` (`:334-340`) keeps applying **within** the selected scope (FR-040); `fetchDocs` (`:95-107`) sends `space`.
-- [ ] T038 [US1] Show each row's space as a chip in `client/src/components/DocList.jsx`, and add a "Move to space" entry to the 3-dot menu shown only to direct owners (FR-041).
-- [ ] T039 [P] [US1] Create `client/src/components/MoveToSpaceDialog.jsx` (+ CSS): lists spaces where the user is editor-or-owner plus "My Docs (personal)", calls `PUT /api/docs/:docId/space`, surfaces the server's refusal text rather than a generic error.
-- [ ] T040 [US1] Add the empty-space state to `client/src/components/DocList.jsx`: "Move documents here" and "New document" (FR-045); creating from a space scope posts `spaceId`.
-- [ ] T041 [P] [US1] Add `client/src/components/__tests__/MoveToSpaceDialog.test.jsx` and extend the DocList client tests for the scope selector, the space chip and the empty state (render + axios mocking pattern from `client/src/pages/__tests__/AdminPage.test.jsx`, since `DocList.test.jsx` currently tests only a helper).
+- [X] T036 [P] [US1] Add a `/space/:id` branch to `parseRoute()` in `client/src/App.jsx:26-96`, a `navigateToSpace` helper alongside `navigateToDocs` (`:153-215`), and the corresponding case in the authenticated view switch.
+- [X] T037 [US1] Add the space scope selector to `client/src/components/DocList.jsx` — "My Docs" first, then one entry per space from `GET /api/spaces`; the existing all/owned/shared_with_me `<select>` (`:334-340`) keeps applying **within** the selected scope (FR-040); `fetchDocs` (`:95-107`) sends `space`.
+- [X] T038 [US1] Show each row's space as a chip in `client/src/components/DocList.jsx`, and add a "Move to space" entry to the 3-dot menu shown only to direct owners (FR-041).
+- [X] T039 [P] [US1] Create `client/src/components/MoveToSpaceDialog.jsx` (+ CSS): lists spaces where the user is editor-or-owner plus "My Docs (personal)", calls `PUT /api/docs/:docId/space`, surfaces the server's refusal text rather than a generic error.
+- [X] T040 [US1] Add the empty-space state to `client/src/components/DocList.jsx`: "Move documents here" and "New document" (FR-045); creating from a space scope posts `spaceId`.
+- [X] T041 [P] [US1] Add `client/src/components/__tests__/MoveToSpaceDialog.test.jsx` and extend the DocList client tests for the scope selector, the space chip and the empty state (render + axios mocking pattern from `client/src/pages/__tests__/AdminPage.test.jsx`, since `DocList.test.jsx` currently tests only a helper).
 
 **Checkpoint**: US1 is independently demonstrable — the smoke sequence steps 1–5 in `quickstart.md` pass.
 
@@ -123,8 +123,8 @@ description: "Task list for 053-spaces"
 - [X] T054 [P] [US2] Add per-tool space-access tests under `server/mcp/__tests__/tools/` proving a space member (no direct share) can read a title, list versions, name a version and appear in presence — and that a non-member still gets the unchanged error string.
 - [X] T055 [US2] Extend `server/__tests__/permissions.test.js` for effective-role resolution through `checkPermission`/`can.*`, including a space-owner passing `can.delete` with no direct share.
 - [X] T056 [US2] Add a read-only `spaceGrant: { id, name, role, memberCount } | null` to the `GET /api/docs/:docId/shares` response (`server/index.js:1143-1166`), leaving `users`/`invites`/`currentUserRole` exactly as they are (RBD-053-15).
-- [ ] T057 [P] [US2] Render the space grant as a read-only line in `client/src/components/ShareDialog.jsx` ("Everyone in Platform can edit (12 members)"), above the unchanged direct-share list (FR-043).
-- [ ] T058 [P] [US2] Add the space-grant-line test to `client/src/components/__tests__/ShareDialog.test.jsx` (present with a space, absent for personal documents, never editable).
+- [X] T057 [P] [US2] Render the space grant as a read-only line in `client/src/components/ShareDialog.jsx` ("Everyone in Platform can edit (12 members)"), above the unchanged direct-share list (FR-043).
+- [X] T058 [P] [US2] Add the space-grant-line test to `client/src/components/__tests__/ShareDialog.test.jsx` (present with a space, absent for personal documents, never editable).
 
 **Checkpoint**: SC-002 and SC-004 hold — one effective role across six surfaces, zero leakage in three search modes.
 
@@ -146,8 +146,8 @@ description: "Task list for 053-spaces"
 
 - [X] T062 [US3] Harden `spaces.moveDocument` against the concurrency edge cases the tests expose: verify the `FOR UPDATE` lock actually serializes two simultaneous moves, and that a target space deleted between the check and the update fails cleanly rather than leaving a dangling `space_id` (spec edge case "Concurrent moves / stale move targets").
 - [X] T063 [P] [US3] Make the refusal messages in the move route distinguish the three failure reasons (not the document's owner / not an editor of the target / curation path may only target personal) so the client can show them verbatim — `contracts/spaces-rest-api.md` status table.
-- [ ] T064 [P] [US3] Add the "Move to space" action to the editor: a space chip in the `EditorView.jsx` header (`client/src/components/EditorView.jsx:510`) and a menu entry opening `MoveToSpaceDialog`, shown to direct owners (FR-041).
-- [ ] T065 [US3] Verify the editor's existing lost-access handling in `client/src/components/EditorView.jsx` covers a revoked SPACE grant identically to a revoked direct share — no new mechanism; the `4403` close must surface an honest message, never an empty document.
+- [X] T064 [P] [US3] Add the "Move to space" action to the editor: a space chip in the `EditorView.jsx` header (`client/src/components/EditorView.jsx:510`) and a menu entry opening `MoveToSpaceDialog`, shown to direct owners (FR-041).
+- [X] T065 [US3] Verify the editor's existing lost-access handling in `client/src/components/EditorView.jsx` covers a revoked SPACE grant identically to a revoked direct share — no new mechanism; the `4403` close must surface an honest message, never an empty document.
 
 **Checkpoint**: SC-003 holds; the revocation half of movement is proven, not assumed.
 
@@ -174,9 +174,9 @@ description: "Task list for 053-spaces"
 - [X] T073 [US4] Extend `convertPendingInvites` in `server/auth/users.js:115-144`: add `granted_by` with the `COALESCE(invited_by_user_id, doc owner, invitee)` chain from `contracts/share-attribution.md` §2, and call `convertPendingSpaceInvites` inside the SAME `BEGIN/COMMIT`. Preserve the never-throw contract (`:105-107`) — one try, one rollback, one swallow.
 - [X] T074 [US4] Add `setMemberRole`, `removeMember`, `getInvites` and `revokeInvite` to `server/spaces.js`, each calling `assertNotLastOwner` inside its own transaction where applicable.
 - [X] T075 [US4] Add `PUT /:id/members/:userId`, `DELETE /:id/members/:userId` (self ⇒ leaving) and `DELETE /:id/invites` to `server/api/spaces.js` with the owner-only gates and the 409 last-owner response from `contracts/spaces-rest-api.md`; revoking a pending invite is **owner-only** (RBD-053-4).
-- [ ] T076 [US4] Create `client/src/pages/SpaceSettingsPage.jsx` (+ CSS): rename, member list with roles, invite box with a role picker reusing `GET /api/users/search` (the `ShareDialog.jsx:80` debounce pattern), pending invites with revoke, leave and delete — every control shown per the operations matrix (FR-042).
-- [ ] T077 [US4] Make the delete confirmation state the document count from `GET /api/spaces/:id` before confirming, and say plainly that documents revert to personal and are not deleted (FR-024).
-- [ ] T078 [P] [US4] Add `client/src/pages/__tests__/SpaceSettingsPage.test.jsx`: owner sees management controls, a viewer member does not, the last owner's leave is refused with the server's guidance, and the delete confirmation shows the count.
+- [X] T076 [US4] Create `client/src/pages/SpaceSettingsPage.jsx` (+ CSS): rename, member list with roles, invite box with a role picker reusing `GET /api/users/search` (the `ShareDialog.jsx:80` debounce pattern), pending invites with revoke, leave and delete — every control shown per the operations matrix (FR-042).
+- [X] T077 [US4] Make the delete confirmation state the document count from `GET /api/spaces/:id` before confirming, and say plainly that documents revert to personal and are not deleted (FR-024).
+- [X] T078 [P] [US4] Add `client/src/pages/__tests__/SpaceSettingsPage.test.jsx`: owner sees management controls, a viewer member does not, the last owner's leave is refused with the server's guidance, and the delete confirmation shows the count.
 
 **Checkpoint**: SC-006 holds; a space is operable day to day without touching the database.
 

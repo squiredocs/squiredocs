@@ -1,0 +1,154 @@
+/* Move-to-space dialog (feature 053). Mirrors ShareDialog.css so the two
+   document-level dialogs read as one family, in both themes. */
+
+.move-space-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+.move-space-dialog {
+  background: var(--surface-overlay);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px var(--shadow-color);
+}
+
+.move-space-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.move-space-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-space-close {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: background-color 0.15s ease;
+}
+
+.move-space-close:hover {
+  background-color: var(--surface-hover);
+}
+
+.move-space-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.move-space-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.move-space-hint {
+  margin: 0;
+  padding: 16px 24px 8px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.move-space-error {
+  margin: 0 24px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+}
+
+.move-space-loading,
+.move-space-empty {
+  padding: 16px 24px 24px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.move-space-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 16px;
+}
+
+.move-space-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  transition: background-color 0.15s ease;
+}
+
+.move-space-option:hover:not(:disabled) {
+  background-color: var(--surface-hover);
+}
+
+.move-space-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.move-space-option:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.move-space-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-space-meta,
+.move-space-current-tag {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.move-space-current-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+}

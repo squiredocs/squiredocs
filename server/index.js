@@ -845,14 +845,26 @@ app.get('/api/docs/:docId', requireAuth, async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
-    
+
+    // Feature 053: the editor shows the document's space as a chip, and offers
+    // "Move to space" only to a DIRECT owner (FR-041) — a passthrough owner
+    // must not see it, for the same reason moveDocument refuses them.
+    const space = doc.space_id ? await spaces.getSpace(doc.space_id) : null;
+    const { rows: directRows } = await persistenceProvider.getPool().query(
+      'SELECT role FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+      [docId, userId]
+    );
+
     res.json({
       doc: {
         id: doc.id,
         createdAt: doc.created_at,
         updatedAt: doc.updated_at,
+        spaceId: doc.space_id || null,
+        spaceName: space?.name || null,
       },
       role,
+      directRole: directRows[0]?.role || null,
     });
   } catch (error) {
     console.error('Error getting document:', error);

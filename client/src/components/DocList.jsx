@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import UserProfileBadge from './UserProfileBadge';
 import ViewToggleButton from './ViewToggleButton';
 import ShareDialog from './ShareDialog';
+import MoveToSpaceDialog from './MoveToSpaceDialog';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
@@ -29,7 +30,7 @@ export function generateUUID() {
   });
 }
 
-function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, user }) {
+function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToSpace, initialSpace, user }) {
   const { logout, api } = useAuth();
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -58,8 +59,17 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
   const [shareDocTitle, setShareDocTitle] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  // Feature 053: the SPACE scope. 'all' is the pre-spaces view and stays the
+  // default; 'personal' is My Docs; anything else is a space id. The existing
+  // all/owned/shared_with_me filter keeps applying WITHIN the chosen scope
+  // (FR-040) — the two are orthogonal, not alternatives.
+  const [space, setSpace] = useState(initialSpace || 'all');
+  const [spaces, setSpaces] = useState([]);
+  const [moveDoc, setMoveDoc] = useState(null);
   const menuRef = useRef(null);
   const searchTimeoutRef = useRef(null);
+
+  const currentSpace = spaces.find((s) => s.id === space) || null;
 
   useEffect(() => {
     document.title = 'Documents - Squire Docs';
@@ -87,7 +97,17 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchQuery, filter]);
+  }, [searchQuery, filter, space]);
+
+  // The scope selector's options. Membership-scoped by the endpoint, so a user
+  // in no spaces simply sees "All documents" and "My Docs".
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/spaces')
+      .then((res) => { if (!cancelled) setSpaces(res.data.spaces || []); })
+      .catch(() => { /* the list still works without spaces */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Poll for near-realtime doc list updates
   useVisibilityPoll(() => fetchDocs(true), 5000);
@@ -102,6 +122,9 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
       }
       if (filter !== 'all') {
         params.set('filter', filter);
+      }
+      if (space !== 'all') {
+        params.set('space', space);
       }
       const queryString = params.toString();
       const url = queryString ? `/api/docs?${queryString}` : '/api/docs';
@@ -128,8 +151,10 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
       // Generate a new UUID
       const newGuid = generateUUID();
 
-      // Create the document on the server (establishes ownership)
-      await api.post('/api/docs', { docId: newGuid });
+      // Creating while a space is selected creates INTO that space (FR-044).
+      const body = { docId: newGuid };
+      if (space !== 'all' && space !== 'personal') body.spaceId = space;
+      await api.post('/api/docs', body);
 
       // Navigate to the new document
       onNavigate(newGuid);
@@ -153,6 +178,13 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
     setShareDocId(docGuid);
     setShareDocTitle(docTitle);
     setShareDialogOpen(true);
+    setOpenMenuId(null);
+  };
+
+  const handleMoveToSpace = (e, doc) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMoveDoc(doc);
     setOpenMenuId(null);
   };
 
@@ -237,6 +269,16 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
         <Logo />
       </a>
       <h1>Documents</h1>
+      {currentSpace && (
+        <button
+          type="button"
+          className="doc-list-space-settings"
+          onClick={() => onNavigateToSpace?.(currentSpace.id)}
+          title={`Manage ${currentSpace.name}`}
+        >
+          {currentSpace.name}
+        </button>
+      )}
     </div>
   );
 
@@ -305,6 +347,21 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
         </button>
 
         <div className="doc-list-search-filter">
+          {/* Space scope. "My Docs" first — the personal area is where every
+              account starts and stays unless a team pulls it somewhere else. */}
+          <select
+            className="doc-list-space"
+            value={space}
+            onChange={(e) => setSpace(e.target.value)}
+            aria-label="Space"
+          >
+            <option value="all">All documents</option>
+            <option value="personal">My Docs</option>
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
           <div className="doc-list-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8"/>
@@ -348,6 +405,17 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
             <>
               <p>No documents found.</p>
               <p>Try adjusting your search or filter.</p>
+            </>
+          ) : currentSpace ? (
+            /* An empty SPACE is a different situation from an empty account:
+               the documents that belong here probably already exist somewhere
+               else (FR-045). */
+            <>
+              <p>Nothing in {currentSpace.name} yet.</p>
+              <p>Move documents here from My Docs, or start a new one.</p>
+              <button className="new-doc-btn" onClick={handleCreateNew} disabled={creating}>
+                {creating ? 'Creating...' : 'New document'}
+              </button>
             </>
           ) : (
             <>
@@ -398,6 +466,11 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
                     )}
                     <span className="doc-meta">
                       <span className="doc-date">Opened {formatDateTime(doc.updatedAt)}</span>
+                      {doc.spaceName && (
+                        <span className="doc-space-chip" title={`In ${doc.spaceName}`}>
+                          {doc.spaceName}
+                        </span>
+                      )}
                     </span>
                   </div>
                 </a>
@@ -425,6 +498,22 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
                         Share
                       </button>
                       <button
+                        className={`doc-menu-item ${!isOwner ? 'disabled' : ''}`}
+                        onClick={(e) => handleMoveToSpace(e, doc)}
+                        disabled={!isOwner}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                        </svg>
+                        Move to space
+                        {!isOwner && (
+                          <span className="menu-hint-wrapper">
+                            <span className="menu-hint-icon" tabIndex="0">?</span>
+                            <span className="menu-hint-tooltip">Owner only</span>
+                          </span>
+                        )}
+                      </button>
+                      <button
                         className={`doc-menu-item ${!isOwner ? 'disabled' : 'danger'}`}
                         onClick={(e) => handleDelete(e, doc)}
                         disabled={!isOwner}
@@ -447,6 +536,18 @@ function DocList({ onNavigate, onNavigateToSettings, onNavigateToSupport, onNavi
             );
           })}
         </ul>
+      )}
+
+      {/* Move-to-space dialog (feature 053) */}
+      {moveDoc && (
+        <MoveToSpaceDialog
+          docId={moveDoc.docGuid}
+          docTitle={moveDoc.title}
+          currentSpaceId={moveDoc.spaceId || null}
+          isOpen={!!moveDoc}
+          onClose={() => setMoveDoc(null)}
+          onMoved={() => fetchDocs()}
+        />
       )}
 
       {/* Share dialog */}

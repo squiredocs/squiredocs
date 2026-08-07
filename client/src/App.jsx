@@ -14,6 +14,7 @@ import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import AdminPage from './pages/AdminPage';
+import SpaceSettingsPage from './pages/SpaceSettingsPage';
 import ChatPage from './pages/ChatPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
@@ -73,6 +74,12 @@ function parseRoute() {
   // Check for /docs path (document list)
   if (path === '/docs') {
     return { view: 'list', docGuid: null };
+  }
+
+  // Check for /space/{uuid} (feature 053 — a space's settings page)
+  const spaceMatch = path.match(/^\/space\/([0-9a-f-]+)$/i);
+  if (spaceMatch && UUID_REGEX.test(spaceMatch[1])) {
+    return { view: 'space', docGuid: null, spaceId: spaceMatch[1].toLowerCase() };
   }
 
   // Check for /d/{uuid}/versions or /doc/{uuid}/versions pattern
@@ -177,6 +184,12 @@ function AppContent() {
     window.history.pushState({}, '', '/docs');
     setRoute({ view: 'list', docGuid: null });
     setListKey(k => k + 1); // Force DocList to refetch
+  };
+
+  // Navigate to a space's settings page (feature 053)
+  const navigateToSpace = (spaceId) => {
+    window.history.pushState({}, '', `/space/${spaceId}`);
+    setRoute({ view: 'space', docGuid: null, spaceId });
   };
 
   // Navigate to login page
@@ -385,12 +398,14 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
     page = <SettingsPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'support') {
     page = <SupportPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
+  } else if (route.view === 'space') {
+    page = <SpaceSettingsPage spaceId={route.spaceId} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'admin') {
     page = <AdminPage onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToChat={navigateToChat} user={user} />;
   } else if (route.view === 'chat') {
     page = <ChatPage user={user} onNavigateHome={navigateToDocs} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToDoc={navigateToDoc} onNavigateBack={(docGuid) => { docGuid ? navigateToDoc(docGuid) : navigateToDocs(); }} initialDocGuid={prevViewRef.current === 'editor' ? lastDocGuidRef.current : null} />;
   } else {
-    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} user={user} />;
+    page = <DocList key={listKey} onNavigate={navigateToDoc} onNavigateToSettings={navigateToSettings} onNavigateToSupport={navigateToSupport} onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null} onNavigateToChat={navigateToChat} onNavigateToSpace={navigateToSpace} user={user} />;
   }
 
   const isChatPage = route.view === 'chat';

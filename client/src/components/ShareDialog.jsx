@@ -27,6 +27,10 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [currentUserRole, setCurrentUserRole] = useState(null);
+  // Feature 053 (FR-043): read-only. Membership is managed on the space page,
+  // never here — this dialog stays the place for DIRECT shares, and the line
+  // exists so nobody is surprised by an audience they did not add.
+  const [spaceGrant, setSpaceGrant] = useState(null);
 
   // Autocomplete state
   const [suggestions, setSuggestions] = useState([]);
@@ -96,6 +100,7 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
       setUsers(response.data.users || []);
       setInvites(response.data.invites || []);
       setCurrentUserRole(response.data.currentUserRole);
+      setSpaceGrant(response.data.spaceGrant || null);
     } catch (err) {
       console.error('Error fetching users:', err);
       if (err.response?.status !== 403) {
@@ -283,6 +288,19 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
         {success && (
           <div className="share-message share-success">
             {success}
+          </div>
+        )}
+
+        {spaceGrant && (
+          <div className="share-space-grant">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+            </svg>
+            <span>
+              This document is in <strong>{spaceGrant.name}</strong>, so everyone in that space can
+              reach it ({spaceGrant.memberCount}{' '}
+              {spaceGrant.memberCount === 1 ? 'member' : 'members'}).
+            </span>
           </div>
         )}
 
