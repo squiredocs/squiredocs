@@ -261,3 +261,31 @@ a scope or a docs request; create posts the name and navigates; server
 refusals surface verbatim. MoveToSpaceDialog.create.test.jsx: the option is
 offered even with zero valid targets, and create-then-move issues the POST
 then the PUT and closes. Client suite 78/978 green.
+
+## Browser walk (agent-run, 2026-08-07)
+
+All 9 space workflows verified in a real Chromium session against the live
+dev server (scripts + 20 screenshots: /local-dev/tmp/spaces-browser-walk/):
+dropdown contents and the create action, create-from-dropdown landing on
+settings, the AI panel docking full-height on /space (92% viewport height,
+top-anchored — the 68cfb2d5 layout fix), header chip and editor chip both
+navigating (the 68cfb2d5 chip fix), tools-menu move, list scoping in/out,
+move-dialog create-then-move, rename, invite/revoke of a synthetic address,
+and full deletion cleanup. Zero console errors on the clean run. This covers
+the light-theme desktop half of the SC-008 walk; Sam still owes dark theme
+and mobile widths.
+
+**Incidental, pre-existing (NOT a 053 regression):** the floating AI toggle
+(.ai-fab, App.css:1554, fixed bottom-right z-index 150) is occluded by the
+right-docked AI panel whenever the panel is open, on every page — clicking
+where the fab sits hits the chat input row; closing works only via the panel
+header X. Fix candidates: hide the fab while the panel is open, or shift it
+left of the panel. Not fixed here; needs a decision on which behavior is
+wanted.
+
+Environment note for future browser walks: /auth/dev-login is gated on
+ENABLE_DEV_ENDPOINTS (unset in the pod), so the walk authenticated by forging
+a refreshToken cookie for a synthetic user (setup-auth.js). Rapid page loads
+can exhaust RL_AUTH_PER_MIN (30/min) and 429 /auth/refresh — pace loads or
+raise the budget locally. Playwright chromium + system deps had to be
+installed in the pod (apt + npx playwright install).
