@@ -76,7 +76,7 @@ describe('Feature 029 US5 — production single-account reset', () => {
       [userId]
     );
     const docId = d.rows[0].id;
-    await pool.query("INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')", [docId, userId]);
+    await pool.query("INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)", [docId, userId]);
     await pool.query('INSERT INTO yjs_updates (doc_guid, clock, update_data, user_id) VALUES ($1, 0, $2, $3)', [docId, Buffer.from([9]), userId]);
     return { userId, docId };
   }

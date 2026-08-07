@@ -155,7 +155,7 @@ describe('Permissions module', () => {
     });
 
     test('allows editor to view, edit, share, and manage', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       const viewResult = await permissions.checkPermission(testUser2Id, testDocId, 'view');
       const editResult = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
@@ -171,7 +171,7 @@ describe('Permissions module', () => {
     });
 
     test('allows viewer only to view and share', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const viewResult = await permissions.checkPermission(testUser2Id, testDocId, 'view');
       const editResult = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
@@ -200,7 +200,7 @@ describe('Permissions module', () => {
     });
 
     test('includes reason when permission denied', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
       
@@ -221,14 +221,14 @@ describe('Permissions module', () => {
     });
 
     test('can.edit checks edit permission', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.can.edit(testUser2Id, testDocId);
       expect(result.allowed).toBe(false);
     });
 
     test('can.share checks share permission', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.can.share(testUser2Id, testDocId);
       expect(result.allowed).toBe(true);
@@ -237,10 +237,10 @@ describe('Permissions module', () => {
     test('can.manage checks manage permission', async () => {
       const ownerResult = await permissions.can.manage(testUserId, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       const editorResult = await permissions.can.manage(testUser2Id, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       const viewerResult = await permissions.can.manage(testUser2Id, testDocId);
       
       expect(ownerResult.allowed).toBe(true);
@@ -251,7 +251,7 @@ describe('Permissions module', () => {
     test('can.delete checks delete permission (owner only)', async () => {
       const ownerResult = await permissions.can.delete(testUserId, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       const editorResult = await permissions.can.delete(testUser2Id, testDocId);
       
       expect(ownerResult.allowed).toBe(true);
@@ -298,6 +298,99 @@ describe('Permissions module', () => {
       expect(isEditMessage(null)).toBe(false);
       expect(isEditMessage(Buffer.from([]))).toBe(false);
       expect(isEditMessage(Buffer.from([0]))).toBe(false);
+    });
+  });
+
+  // ————————————————————————————————————————————————————————————————————————
+  // Feature 053: the thresholds in REQUIRED_ROLES are unchanged (D6). What
+  // changed is the ROLE that reaches them — checkPermission asks
+  // documents.getRole, which is now the effective union of a direct share and a
+  // space membership. Nothing in this module knows spaces exist, and that is
+  // the point.
+  // ————————————————————————————————————————————————————————————————————————
+  describe('effective role through a space (feature 053)', () => {
+    const spaces = require('../spaces');
+    let spaceId;
+    let curatorId; // space OWNER, no direct share
+    let editorId; // space EDITOR, no direct share
+    let strangerId;
+
+    beforeAll(async () => {
+      spaces.init(pool);
+      const mk = async (tag) => {
+        const { rows } = await pool.query(
+          `INSERT INTO users (google_id, email, name)
+           VALUES ($1, $2, $3) RETURNING id`,
+          [`test-perm-space-${tag}`, `test-perm-space-${tag}@example.com`, `Perm ${tag}`]
+        );
+        return rows[0].id;
+      };
+      curatorId = await mk('curator');
+      editorId = await mk('editor');
+      strangerId = await mk('stranger');
+
+      const space = await spaces.createSpace('Permissions Space', testUserId);
+      spaceId = space.id;
+      await pool.query(
+        "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $3)",
+        [spaceId, curatorId, testUserId]
+      );
+      await pool.query(
+        "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $3)",
+        [spaceId, editorId, testUserId]
+      );
+    });
+
+    afterAll(async () => {
+      await pool.query('DELETE FROM space_members WHERE space_id = $1', [spaceId]);
+      await pool.query('DELETE FROM spaces WHERE id = $1', [spaceId]);
+      await pool.query("DELETE FROM users WHERE email LIKE 'test-perm-space-%@example.com'");
+    });
+
+    beforeEach(async () => {
+      await documents.createDocument(testDocId, testUserId, null, spaceId);
+    });
+
+    test('checkPermission resolves the effective role for a space member', async () => {
+      const result = await permissions.checkPermission(editorId, testDocId, 'edit');
+      expect(result.allowed).toBe(true);
+      expect(result.role).toBe('editor');
+    });
+
+    test('a space owner passes can.delete with no direct share', async () => {
+      const { rows } = await pool.query(
+        'SELECT 1 FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+        [testDocId, curatorId]
+      );
+      expect(rows).toHaveLength(0);
+      expect((await permissions.can.delete(curatorId, testDocId)).allowed).toBe(true);
+    });
+
+    test('a space editor does NOT pass can.delete', async () => {
+      const result = await permissions.can.delete(editorId, testDocId);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toMatch(/Requires owner role, you have editor/);
+    });
+
+    test('a space member clears the share threshold (REQUIRED_ROLES.share is viewer)', async () => {
+      expect((await permissions.can.share(editorId, testDocId)).allowed).toBe(true);
+    });
+
+    test('a non-member is refused with the unchanged no-access reason', async () => {
+      const result = await permissions.checkPermission(strangerId, testDocId, 'view');
+      expect(result.allowed).toBe(false);
+      expect(result.role).toBeNull();
+      expect(result.reason).toBe('No access to document');
+    });
+
+    test('the thresholds themselves are unchanged (D6)', () => {
+      expect(permissions.REQUIRED_ROLES).toEqual({
+        view: 'viewer',
+        edit: 'editor',
+        share: 'viewer',
+        manage: 'editor',
+        delete: 'owner',
+      });
     });
   });
 });

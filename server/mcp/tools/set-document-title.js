@@ -5,6 +5,7 @@
  */
 const Y = require('yjs');
 const documentService = require('../../document-service');
+const documents = require('../../documents');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -15,6 +16,12 @@ let persistenceProvider = null;
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Access derivation now runs through the shared documents module (feature
+  // 053), so it must be wired to the same pool — the list_documents tool has
+  // done this since it was written.
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
 }
 
 /**
@@ -55,21 +62,17 @@ async function handler(args, agentToken) {
   const userId = agentToken.userId;
   const pool = persistenceProvider.getPool();
 
-  // Check if user has edit access to the document
-  const accessResult = await pool.query(
-    `SELECT ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
+  // Check if user has edit access to the document.
+  //
+  // Feature 053: this used to be an inline document_shares join, which would
+  // have made space members invisible to this one tool. Access derivation lives
+  // in exactly one place now (documents.getRole → the document_access view).
+  // The error strings are preserved byte-for-byte — agents are trained on them.
+  const role = await documents.getRole(docGuid, userId);
+  if (!role) {
     throw new Error('Document not found or you do not have access');
   }
-
-  const { role } = accessResult.rows[0];
-  if (role !== 'owner' && role !== 'editor') {
+  if (documents.ROLES[role] < documents.ROLES.editor) {
     throw new Error('You do not have edit permission for this document');
   }
 

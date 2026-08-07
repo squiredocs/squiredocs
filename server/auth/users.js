@@ -3,6 +3,7 @@
  */
 
 const authEvents = require('./auth-events');
+const spaces = require('../spaces');
 
 // Database pool - set by init function
 let pool = null;
@@ -110,6 +111,19 @@ async function findOrCreateUser(
  *
  * SQL is inlined here (rather than calling documents.js) to avoid introducing a
  * circular require between the users and documents modules.
+ *
+ * SPACE INVITES CONVERT IN THE SAME TRANSACTION (feature 053, FR-018): a login
+ * either converts everything or nothing, and a space-invite problem can never
+ * cost a user their document invites or their login — one try, one rollback,
+ * one swallow. `server/spaces.js` has no circular-require problem, so that half
+ * is a call rather than more inlined SQL.
+ *
+ * `granted_by` needs the backfill's own fallback chain (RBD-053-13):
+ * `document_share_invites.invited_by_user_id` is NULLABLE (ON DELETE SET NULL)
+ * while `document_shares.granted_by` is NOT NULL, so an invite whose inviter
+ * deleted their account would otherwise fail a login here. The final term is
+ * the invitee themselves, which always exists.
+ *
  * @param {object} user - User record (must have id and email)
  */
 async function convertPendingInvites(user) {
@@ -119,8 +133,12 @@ async function convertPendingInvites(user) {
   try {
     await client.query('BEGIN');
     await client.query(
-      `INSERT INTO document_shares (doc_id, user_id, role)
-       SELECT i.doc_id, $1, i.role
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+       SELECT i.doc_id, $1, i.role,
+              COALESCE(i.invited_by_user_id,
+                       (SELECT o.user_id FROM document_shares o
+                         WHERE o.doc_id = i.doc_id AND o.role = 'owner' LIMIT 1),
+                       $1)
        FROM document_share_invites i
        WHERE lower(i.email) = lower($2)
        ON CONFLICT (doc_id, user_id) DO NOTHING`,
@@ -130,6 +148,7 @@ async function convertPendingInvites(user) {
       'DELETE FROM document_share_invites WHERE lower(email) = lower($1)',
       [user.email]
     );
+    await spaces.convertPendingSpaceInvites(client, user);
     await client.query('COMMIT');
   } catch (err) {
     try {
@@ -348,6 +367,13 @@ async function deleteUserByEmail(email) {
     const userId = userRes.rows[0].id;
 
     // Owned (document_shares role='owner') UNION created (documents.creator_id).
+    //
+    // FEATURE 053 CONSTRAINT — this enumeration MUST stay DIRECT-share-scoped.
+    // Do NOT reroute it through `document_access`. Since spaces exist, a space
+    // owner has passthrough owner on every document in their space (D5), so the
+    // view would report documents that merely LIVE NEAR this account as owned
+    // by it — and wiping the account would delete other people's documents.
+    // "Owned" means a direct owner share, here and everywhere else (I10).
     const docRes = await client.query(
       `SELECT id AS doc_id FROM documents WHERE creator_id = $1
        UNION
@@ -365,6 +391,37 @@ async function deleteUserByEmail(email) {
       // Deleting the documents cascades embeddings/images/search-index/shares/invites.
       await client.query('DELETE FROM documents WHERE id = ANY($1::uuid[])', [docIds]);
     }
+
+    // Feature 053 (D8 / RBD-053-11): `granted_by` is NOT NULL with ON DELETE
+    // NO ACTION on both document_shares and space_members, so the delete below
+    // raises a foreign-key violation for any grant this account made on
+    // something it does not own — reachable today, because REQUIRED_ROLES.share
+    // is 'viewer' and any collaborator can share onward. Reassign those grants
+    // to the current owner (the design's own backfill rule), falling back to
+    // the grant's holder. This runs AFTER the account's own documents are
+    // deleted (their shares went with them), so only cross-owner residue is
+    // touched, and BEFORE the user row goes.
+    //
+    // This is not optional polish: without it the synthetic-namespace wipe
+    // (server/auth/routes.js) and the prod single-account reset both fail.
+    await client.query(
+      `UPDATE document_shares s
+          SET granted_by = COALESCE(
+                (SELECT o.user_id FROM document_shares o
+                  WHERE o.doc_id = s.doc_id AND o.role = 'owner' AND o.user_id <> $1 LIMIT 1),
+                s.user_id)
+        WHERE s.granted_by = $1`,
+      [userId]
+    );
+    await client.query(
+      `UPDATE space_members m
+          SET granted_by = COALESCE(
+                (SELECT o.user_id FROM space_members o
+                  WHERE o.space_id = m.space_id AND o.role = 'owner' AND o.user_id <> $1 LIMIT 1),
+                m.user_id)
+        WHERE m.granted_by = $1`,
+      [userId]
+    );
 
     // Deleting the user cascades the user-keyed rows (delegations, api tokens,
     // auth codes, chats, ai usage/credits, support requests, remaining shares).

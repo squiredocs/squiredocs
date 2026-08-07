@@ -183,7 +183,7 @@ describe('API: GET /api/docs/:docId/export', () => {
 
   test('allows a viewer to export a shared document', async () => {
     await seedDoc(testUserId, 'Shared Doc');
-    await documents.setRole(docId, testUser2Id, 'viewer');
+    await documents.setRole(docId, testUser2Id, 'viewer', testUser2Id);
 
     const res = await request(app)
       .get(`/api/docs/${docId}/export`)

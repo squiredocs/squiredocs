@@ -257,7 +257,7 @@ describe('API: /api/docs', () => {
 
     test('includes share count', async () => {
       await documents.createDocument(testDocId1, testUserId);
-      await documents.setRole(testDocId1, testUser2Id, 'editor');
+      await documents.setRole(testDocId1, testUser2Id, 'editor', testUser2Id);
 
       const response = await request(app)
         .get('/api/docs')
@@ -321,7 +321,7 @@ describe('API: /api/docs', () => {
       // User 1 creates and shares with User 2
       await documents.createDocument(testDocId1, testUserId);
       await pool.query('UPDATE documents SET title = $1 WHERE id = $2', ['Shared Doc', testDocId1]);
-      await documents.setRole(testDocId1, testUser2Id, 'editor');
+      await documents.setRole(testDocId1, testUser2Id, 'editor', testUser2Id);
 
       // User 2 should see the shared document
       const response = await request(app)
@@ -370,7 +370,7 @@ describe('API: /api/docs', () => {
         [docId, title, testUserId, updatedAt]
       );
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`,
         [docId, testUserId]
       );
       await pool.query(

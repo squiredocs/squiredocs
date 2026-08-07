@@ -30,7 +30,7 @@ describe('MCP list_documents updatedAfter (017 US2)', () => {
       [title, userId, updatedAt]
     );
     const id = r.rows[0].id;
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [id, userId]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`, [id, userId]);
     await pool.query(
       `INSERT INTO document_search_index (doc_id, content_text, search_vector)
        VALUES ($1, $2,
@@ -117,7 +117,10 @@ describe('MCP list_documents updatedAfter (017 US2)', () => {
     const result = await listDocuments.handler({ search: 'walrus', searchMode: 'fulltext' }, ctx());
     expect(result.pagination.total).toBe(2);
     const doc = result.documents.find((d) => d.id === docNew);
-    expect(Object.keys(doc).sort()).toEqual(['id', 'role', 'score', 'snippet', 'title', 'updatedAt', 'url'].sort());
+    // `space` is feature 053's sanctioned addition (FR-047); null for a
+    // personal document, { id, name } for one in a space.
+    expect(Object.keys(doc).sort()).toEqual(['id', 'role', 'score', 'snippet', 'space', 'title', 'updatedAt', 'url'].sort());
+    expect(doc.space).toBeNull();
     expect(doc.url).toBe(`https://test.example/d/${docNew}`);
   });
 
@@ -126,8 +129,9 @@ describe('MCP list_documents updatedAfter (017 US2)', () => {
     expect(result.pagination.total).toBe(2);
     const doc = result.documents.find((d) => d.id === docNew);
     expect(Object.keys(doc).sort()).toEqual(
-      ['id', 'title', 'url', 'role', 'createdAt', 'updatedAt', 'clock', 'lastModifiedAt', 'shareCount'].sort()
+      ['id', 'title', 'url', 'role', 'createdAt', 'updatedAt', 'clock', 'lastModifiedAt', 'shareCount', 'space'].sort()
     );
+    expect(doc.space).toBeNull();
   });
 
   test('inputSchema documents updatedAfter and its contrast with updatedSince (FR-019)', () => {

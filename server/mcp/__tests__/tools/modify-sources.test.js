@@ -328,8 +328,8 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
       const modify = toolRegistry.getTool('modify');
       const sharedGuid = await seedDoc('Viewer Shared Doc', RICH_SEED('Shared'), otherUserId, 'Shared Heading');
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, 'viewer') ON CONFLICT (doc_id, user_id) DO UPDATE SET role = 'viewer'`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, 'viewer', $2) ON CONFLICT (doc_id, user_id) DO UPDATE SET role = 'viewer'`,
         [sharedGuid, testUserId]
       );
       const targetGuid = await seedDoc('Viewer Source Target', null);

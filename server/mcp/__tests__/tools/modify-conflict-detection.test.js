@@ -142,8 +142,8 @@ describe('modify conflict detection (content-aware gating)', () => {
     createdDocIds.push(created.docGuid);
     await flushPersistence();
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role)
-       VALUES ($1, $2, 'owner') ON CONFLICT (doc_id, user_id) DO UPDATE SET role = 'owner'`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+       VALUES ($1, $2, 'owner', $2) ON CONFLICT (doc_id, user_id) DO UPDATE SET role = 'owner'`,
       [created.docGuid, testUserId]
     );
     // Add some initial content so foreign updates have something to differ from.

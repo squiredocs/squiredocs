@@ -118,7 +118,7 @@ describe('Log-derived undo/redo workflow', () => {
     );
     const docGuid = d.rows[0].id;
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $2)`,
       [docGuid, testUserId]
     );
     await pool.query(
@@ -935,7 +935,7 @@ export default function edit(doc) {
     };
     const docGuid = await createDoc('US4 viewer refused');
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'viewer')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'viewer', $2)`,
       [docGuid, viewerId]
     );
 

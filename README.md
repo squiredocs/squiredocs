@@ -430,15 +430,18 @@ Env knobs (all optional): `GUARDRAIL_FRESHNESS_SECONDS` (default `10`),
 1. **Sign in**: Authenticate with Google OAuth
 2. **Create or open documents**: Access your documents from the list page
 3. **Share documents**: Click the Share button to add users with Editor or Viewer access. The email field autocompletes against existing users. You can also share with someone who hasn't signed up yet — they receive an email invitation and gain access automatically the first time they sign in. During public beta, outbound share email is disabled per user by default; an admin marks a user "trusted" (Admin page) to enable it. When disabled, sharing still grants access/records the invite — only the email is suppressed
-4. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
-5. **View version history**: Click the History button to view, name, and restore previous versions
-6. **Manage permissions**: Editors and Owners can change roles and remove access
+4. **Share a set of documents with a Space**: Create a space from the document list, invite teammates by email at a role (same pending-invite flow as document sharing), and move documents in ("Move to space" on any document you own). Every member gets their space role on every document in the space; direct shares keep working alongside (the stronger role wins). Space owners manage members and settings from the space settings page
+5. **Edit collaboratively**: Multiple users can edit simultaneously with real-time sync
+6. **View version history**: Click the History button to view, name, and restore previous versions
+7. **Manage permissions**: Editors and Owners can change roles and remove access
 
 ### Document Roles
 
 - **Owner**: Full control (edit, share, manage, delete)
 - **Editor**: Can edit and manage sharing
 - **Viewer**: Read-only access, can only add other viewers
+
+A role on a document can come from two channels: a direct share, or membership in the space the document lives in (a document belongs to at most one space). Your effective role is the stronger of the two, computed in one place (the `document_access` view), so the list, search, realtime, and agent surfaces always agree. A space-owner member holds the Owner role on every document in their space; deleting a document still requires the Owner role, and "owned by me" filters and counts always mean a direct owner share, never space passthrough.
 
 See [docs/permissions.md](docs/permissions.md) for detailed permission documentation.
 
@@ -553,6 +556,18 @@ await list_document_versions({
 | `POST /api/docs/import` | Create a new document from a `text/markdown` body (owner = acting user) |
 | `PUT /api/docs/:docId/import?mode=append\|replace` | Import markdown into an existing document (editor role required) |
 | `PUT /api/docs/:docId/import?mode=sync` | Push edited repo file back as CRDT ops anchored at its baseline clock (two-way sync); returns clock + canonical re-export + advisory overlaps |
+| `POST /api/spaces` | Create a space (creator becomes its owner) |
+| `GET /api/spaces` | List my spaces with member count and my role |
+| `GET /api/spaces/:id` | Space detail: members, pending invites, document count (members only; non-members get 404) |
+| `PATCH /api/spaces/:id` | Rename the space (owner) |
+| `DELETE /api/spaces/:id` | Delete the space; its documents revert to personal (owner) |
+| `POST /api/spaces/:id/members` | Invite by email at a role (any member, at up to their own role; unknown emails become pending invites) |
+| `PUT /api/spaces/:id/members/:userId` | Change a member's role (owner) |
+| `DELETE /api/spaces/:id/members/:userId` | Remove a member; removing yourself is leaving (last owner cannot leave) |
+| `DELETE /api/spaces/:id/invites` | Revoke a pending invite by email (owner) |
+| `PUT /api/docs/:docId/space` | Move a document into a space or back to personal (`{ spaceId }` or `{ spaceId: null }`) |
+
+`GET /api/docs` also accepts `space=all|personal|<spaceId>` to scope the document list.
 
 The import routes require `documents:write`, accept `text/markdown`/`text/plain` bodies capped at 5 MB, and return an itemized image report; see [Markdown Import Surfaces](#markdown-import-surfaces) or `get_tool_documentation({ tool: "export_api" })`.
 
@@ -697,8 +712,8 @@ This editor also supports external AI agents via the [Model Context Protocol (MC
 **Document Management:**
 - `create_document` - Create new documents with a title (use `modify` to add content). Retyping bulk markdown through its `markdown` parameter is deflected (feature 019): at/above 2,048 UTF-8 bytes the success result appends a byte-channel nudge, and at/above 10,240 bytes the call is soft-refused with an instructive error unless `allowRetyped: true` is passed (always honored — the escape hatch for shell-less agents). Thresholds are tunable via `CREATE_DOCUMENT_NUDGE_BYTES` / `CREATE_DOCUMENT_REFUSAL_BYTES`
 - `import_markdown_file` - Sync/import an existing markdown file over the REST byte channel: accepts NO content, no path — returns one ready-to-run compound shell command (one-shot token claim + curl import + receipt write-back) that leaves the file a valid `mode=sync` baseline. Intents: `create` (default), `update` (`mode=replace`), `sync` (default when `docGuid` is given). Requires `documents:write`; mints via the same claim machinery as `create_access_token`
-- `list_documents` - List accessible documents (or content-search them); rows include `clock` and `lastModifiedAt`, and `updatedSince` filters to recently edited docs for incremental syncs. Content searches accept `updatedAfter` (search path only, strictly after `updatedAt`, filtered before ranking) — distinct from the list-path-only `updatedSince`
-- `share_document` - Share with users and set permissions
+- `list_documents` - List accessible documents (or content-search them); rows include `clock`, `lastModifiedAt`, and the containing space (name + id) when there is one, and a `space` filter (`all|personal|<spaceId>`) scopes the list. `updatedSince` filters to recently edited docs for incremental syncs. Content searches accept `updatedAfter` (search path only, strictly after `updatedAt`, filtered before ranking) — distinct from the list-path-only `updatedSince`
+- `share_document` - Share with users and set permissions; same semantics as the in-app Share dialog since 053 (any viewer can share at up to their own role, unknown emails become pending invites, and the invite email honors the sender's email_enabled gate)
 - `set_document_title` - Update document titles
 
 **Reading:**

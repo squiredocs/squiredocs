@@ -407,9 +407,13 @@ router.post('/users/:userId/welcome-email', async (req, res) => {
 
 /**
  * GET /users/:userId/sharing — review a user's sharing activity
- * Returns the pending invites they created and the collaborators on docs they own.
- * (document_shares has no "granted_by", so shares are scoped to owned docs — the
- * accurate, attributable view of what this user has shared.)
+ *
+ * Returns the pending invites they created and the shares they GRANTED.
+ * Feature 053 gave `document_shares` a `granted_by` column, so the query says
+ * what this endpoint always meant: it is scoped to the grantor, not to
+ * document ownership, and a share this user granted on someone else's document
+ * now appears. Backfilled grantors are the most likely grantor rather than a
+ * verified one (FR-033) and are deliberately not flagged in the UI.
  */
 router.get('/users/:userId/sharing', async (req, res) => {
   try {
@@ -426,13 +430,14 @@ router.get('/users/:userId/sharing', async (req, res) => {
 
     const sharesResult = await pool.query(
       `SELECT d.id AS doc_id, d.title AS doc_title,
-              mu.email, mu.name, member_s.role, member_s.created_at
-       FROM document_shares owner_s
-       JOIN documents d ON d.id = owner_s.doc_id
-       JOIN document_shares member_s ON member_s.doc_id = d.id AND member_s.user_id <> $1
-       JOIN users mu ON mu.id = member_s.user_id
-       WHERE owner_s.user_id = $1 AND owner_s.role = 'owner'
-       ORDER BY d.title NULLS LAST, member_s.created_at ASC`,
+              mu.email, mu.name, s.role, s.created_at,
+              gu.email AS granted_by_email, gu.name AS granted_by_name
+       FROM document_shares s
+       JOIN documents d ON d.id = s.doc_id
+       JOIN users mu ON mu.id = s.user_id
+       LEFT JOIN users gu ON gu.id = s.granted_by
+       WHERE s.granted_by = $1 AND s.user_id <> $1
+       ORDER BY d.title NULLS LAST, s.created_at ASC`,
       [userId]
     );
 
@@ -452,6 +457,8 @@ router.get('/users/:userId/sharing', async (req, res) => {
       name: r.name,
       role: r.role,
       createdAt: r.created_at,
+      grantedByEmail: r.granted_by_email,
+      grantedByName: r.granted_by_name,
     }));
 
     res.json({ invites, shares });

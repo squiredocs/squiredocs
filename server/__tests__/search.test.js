@@ -61,10 +61,10 @@ describe('search module', () => {
     docId3 = doc3.rows[0].id;
 
     // Grant access: user1 owns doc1 and doc2, user2 owns doc3, doc3 shared with user1 as editor
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId1, userId1]);
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId2, userId1]);
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId3, userId2]);
-    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'editor')`, [docId3, userId1]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`, [docId1, userId1]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`, [docId2, userId1]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`, [docId3, userId2]);
+    await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $2)`, [docId3, userId1]);
 
     // Insert search index entries
     await pool.query(
@@ -252,7 +252,7 @@ describe('search module', () => {
       );
       const id = r.rows[0].id;
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`,
         [id, ownerId]
       );
       await pool.query(
@@ -276,7 +276,7 @@ describe('search module', () => {
       docNew = await seedDoc('Quokka Field Notes New', uaUser1, NEW_TS, 'quokka behavior recorded on the recent expedition');
       docNew2 = await seedDoc('Quokka Appendix', uaUser1, NEW2_TS, 'quokka diet appendix from july');
       docShared = await seedDoc('Shared Quokka Survey', uaUser2, SHARED_TS, 'quokka survey shared with collaborators');
-      await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'editor')`, [docShared, uaUser1]);
+      await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $2)`, [docShared, uaUser1]);
       uaDocIds = [docOld, docNew, docNew2, docShared];
 
       // Vector fixtures: docOld gets the exact-match vector, docNew a near one.
@@ -467,7 +467,7 @@ describe('search module', () => {
         [ownerUser]
       );
       docId = doc.rows[0].id;
-      await pool.query(`INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`, [docId, ownerUser]);
+      await pool.query(`INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`, [docId, ownerUser]);
 
       await pool.query(
         `INSERT INTO document_search_index (doc_id, content_text, search_vector)
@@ -547,7 +547,11 @@ describe('search module', () => {
     });
 
     test('SC-004: response field set and pagination shape are frozen', async () => {
-      const FROZEN_ROW_KEYS = ['doc_id', 'title', 'updated_at', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count'];
+      // Feature 053 (FR-047 / RBD-053-8) is the one sanctioned extension of this
+      // frozen set: `space_id` / `space_name` are ADDED so a caller can tell
+      // which team workspace a result lives in. Everything else is unchanged,
+      // and the freeze still holds against accidental drift.
+      const FROZEN_ROW_KEYS = ['doc_id', 'title', 'updated_at', 'space_id', 'space_name', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count'];
       const FROZEN_PAGINATION_KEYS = ['total', 'limit', 'offset', 'hasMore'];
       for (const mode of ['fulltext', 'hybrid']) {
         const results = await search.searchDocuments(ownerUser, 'relocation playbook', { mode });
@@ -619,7 +623,7 @@ describe('search module', () => {
       expect(reranked.rows.map((r) => r.doc_id)).toEqual([...plain.rows.map((r) => r.doc_id)].reverse());
       // Frozen shape: rows keep the exact field set, no rerankScore leakage
       for (const row of reranked.rows) {
-        expect(Object.keys(row)).toEqual(['doc_id', 'title', 'updated_at', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count']);
+        expect(Object.keys(row)).toEqual(['doc_id', 'title', 'updated_at', 'space_id', 'space_name', 'role', 'owner_name', 'owner_email', 'snippet', 'score', 'share_count']);
       }
       expect(reranked.pagination).toEqual(plain.pagination);
     });

@@ -491,7 +491,7 @@ describe('structure-aware indexing pipeline (018 T011/T012)', () => {
 
       for (const docGuid of [docLegacy, docFresh]) {
         await pool.query(
-          `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+          `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`,
           [docGuid, userId]
         );
       }

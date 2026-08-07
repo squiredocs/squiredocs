@@ -543,12 +543,16 @@ async function updateDocument(docGuid, computeMutation, { userId = null, agentNa
  * @param {string} opts.title - Document title (set in both the row and Yjs meta)
  * @param {Array<Y.XmlElement>} [opts.nodes=[]] - Prebuilt block nodes to seed
  * @param {string|null} [opts.agentName=null] - Attribution agent name
+ * @param {string|null} [opts.spaceId=null] - Create the document directly into
+ *   this space (feature 053, FR-044). The caller is responsible for having
+ *   checked the actor's membership; the creator still gets a direct owner
+ *   share, so their access does not depend on that membership.
  * @returns {Promise<string>} The new document's guid
  */
-async function createSeededDocument({ userId, title, nodes = [], agentName = null }) {
+async function createSeededDocument({ userId, title, nodes = [], agentName = null, spaceId = null }) {
   const docGuid = randomUUID();
 
-  await documents.createDocument(docGuid, userId, title);
+  await documents.createDocument(docGuid, userId, title, spaceId);
 
   // Two-phase (feature 049): nothing here needs to compute or can fail, so the
   // compute phase is empty and returns the mutate closure directly. One

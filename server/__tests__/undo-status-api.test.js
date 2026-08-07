@@ -92,7 +92,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
     const docGuid = d.rows[0].id;
     createdDocGuids.push(docGuid);
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $2)`,
       [docGuid, userId]
     );
     const age = aged ? "now() - interval '30 minutes'" : 'now()';
@@ -157,7 +157,7 @@ describe('GET /api/docs/:docId/undo-status', () => {
   test('viewer role gets { false, false }', async () => {
     const docGuid = await createDoc({ agentEdit: true });
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'viewer')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'viewer', $2)`,
       [docGuid, viewerId]
     );
     const res = await request(app)

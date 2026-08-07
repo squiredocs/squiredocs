@@ -318,8 +318,8 @@ describe('restore_document_version tool', () => {
 
       // Share document as viewer
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, 'viewer')`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, 'viewer', $2)`,
         [testDocGuid, viewerUserId]
       );
 

@@ -111,7 +111,7 @@ describe('set_document_title tool', () => {
       [testUserId]
     );
     testDocId = docResult.rows[0].id;
-    await documents.setRole(testDocId, testUserId, 'owner');
+    await documents.setRole(testDocId, testUserId, 'owner', testUserId);
 
     // Add initial content and title
     const ydoc = new Y.Doc();
@@ -260,7 +260,7 @@ describe('set_document_title tool', () => {
          RETURNING id`
       );
       const editorId = editorResult.rows[0].id;
-      await documents.setRole(testDocId, editorId, 'editor');
+      await documents.setRole(testDocId, editorId, 'editor', editorId);
 
       const agentToken = {
         userId: editorId,
@@ -293,7 +293,7 @@ describe('set_document_title tool', () => {
          RETURNING id`
       );
       const viewerId = viewerResult.rows[0].id;
-      await documents.setRole(testDocId, viewerId, 'viewer');
+      await documents.setRole(testDocId, viewerId, 'viewer', viewerId);
 
       const agentToken = {
         userId: viewerId,

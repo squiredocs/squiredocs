@@ -5,6 +5,7 @@
  */
 
 const versionHistory = require('../../version-history');
+const documents = require('../../documents');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -15,6 +16,12 @@ let persistenceProvider = null;
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Access derivation now runs through the shared documents module (feature
+  // 053), so it must be wired to the same pool — the list_documents tool has
+  // done this since it was written.
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
 }
 
 /**
@@ -108,16 +115,9 @@ async function handler(args, agentToken) {
   // Validate and clamp limit
   const effectiveLimit = Math.min(Math.max(1, limit), 100);
 
-  // Check document access
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
+  // Check document access (feature 053: one derivation, documents.hasAccess →
+  // the document_access view, so space members reach this tool too).
+  if (!(await documents.hasAccess(docGuid, userId))) {
     throw new Error('Document not found or you do not have access');
   }
 

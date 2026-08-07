@@ -65,8 +65,8 @@ describe('US1: attribution end-to-end through the real connection path', () => {
     const docGuid = crypto.randomUUID();
     createdGuids.push(docGuid);
     await documents.createDocument(docGuid, human.userId, 'US1 attribution');
-    await documents.setRole(docGuid, human.userId, 'editor');
-    await documents.setRole(docGuid, agent.userId, 'editor');
+    await documents.setRole(docGuid, human.userId, 'editor', human.userId);
+    await documents.setRole(docGuid, agent.userId, 'editor', agent.userId);
     return docGuid;
   }
 

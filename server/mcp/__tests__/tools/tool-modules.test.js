@@ -304,9 +304,17 @@ describe('Tool Registry Integration', () => {
       expect(result.documentation).toBeDefined();
     });
 
-    test('share_document description carries the owner-only sentence', () => {
+    // Feature 053 (FR-029): the tool is no longer owner-only, so the sentence
+    // this test used to guard is now FALSE and must not come back. What the
+    // description still has to say is who CAN share and what happens to an
+    // unknown address — the two things an agent needs to plan a call.
+    test('share_document description states the real sharing rule, not owner-only', () => {
       const shareDocument = require('../../tools/share-document');
-      expect(shareDocument.description.toLowerCase()).toMatch(/owner/);
+      const d = shareDocument.description.toLowerCase();
+      expect(d).not.toMatch(/only the document owner/);
+      expect(d).toMatch(/anyone with access/);
+      expect(d).toMatch(/viewer can only grant viewer/);
+      expect(d).toMatch(/pending invite/);
     });
   });
 

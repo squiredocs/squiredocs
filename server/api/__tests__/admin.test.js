@@ -188,7 +188,7 @@ describe('Admin API', () => {
         [docId]
       );
       await pool.query(
-        "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
         [docId, regularUser.id]
       );
 
@@ -215,7 +215,7 @@ describe('Admin API', () => {
           [docId]
         );
         await pool.query(
-          "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+          "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
           [docId, regularUser.id]
         );
       }
@@ -250,7 +250,7 @@ describe('Admin API', () => {
       const docId = crypto.randomUUID();
       await pool.query("INSERT INTO documents (id) VALUES ($1) ON CONFLICT DO NOTHING", [docId]);
       await pool.query(
-        "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
         [docId, regularUser.id]
       );
 
@@ -289,7 +289,7 @@ describe('Admin API', () => {
       const docId = crypto.randomUUID();
       await pool.query("INSERT INTO documents (id) VALUES ($1) ON CONFLICT DO NOTHING", [docId]);
       await pool.query(
-        "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
         [docId, regularUser.id]
       );
       await pool.query(

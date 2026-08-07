@@ -69,7 +69,7 @@ describe('027 US1 — reads persist zero updates', () => {
     const docGuid = r.rows[0].id;
     createdDocs.push(docGuid);
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`,
       [docGuid, testUserId]
     );
     const ydoc = new Y.Doc();

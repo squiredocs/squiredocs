@@ -190,6 +190,21 @@ async function createTestUser(pool, email) {
 
 /**
  * Helper to clean up test user and related data
+ *
+ * ── WHY SPACES ARE SWEPT HERE (feature 053) ─────────────────────────────────
+ * `spaces.created_by` is `ON DELETE SET NULL`, so a space a test created
+ * SURVIVES this helper — it lingers in the worker's database and is visible to
+ * every later suite on that worker, exactly the within-worker poisoning the
+ * `cleanupDocRows` docblock below describes.
+ *
+ * Worse, `space_members.granted_by` is `NOT NULL ... ON DELETE NO ACTION`: an
+ * unswept membership granted by this user makes the final `DELETE FROM users`
+ * raise a foreign-key violation, so an UNRELATED suite's teardown throws. That
+ * makes the sweep mandatory rather than tidy (Constitution II).
+ *
+ * Order matters: memberships and invites first (they reference both users and
+ * spaces), then spaces, and all three BEFORE the users delete.
+ *
  * @param {Pool} pool - Database pool
  * @param {string} userId - User ID to clean up
  */
@@ -198,8 +213,11 @@ async function cleanupTestUser(pool, userId) {
   await pool.query('DELETE FROM ai_extra_credits WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM agent_activity_log WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM agent_delegations WHERE user_id = $1', [userId]);
-  await pool.query('DELETE FROM document_shares WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM document_shares WHERE user_id = $1 OR granted_by = $1', [userId]);
   await pool.query('DELETE FROM documents WHERE creator_id = $1', [userId]); // Note: documents uses creator_id
+  await pool.query('DELETE FROM space_members WHERE user_id = $1 OR granted_by = $1', [userId]);
+  await pool.query('DELETE FROM space_invites WHERE invited_by_user_id = $1', [userId]);
+  await pool.query('DELETE FROM spaces WHERE created_by = $1', [userId]);
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 

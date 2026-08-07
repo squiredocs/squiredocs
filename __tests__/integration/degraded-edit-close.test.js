@@ -73,8 +73,8 @@ describe('NEW-1: a degraded role re-check disconnects the editor instead of dive
     const docGuid = crypto.randomUUID();
     createdGuids.push(docGuid);
     await documents.createDocument(docGuid, editor.userId, 'NEW-1 degraded re-check');
-    await documents.setRole(docGuid, editor.userId, 'editor');
-    await documents.setRole(docGuid, viewer.userId, 'viewer');
+    await documents.setRole(docGuid, editor.userId, 'editor', editor.userId);
+    await documents.setRole(docGuid, viewer.userId, 'viewer', viewer.userId);
     return docGuid;
   }
 

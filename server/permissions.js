@@ -9,7 +9,15 @@ const { verifyAgentToken } = require('./mcp/auth/jwt');
 const apiTokens = require('./mcp/auth/api-tokens');
 
 /**
- * Permission levels required for different actions
+ * Permission levels required for different actions.
+ *
+ * UNCHANGED by feature 053 (spaces), deliberately — design/spaces.md D6 keeps
+ * the thresholds exactly as they are for v1. What changed is the ROLE that
+ * reaches them: `documents.getRole` now returns the EFFECTIVE role, the
+ * stronger of a direct share and the user's role in the space the document
+ * lives in (D3/D5). So a space owner clears `delete` on every document in the
+ * space, and a space editor clears `edit` and `share`, with no code here
+ * knowing spaces exist. See specs/053-spaces/contracts/access-derivation.md.
  */
 const REQUIRED_ROLES = {
   view: 'viewer',

@@ -2,7 +2,19 @@
  * share_document MCP Tool
  *
  * Shares a document with another user by email.
+ *
+ * CONVERGED ON THE HUMAN PATH (feature 053, FR-029 / RBD-053-5). This tool used
+ * to carry its own SQL and had drifted from `POST /api/docs/:docId/share` in
+ * four ways: it was owner-only, it threw on an unknown email instead of
+ * creating a pending invite, it never sent mail, and it wrote a bare INSERT
+ * with no conflict clause and no grantor. All four are gone — the tool now
+ * calls `shareDocumentByEmail()`, the one sharing behavior, so an agent and its
+ * owner get identical results from identical inputs.
  */
+
+const { shareDocumentByEmail } = require('../../share-service');
+const users = require('../../auth/users');
+const documents = require('../../documents');
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -13,6 +25,12 @@ let persistenceProvider = null;
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // Access derivation now runs through the shared documents module (feature
+  // 053), so it must be wired to the same pool — the list_documents tool has
+  // done this since it was written.
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
 }
 
 /**
@@ -21,8 +39,13 @@ function init(persistence) {
 const name = 'share_document';
 
 const description =
-  'Share a document with another user by email address. Only the document '
-  + 'owner can share a document — editors and viewers cannot.';
+  'Share a document with another user by email address. Anyone with access to '
+  + 'the document can share it, at most at their own level — a viewer can only '
+  + 'grant viewer access. If the address has no Squire Docs account yet, a '
+  + 'pending invite is created and becomes a real share the first time they '
+  + 'sign in. The document owner\'s role cannot be changed. Documents that live '
+  + 'in a space are already visible to every member of that space; sharing adds '
+  + 'an individual grant on top of that.';
 
 const inputSchema = {
   type: 'object',
@@ -54,91 +77,54 @@ const inputSchema = {
  * @param {string} args.email - User's email address
  * @param {string} args.role - Role to grant
  * @param {object} agentToken - Decoded agent JWT token
- * @returns {Promise<object>} { success, message }
+ * @returns {Promise<object>} { success, message, docGuid, url, sharedWith|invited }
  */
 async function handler(args, agentToken) {
   if (!persistenceProvider) throw new Error('share_document tool not initialized');
 
   const { docGuid, email, role = 'viewer' } = args;
   const userId = agentToken.userId;
-  const pool = persistenceProvider.getPool();
-
-  // Check if user has owner access to the document
-  const accessResult = await pool.query(
-    `SELECT ds.role
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
-    throw new Error('Document not found or you do not have access');
-  }
-
-  const { role: currentRole } = accessResult.rows[0];
-  if (currentRole !== 'owner') {
-    throw new Error('Only the document owner can share documents');
-  }
-
-  // Find the target user by email
-  const userResult = await pool.query(
-    'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER($1)',
-    [email]
-  );
-
-  if (userResult.rows.length === 0) {
-    throw new Error(`No user found with email: ${email}`);
-  }
-
-  const targetUser = userResult.rows[0];
-
-  // Check if user is trying to share with themselves
-  if (targetUser.id === userId) {
-    throw new Error('You cannot share a document with yourself');
-  }
-
-  // Check if user already has access
-  const existingAccess = await pool.query(
-    'SELECT role FROM document_shares WHERE doc_id = $1 AND user_id = $2',
-    [docGuid, targetUser.id]
-  );
-
-  let message;
-  if (existingAccess.rows.length > 0) {
-    const existingRole = existingAccess.rows[0].role;
-    if (existingRole === 'owner') {
-      throw new Error('Cannot modify owner permissions');
-    }
-
-    // Update existing access
-    await pool.query(
-      'UPDATE document_shares SET role = $3 WHERE doc_id = $1 AND user_id = $2',
-      [docGuid, targetUser.id, role]
-    );
-    message = `Updated ${targetUser.email}'s access from ${existingRole} to ${role}`;
-  } else {
-    // Grant new access
-    await pool.query(
-      'INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, $3)',
-      [docGuid, targetUser.id, role]
-    );
-    message = `Shared document with ${targetUser.email} as ${role}`;
-  }
-
-  // Update document timestamp
-  await pool.query('UPDATE documents SET updated_at = now() WHERE id = $1', [docGuid]);
-
   const baseUrl = agentToken.baseUrl || '';
+
+  // The acting principal is the TOKEN'S OWNER — that is who the grant is
+  // attributed to (`granted_by`), and whose email_enabled decides whether mail
+  // goes out. An agent shares as its human, never as itself.
+  const owner = await users.findById(userId);
+  const actor = { userId, email: owner?.email, name: owner?.name };
+
+  const { status, body } = await shareDocumentByEmail({
+    actor,
+    docId: docGuid,
+    email,
+    role,
+    baseUrl,
+  });
+
+  // The service speaks HTTP; a tool speaks exceptions. Map refusals to the
+  // thrown errors MCP clients expect, keeping the service's message verbatim.
+  if (status >= 400) {
+    throw new Error(body.error);
+  }
+
+  if (body.invite) {
+    return {
+      success: true,
+      message: `Invited ${body.invite.email} as ${body.invite.role}. They will get access the first time they sign in.`,
+      docGuid,
+      url: `${baseUrl}/d/${docGuid}`,
+      invited: { email: body.invite.email, role: body.invite.role, pending: true },
+    };
+  }
+
   return {
     success: true,
-    message,
+    message: `Shared document with ${body.user.email} as ${body.user.role}`,
     docGuid,
     url: `${baseUrl}/d/${docGuid}`,
     sharedWith: {
-      email: targetUser.email,
-      name: targetUser.name,
-      role,
+      email: body.user.email,
+      name: body.user.name,
+      role: body.user.role,
     },
   };
 }

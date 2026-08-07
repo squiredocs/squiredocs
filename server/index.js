@@ -115,6 +115,8 @@ const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
 const support = require('./api/support');
+const spacesApi = require('./api/spaces');
+const spaces = require('./spaces');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
@@ -122,6 +124,7 @@ const { createTokenClaimRouter } = require('./api/token-claim');
 const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
+const { shareDocumentByEmail } = require('./share-service');
 const { buildBaseUrl } = require('./url');
 const users = require('./auth/users');
 setupProcessHandlers();
@@ -354,6 +357,10 @@ appSettings.init(persistenceProvider.getPool());
 // Initialize support module with shared database pool
 support.init(persistenceProvider.getPool());
 
+// Initialize spaces (feature 053) — data layer and its REST router
+spaces.init(persistenceProvider.getPool());
+spacesApi.init(persistenceProvider.getPool());
+
 // Initialize MCP module with persistence provider
 mcp.init(persistenceProvider);
 
@@ -385,6 +392,10 @@ app.use('/api/chat', express.json({ limit: process.env.CHAT_BODY_LIMIT || '10mb'
 app.use('/api/settings/byok', express.json(), byokSettings.router);
 app.use('/api/admin', requireAdmin, admin.router);
 app.use('/api/support', express.json(), support.router);
+// Spaces (feature 053). express.json() is NOT global in this app, so the body
+// parser is attached at the mount — never at an /api/docs prefix, which would
+// run it for the 20MB image route too (research R8).
+app.use('/api/spaces', express.json(), spacesApi.router);
 
 // Client runtime configuration (feature 021, DR-2). Authenticated read of a
 // server-owned boolean — the binding-hardening kill-switch delivered to the
@@ -630,6 +641,16 @@ app.get('/api/docs', requireAuth, async (req, res) => {
     const userId = req.user.userId;
     const { search: searchQuery, searchMode, filter, sortBy, sortOrder, limit, offset, mode, distanceThreshold } = req.query;
 
+    // Space scope (feature 053, FR-026/FR-040). Omitting it leaves the result
+    // set exactly as it was before spaces existed. A bad value is a 400, never
+    // a silently unfiltered list.
+    let space;
+    try {
+      space = documents.normalizeSpaceScope(req.query.space);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
     // Feature 017: validate updatedAfter up front — before the rate limiter —
     // so misuse 400s cheaply (spending no search quota) and is never silently
     // ignored (CN-3). Valid recency-filtered searches stay metered below.
@@ -659,6 +680,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         offset: offset ? parseInt(offset, 10) : 0,
         distanceThreshold: distanceThreshold ? parseFloat(distanceThreshold) : undefined,
         updatedAfter,
+        space,
       });
 
       const docs = results.rows.map((doc) => ({
@@ -671,6 +693,8 @@ app.get('/api/docs', requireAuth, async (req, res) => {
         snippet: doc.snippet,
         score: doc.score,
         shareCount: doc.share_count,
+        spaceId: doc.space_id || null,
+        spaceName: doc.space_name || null,
       }));
 
       return res.json({ docs, pagination: results.pagination });
@@ -684,6 +708,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
       sortOrder: sortOrder || 'desc',
       limit: limit ? parseInt(limit, 10) : null,
       offset: offset ? parseInt(offset, 10) : 0,
+      space,
     });
 
     // Transform to response format
@@ -695,6 +720,8 @@ app.get('/api/docs', requireAuth, async (req, res) => {
       ownerName: doc.owner_name,
       ownerEmail: doc.owner_email,
       shareCount: parseInt(doc.share_count, 10) || 0,
+      spaceId: doc.space_id || null,
+      spaceName: doc.space_name || null,
     }));
 
     // Include pagination info if limit was specified
@@ -723,7 +750,7 @@ app.get('/api/docs', requireAuth, async (req, res) => {
 // API: Create a new document (establishes ownership)
 app.post('/api/docs', requireAuth, async (req, res) => {
   try {
-    const { docId } = req.body;
+    const { docId, spaceId = null } = req.body;
     const userId = req.user.userId;
     
     if (!docId) {
@@ -748,8 +775,22 @@ app.post('/api/docs', requireAuth, async (req, res) => {
       return res.json({ doc: existingDoc, role, created: false });
     }
     
+    // Creating directly INTO a space (feature 053, FR-044) is authorized by the
+    // same rule as moving one in: editor-or-owner membership of the target. The
+    // creator still receives a direct owner share, so their access never
+    // depends on that membership surviving.
+    if (spaceId) {
+      const memberRole = await spaces.getMemberRole(spaceId, userId);
+      if (!memberRole) {
+        return res.status(404).json({ error: 'Space not found' });
+      }
+      if (documents.ROLES[memberRole] < documents.ROLES.editor) {
+        return res.status(403).json({ error: 'You must be an editor or owner of the target space' });
+      }
+    }
+
     // Create the document with this user as owner
-    const doc = await documents.createDocument(docId, userId);
+    const doc = await documents.createDocument(docId, userId, null, spaceId);
     // Creating a real (non-welcome) doc means the user is now engaged — stamp
     // onboarded_at now instead of waiting for their next login/_auth/me probe.
     // Best-effort: never block or fail creation on the onboarding stamp.
@@ -759,6 +800,32 @@ app.post('/api/docs', requireAuth, async (req, res) => {
     console.error('Error creating document:', error);
     notifyException(error, { req, source: 'api' });
     res.status(500).json({ error: 'Failed to create document' });
+  }
+});
+
+// API: Move a document into a space, out of one, or between two (feature 053).
+//
+// An ~8-line adapter over spaces.moveDocument(), which owns the whole D7 rule
+// set and runs it in one transaction under a row lock. The route lives inline
+// here rather than in server/api/spaces.js so it sits with its 23 sibling
+// /api/docs routes (research R8); its own express.json() is attached because
+// the parser is NOT global and must never be mounted at the /api/docs prefix
+// (that would consume the 20MB image route's body).
+app.put('/api/docs/:docId/space', requireAuth, express.json(), async (req, res) => {
+  try {
+    const result = await spaces.moveDocument(
+      req.user.userId,
+      req.params.docId,
+      req.body?.spaceId ?? null
+    );
+    res.json(result);
+  } catch (error) {
+    if (typeof error.status === 'number') {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Error moving document:', error);
+    notifyException(error, { req, source: 'api' });
+    res.status(500).json({ error: 'Failed to move document' });
   }
 });
 
@@ -778,14 +845,26 @@ app.get('/api/docs/:docId', requireAuth, async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
-    
+
+    // Feature 053: the editor shows the document's space as a chip, and offers
+    // "Move to space" only to a DIRECT owner (FR-041) — a passthrough owner
+    // must not see it, for the same reason moveDocument refuses them.
+    const space = doc.space_id ? await spaces.getSpace(doc.space_id) : null;
+    const { rows: directRows } = await persistenceProvider.getPool().query(
+      'SELECT role FROM document_shares WHERE doc_id = $1 AND user_id = $2',
+      [docId, userId]
+    );
+
     res.json({
       doc: {
         id: doc.id,
         createdAt: doc.created_at,
         updatedAt: doc.updated_at,
+        spaceId: doc.space_id || null,
+        spaceName: space?.name || null,
       },
       role,
+      directRole: directRows[0]?.role || null,
     });
   } catch (error) {
     console.error('Error getting document:', error);
@@ -926,108 +1005,25 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
 });
 
 // API: Share document with a user by email
+//
+// A thin adapter over shareDocumentByEmail() — the ONE sharing behavior, shared
+// with the MCP `share_document` tool (feature 053 FR-029). All the logic that
+// used to live here (role validation, the access check, the viewer rule, the
+// pending-invite branch, the email_enabled gate, the awaited sends) moved to
+// server/share-service.js unchanged.
 app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
   try {
     const { docId } = req.params;
     const { email, role = 'editor' } = req.body;
-    const userId = req.user.userId;
-    
-    if (!email) {
-      return res.status(400).json({ error: 'email is required' });
-    }
-    
-    // Validate role
-    if (!documents.ROLES[role] || role === 'owner') {
-      return res.status(400).json({ error: 'Invalid role. Use "editor" or "viewer"' });
-    }
-    
-    // Check if user has access to the document
-    const userRole = await documents.getRole(docId, userId);
-    if (!userRole) {
-      return res.status(403).json({ error: 'You do not have access to this document' });
-    }
-    
-    // Viewers can only add other viewers
-    if (userRole === 'viewer' && role !== 'viewer') {
-      return res.status(403).json({ error: 'Viewers can only share with viewer access' });
-    }
-    
-    const doc = await documents.getDocument(docId);
-    const docUrl = `${buildBaseUrl(req)}/d/${docId}`;
 
-    // Outbound share email is gated per-user (off by default during beta).
-    // Read the flag fresh from the DB so an admin toggle takes effect immediately.
-    const inviter = await users.findById(userId);
-    const canEmail = !!inviter?.email_enabled;
-
-    // Find the user to share with
-    const targetUser = await documents.findUserByEmail(email);
-
-    // Not a registered user yet — create a pending invite and email them.
-    if (!targetUser) {
-      // Can't invite your own email address
-      if (req.user.email && req.user.email.toLowerCase() === email.toLowerCase()) {
-        return res.status(400).json({ error: 'Cannot share with yourself' });
-      }
-
-      await documents.createInvite(docId, email, role, userId);
-
-      // Awaited so the send completes before we respond — otherwise an
-      // in-flight send is silently dropped if the pod is shutting down (e.g.
-      // mid-deploy). sendEmail never throws, so this can't fail the request.
-      // Suppressed when the inviter isn't trusted (the invite is still recorded).
-      if (canEmail) {
-        await sendShareInvite({
-          to: email,
-          docTitle: doc?.title,
-          inviterName: req.user.name,
-          docUrl,
-          replyTo: req.user.email,
-        });
-      }
-
-      return res.status(201).json({
-        invite: { email, role, pending: true },
-      });
-    }
-
-    // Can't share with yourself
-    if (targetUser.id === userId) {
-      return res.status(400).json({ error: 'Cannot share with yourself' });
-    }
-
-    // Can't change an owner's role
-    const targetRole = await documents.getRole(docId, targetUser.id);
-    if (targetRole === 'owner') {
-      return res.status(400).json({ error: 'Cannot change owner\'s role' });
-    }
-
-    // Set the role
-    const share = await documents.setRole(docId, targetUser.id, role);
-
-    // Notify the existing user that a doc was shared with them (gated on the
-    // inviter being trusted to send email; access is granted regardless).
-    // Awaited so the send isn't dropped if the pod is shutting down mid-deploy;
-    // sendEmail never throws, so this can't fail the request.
-    if (canEmail) {
-      await sendShareNotification({
-        to: targetUser.email,
-        docTitle: doc?.title,
-        inviterName: req.user.name,
-        docUrl,
-        replyTo: req.user.email,
-      });
-    }
-
-    res.status(201).json({
-      user: {
-        id: targetUser.id,
-        email: targetUser.email,
-        name: targetUser.name,
-        picture: targetUser.picture,
-        role: share.role,
-      },
+    const { status, body } = await shareDocumentByEmail({
+      actor: req.user,
+      docId,
+      email,
+      role,
+      baseUrl: buildBaseUrl(req),
     });
+    res.status(status).json(body);
   } catch (error) {
     console.error('Error sharing document:', error);
     notifyException(error, { req, source: 'api' });
@@ -1064,7 +1060,8 @@ app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) =>
       return res.status(400).json({ error: 'Cannot change owner\'s role' });
     }
     
-    const share = await documents.setRole(docId, targetUserId, role);
+    // A role change is a new grant by the acting user (D8).
+    const share = await documents.setRole(docId, targetUserId, role, userId);
     res.json({ role: share.role });
   } catch (error) {
     console.error('Error updating role:', error);
@@ -1154,10 +1151,29 @@ app.get('/api/docs/:docId/shares', requireAuth, async (req, res) => {
     const users = await documents.getDocumentUsers(docId);
     const invites = await documents.getInvitesForDoc(docId);
 
+    // Feature 053 (FR-043): if the document lives in a space, say so — as a
+    // READ-ONLY line. `users` / `invites` / `currentUserRole` are untouched:
+    // the dialog still manages DIRECT shares only, and space membership is
+    // managed on the space page (RBD-053-15).
+    const doc = await documents.getDocument(docId);
+    let spaceGrant = null;
+    if (doc?.space_id) {
+      const space = await spaces.getSpace(doc.space_id);
+      if (space) {
+        spaceGrant = {
+          id: space.id,
+          name: space.name,
+          role: await spaces.getMemberRole(space.id, userId),
+          memberCount: (await spaces.getMembers(space.id)).length,
+        };
+      }
+    }
+
     res.json({
       users,
       invites,
       currentUserRole: role,
+      spaceGrant,
     });
   } catch (error) {
     console.error('Error getting shares:', error);
@@ -2063,14 +2079,18 @@ wss.on('connection', (ws, req) => {
   const ROLE_RECHECK_INTERVAL = 60000;
   const roleCheckInterval = setInterval(async () => {
     try {
-      const currentRole = await documents.getRole(docId, userId);
-      if (!currentRole) {
+      // The decision lives in documents.evaluateAccessRecheck so it can be
+      // exercised without a socket or a 60-second wait; the side effects stay
+      // here. Since feature 053 a removed space member, a deleted space and a
+      // moved-out document all reach `revoked` through the same path a revoked
+      // direct share already did.
+      const { revoked, canEdit } = await documents.evaluateAccessRecheck(docId, userId, tokenMayWrite);
+      if (revoked) {
         console.log(`[WS:${connId}] User ${userId} lost access to doc ${docId}, disconnecting`);
         ws.close(4403, 'Access revoked');
         return;
       }
-      // Re-checking the role must never widen what the token allows.
-      currentCanEdit = tokenMayWrite && documents.ROLES[currentRole] >= documents.ROLES['editor'];
+      currentCanEdit = canEdit;
       // A successful re-check is a VERDICT: whatever `currentCanEdit` now says
       // is backed by the DB. If it says false, this is a genuine downgrade and
       // the gate's drop-and-stay-open policy is the correct answer.

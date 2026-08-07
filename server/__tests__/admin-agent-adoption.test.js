@@ -65,7 +65,7 @@ describe('Feature 036: per-user adoption detail', () => {
     const id = crypto.randomUUID();
     await pool.query('INSERT INTO documents (id, creator_id, title) VALUES ($1, $2, $3)', [id, ownerId, title]);
     await pool.query(
-      "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+      "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
       [id, ownerId]
     );
     return id;
