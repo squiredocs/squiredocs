@@ -139,3 +139,81 @@ divergence between documented and actual behavior. What it covered, in order:
 
 The BROWSER walk (SC-008, dark mode, mobile widths) is still owed to Sam — this
 exercised the server surface the UI calls, not the UI.
+
+## Post-merge review fixes (2026-08-07, same day)
+
+The adversarial review of the merged feature raised 3 MEDIUM and 1 LOW, all
+confirmed with file:line. All four are fixed on `main`, each with a test that
+fails on the pre-fix code.
+
+### M1 — the target-owner guards read the EFFECTIVE role
+
+**Finding.** `share-service.js`, and the role-change and unshare routes in
+`index.js`, each asked `documents.getRole` for the TARGET's role and refused
+when it was `owner`. Since 053 that is the effective role, so a space-owner
+MEMBER of the document's space — owner by D5 passthrough, with no direct share
+— could not be shared to, re-roled, or removed. Direct-share management on
+space documents was frozen with `400 Cannot change owner's role`.
+
+**Fix.** Commit `5f5daecf`. New `documents.getDirectRole` reads
+`document_access.direct_role`, and all three guards use it; the ACTING user's
+permission check stays on the effective role. The two `index.js` route bodies
+moved into `share-service.js` beside `shareDocumentByEmail`, unchanged in
+behavior, so the guard exists once instead of in three copies — and so it is
+reachable from a test at all (`server/index.js` listens at require time).
+
+**Test.** `spaces-effective-role.test.js` → "review M1 — the target-owner
+guards read the DIRECT role": 6 cases. Sharing to a space-owner member with no
+direct row, and changing or removing a stale direct viewer row on one, all
+succeed (these three fail pre-fix with 400); the real direct owner is still
+refused at all three sites.
+
+### M2 — account deletion orphaned last-owner spaces
+
+**Finding.** `space_members` CASCADEs with the user row, so
+`deleteUserByEmail` on the SOLE owner of a space left that space with members
+and zero owners. `requireOwner` then refused rename, delete, member management
+and owner-level invites forever, with no path back.
+
+**Fix.** Commit `19ba6cf0`, ratified as RBD-053-17 (design amended in
+`11f61a5b`, Edge Cases). Inside the existing deletion transaction, before the
+user DELETE, every space where the account is an owner and no other owner
+exists is deleted. Application-level; no migration. Documents revert to
+personal via `documents.space_id ON DELETE SET NULL`, direct shares survive,
+and nobody is promoted — under D5 passthrough a silent promotion would hand a
+member owner over every document in the space.
+
+**Test.** `integration/faucet-wipe.test.js` → "RBD-053-17 — spaces the account
+is the LAST owner of": 3 cases. The sole-owner wipe (fails pre-fix: the space
+survives ownerless), a co-owned space surviving with the other owner intact,
+and a member-only wipe leaving the space alone.
+
+### M3 — the search-eval seeder violated NOT NULL granted_by
+
+**Finding.** `server/search/eval/seed-eval-corpus.js` wrote a bare
+`INSERT INTO document_shares (doc_id, user_id, role)`, a 23502 since migration
+`1799810000000`. A tree-wide grep found the same omission in
+`script/test-subversions-performance.js`. Nothing else outside `migrations/`
+(006 predates the column) omits it.
+
+**Fix.** Commit `b3792055`. Both self-grant, matching the owner row
+`createDocument` writes.
+
+**Test.** `share-attribution.test.js` → "M3: no source file writes
+document_shares without granted_by" — a static sweep of the tree, since these
+paths are scripts no suite runs. Fails pre-fix, naming the seeder line.
+
+### L1 — malformed `:id` on `/api/spaces/*` returned 500
+
+**Finding.** A non-uuid id reached a uuid column, Postgres raised 22P02, and
+the caller got a 500 plus an exception notification, where contract invariant
+I11 promises 404.
+
+**Fix.** Commit `b06a88ab`. `requireMembership` shape-checks the id first and
+answers the same `404 Space not found` a non-member gets. The uuid pattern
+moved out of `normalizeSpaceScope` into `documents.isUuid` rather than being
+written twice.
+
+**Test.** `spaces-api.test.js` → "a malformed :id is the same 404, with no
+exception notification", across all seven `/:id` routes, asserting the
+notifier was never called. Fails pre-fix with 500.
