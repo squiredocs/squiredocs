@@ -1,6 +1,6 @@
-# Config for the collab-devcontainer CLI (sibling repo). Tracked here so any
-# checkout of collab "just works" with `collab-devcontainer up`. See the
-# collab-devcontainer repo's README for the full pattern.
+# Config for the collab-devcontainer CLI, which lives in-repo at devcontainer/.
+# Tracked here so any checkout of collab "just works" with `collab-devcontainer
+# up`. See devcontainer/README.md for the full pattern.
 schema_version = 1
 
 [target]
@@ -50,9 +50,9 @@ host_paths = "~/Desktop,~/Downloads"
 # only add repos you'd let the sandbox modify. Requires `up`/`restart` to take
 # effect — a running pod keeps whatever access its spec was created with.
 #
-# collab-devcontainer itself is here so the sandbox that this CLI creates can
-# also develop the CLI.
-rw_paths = "~/dev/collab-devcontainer"
+# The CLI itself lives in-repo (devcontainer/) and rides the Mutagen sync, so
+# it no longer needs an entry here.
+rw_paths = ""
 
 [git]
 # Bind-mount the host repo's .git into the pod at <workspace_mount>/.git so

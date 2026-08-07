@@ -1,0 +1,17 @@
+# Persistent home for Claude Code state (login credentials + session history)
+# inside the sandbox pod, so `restart`/`rebuild` don't force a fresh /login.
+# Pinned to premium-rwo — the same StorageClass collab's postgres/redis PVCs use.
+# (Minikube's setup labels premium-rwo, standard, AND standard-rwo all "default",
+# so relying on "the default" is ambiguous; pin it explicitly.)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: collab-claude-config
+  namespace: __NAMESPACE__
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-rwo
+  resources:
+    requests:
+      storage: 2Gi

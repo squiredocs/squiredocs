@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# install — set up collab-devcontainer on the host:
+#   1. Symlink bin/collab-devcontainer into ~/.local/bin/
+#   2. Scaffold ~/.config/collab-devcontainer/ for optional host-fallback config
+#
+# Idempotent. Safe to re-run. (Unlike liz-devcontainer there is no
+# LIZ_DEVCONTAINER_COMPOSE to export — the sandbox runs in Minikube, not via
+# docker-compose / VS Code "Reopen in Container".)
+set -euo pipefail
+
+TOOL_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_LINK="$HOME/.local/bin/collab-devcontainer"
+CONFIG_DIR="$HOME/.config/collab-devcontainer"
+
+echo "Installing collab-devcontainer from $TOOL_DIR..."
+
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$TOOL_DIR/bin/collab-devcontainer" "$BIN_LINK"
+echo "  symlinked $BIN_LINK -> $TOOL_DIR/bin/collab-devcontainer"
+
+mkdir -p "$CONFIG_DIR"
+echo "  ensured $CONFIG_DIR (drop a <repo-basename>.toml here for host-fallback config)"
+
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) echo "  NOTE: ~/.local/bin is not on PATH; add 'export PATH=\"\$HOME/.local/bin:\$PATH\"' to your shell rc" ;;
+esac
+
+echo
+echo "Installed. From inside the collab repo run: collab-devcontainer doctor"

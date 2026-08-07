@@ -103,7 +103,7 @@ This will start:
 
 Open `http://localhost:5173` in your browser to use the editor.
 
-> **Sandbox option:** the Minikube + Mutagen dev environment can be driven by a one-command CLI, [samg/collab-devcontainer](https://github.com/samg/collab-devcontainer), which runs the `app-dev` pod from a hardened dev image (Node 22 + Claude Code + `gh` + build tools). It's a convenience front-end over the same substrate documented in [docs/dev.md](docs/dev.md), not a replacement.
+> **Sandbox option:** the Minikube + Mutagen dev environment can be driven by a one-command CLI, [`collab-devcontainer`](devcontainer/README.md) (in-repo at `devcontainer/`; run `devcontainer/install` once), which runs the `app-dev` pod from a hardened dev image (Node 22 + Claude Code + `gh` + build tools). It's a convenience front-end over the same substrate documented in [docs/dev.md](docs/dev.md), not a replacement.
 
 ### Project Status & Workflow
 

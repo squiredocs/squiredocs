@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# collab-devcontainer — sandbox manager for the collab app, running in Minikube.
+#
+# Unlike liz-devcontainer (docker-compose on the laptop), collab's dev substrate
+# is Minikube: the sandbox is a hardened `app-dev` pod with Claude Code, gh, and
+# the isolated-vm build toolchain baked in. This CLI is a one-command front-end
+# over the kubectl / mutagen / port-forward lifecycle collab already uses, so it
+# stays fully compatible with the manual Minikube + Mutagen flow in docs/dev.md.
+#
+# Reads collab-devcontainer.toml from the target repo and dispatches to
+# lib/cmd_*.sh. See README.md.
+set -euo pipefail
+
+# Resolve symlinks so the CLI works when invoked via ~/.local/bin/collab-devcontainer
+# (a symlink to bin/collab-devcontainer in this repo).
+__src="${BASH_SOURCE[0]}"
+while [[ -L "$__src" ]]; do
+  __dir="$(cd -P "$(dirname "$__src")" && pwd)"
+  __src="$(readlink "$__src")"
+  [[ "$__src" != /* ]] && __src="$__dir/$__src"
+done
+COLLAB_DC_TOOL_DIR="$(cd -P "$(dirname "$__src")/.." && pwd)"
+unset __src __dir
+export COLLAB_DC_TOOL_DIR
+
+# OrbStack installs its docker CLI under ~/.orbstack/bin instead of /usr/local/bin.
+# Prepend it so this tool works under OrbStack, Docker Desktop, or a plain Docker install.
+[[ -d "$HOME/.orbstack/bin" ]] && export PATH="$HOME/.orbstack/bin:$PATH"
+
+# shellcheck source=../lib/common.sh
+source "$COLLAB_DC_TOOL_DIR/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: collab-devcontainer <command> [args]
+
+Commands:
+  up              Build image (if missing), apply the app-dev pod, sync Mutagen,
+                  start port-forwards, run postCreate, exec an interactive shell.
+  shell           Exec another shell into the running sandbox pod.
+  build           Build collab-dev:latest into Minikube's Docker daemon.
+  install-deps    Run npm ci (root + client) inside the sandbox pod.
+  rebuild         Rebuild the image, then recreate the pod.
+  restart         Recreate the pod (SIGTERMs in-pod Claude first; re-syncs Mutagen).
+  mounts          Check/heal the host mounts (.git + drag-and-drop dirs).
+                  --status | --quiet | --install-agent | --uninstall-agent
+                  --install-agent sets up automatic healing after a reboot.
+  doctor          Validate config, kube context, services, image, sync, paths.
+  config          Print resolved config (toml + COLLAB_DC_* env vars).
+  help            Show this message.
+
+Configuration:
+  Looks for collab-devcontainer.toml by walking up from CWD (like git finds .git),
+  then falls back to ~/.config/collab-devcontainer/<repo-basename>.toml. See README.
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  up)            load_config;         exec_cmd cmd_up "$@"           ;;
+  shell)         load_config;         exec_cmd cmd_shell "$@"        ;;
+  build)         load_config;         exec_cmd cmd_build "$@"        ;;
+  install-deps)  load_config;         exec_cmd cmd_install_deps "$@" ;;
+  rebuild)       load_config;         exec_cmd cmd_rebuild "$@"      ;;
+  restart)       load_config;         exec_cmd cmd_restart "$@"      ;;
+  mounts)        load_config;         exec_cmd cmd_mounts "$@"       ;;
+  doctor)        load_config_lenient; exec_cmd cmd_doctor "$@"       ;;
+  config)        load_config;         exec_cmd cmd_config "$@"       ;;
+  help|-h|--help) usage; exit 0 ;;
+  "") usage; exit 0 ;;
+  *) printf 'collab-devcontainer: unknown command "%s"\n\n' "$cmd" >&2; usage; exit 2 ;;
+esac

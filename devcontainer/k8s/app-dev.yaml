@@ -1,0 +1,153 @@
+# Hardened dev sandbox pod. Supersedes collab's k8s/app-dev.yaml: same name,
+# labels, namespace, ports, and env, so collab's script/mutagen.sh and
+# script/port-forward.sh keep working unchanged — but it runs the collab-dev
+# image (Claude Code + gh + isolated-vm toolchain) and mounts a PVC for Claude
+# state. __IMAGE__ and __NAMESPACE__ are substituted by lib/cmd_up.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-dev
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-dev
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: app-dev
+      annotations:
+        # Bare `kubectl exec`/`cp` and collab's docs/dev.md commands target this
+        # container; only `install-deps` uses `-c installer`.
+        kubectl.kubernetes.io/default-container: app
+    spec:
+      initContainers:
+        - name: init-local-dev
+          image: busybox:1.35
+          command: ['sh', '-c', 'mkdir -p /local-dev && chmod 755 /local-dev']
+          volumeMounts:
+            - name: local-dev-volume
+              mountPath: /local-dev
+      containers:
+        - name: app
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          # tini as a reaping PID 1: `sleep infinity` never reaps orphans, so
+          # anything that detaches (git >= 2.47 auto-maintenance, a dropped ssh)
+          # accumulates as zombies toward the nproc rlimit — liz-devcontainer
+          # hit 64k and lost fork() (cto-tool 42fad95). NOT shareProcessNamespace:
+          # the installer sidecar's isolation depends on separate PID namespaces.
+          command: ["tini", "--", "sleep", "infinity"]
+          workingDir: /local-dev
+          ports:
+            - containerPort: 3001
+            - containerPort: 5173
+          volumeMounts:
+            - name: local-dev-volume
+              mountPath: /local-dev
+            # Persist Claude Code login + session history across pod recreates.
+            - name: claude-config
+              mountPath: /root/.claude
+            # cmd_up injects hostPath volumeMounts here for drag-and-drop dirs.
+            # __EXTRA_VOLUME_MOUNTS__
+          env:
+            - name: WORKSPACE
+              value: /local-dev
+            - name: PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: development
+            # The pod is an isolated sandbox, so let Claude Code run
+            # `--dangerously-skip-permissions` despite running as root. Inherited
+            # by every `kubectl exec` shell, so no per-shell export needed.
+            - name: IS_SANDBOX
+              value: "1"
+            # In-cluster DB DNS — no port-forward/host-gateway bridge needed.
+            - name: DB_HOST
+              value: collab-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: collab_db
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: REDIS_HOST
+              value: collab-redis
+            - name: REDIS_PORT
+              value: "6379"
+            # SES notifications are optional in dev — don't block pod start if
+            # the ses-secret hasn't been created in this cluster.
+            - name: SES_SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ses-secret
+                  key: SES_SMTP_USER
+                  optional: true
+            - name: SES_SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ses-secret
+                  key: SES_SMTP_PASS
+                  optional: true
+            - name: SES_FROM_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: ses-secret
+                  key: SES_FROM_EMAIL
+                  optional: true
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: ses-secret
+                  key: ADMIN_EMAIL
+                  optional: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+        # Isolated dependency installer: shares the /local-dev volume so npm ci
+        # writes node_modules where the `app` container sees them, but mounts
+        # NONE of the secrets `app` gets (no postgres/ses env, no Claude PVC). A
+        # malicious postinstall in a transitive dep runs here, with no DB/SES
+        # creds in its environment and no shared PID namespace to read app's.
+        # `install-deps` (and `up` on a fresh pod) run `npm ci` here via
+        # `-c installer`.
+        - name: installer
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          # Reaping PID 1 here too — npm ci spawns plenty of children.
+          command: ["tini", "--", "sleep", "infinity"]
+          workingDir: /local-dev
+          env:
+            - name: WORKSPACE
+              value: /local-dev
+          volumeMounts:
+            - name: local-dev-volume
+              mountPath: /local-dev
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+      volumes:
+        - name: local-dev-volume
+          emptyDir: {}
+        - name: claude-config
+          persistentVolumeClaim:
+            claimName: collab-claude-config
+        # cmd_up injects hostPath volumes here for drag-and-drop dirs.
+        # __EXTRA_VOLUMES__
