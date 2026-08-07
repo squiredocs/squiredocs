@@ -38,7 +38,7 @@ The only sign-in path is Google OAuth (`server/auth/google.js`, routes in `serve
 
 ## Document roles and enforcement
 
-RBAC per document: owner > editor > viewer, stored as a Postgres enum on `document_shares`. `documents.getRole` is the single source of truth; `server/permissions.js` maps actions to minimum roles (view→viewer, edit→editor, manage→editor, delete→owner) and its `extractUser` unifies the three credential kinds — user JWT, agent OAuth JWT, and `sk_sqd_` API token — so HTTP, WebSocket, and MCP all authenticate through one path.
+RBAC per document: owner > editor > viewer, stored as a Postgres enum on `document_shares`. `documents.getRole` is the single source of truth; since 053-spaces the role it returns is the effective role, the stronger of the direct document_shares row and the space-membership role via documents.space_id, computed by the document_access view (see Squire Spaces, https://squiredocs.com/d/03bac6c7-78e3-449d-ab94-806580fa5a52); `server/permissions.js` maps actions to minimum roles (view→viewer, edit→editor, manage→editor, delete→owner) and its `extractUser` unifies the three credential kinds — user JWT, agent OAuth JWT, and `sk_sqd_` API token — so HTTP, WebSocket, and MCP all authenticate through one path.
 
 - **HTTP: **every `/api/docs/:docId/*` handler checks role and 403s.
 - **WebSocket: **the upgrade is gated on view access; edit messages from non-editors are dropped; a 60-second interval re-checks the role from the DB and disconnects on revocation, failing closed on error.
