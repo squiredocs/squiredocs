@@ -4,12 +4,21 @@
 
 The application uses a Role-Based Access Control (RBAC) system for document permissions. Each document can be shared with multiple users, each with a specific role that determines their access level.
 
+A user reaches a document by one of two routes, and holds whichever role is
+stronger: a **direct share** (`document_shares`), or membership of the **space**
+the document lives in (`space_members`, via `documents.space_id`). Both use the
+same three roles. See "Spaces" below.
+
 ## Roles
 
 ### Owner
 - **Full control**: Can edit, share, manage roles, and delete documents
-- **Immutable**: The creator of a document is always the owner (stored in `documents.creator_id`)
-- **Cannot be changed**: Owner role cannot be transferred or removed
+- The creator of a document is always its first owner (also recorded immutably
+  in `documents.creator_id` as an audit trail)
+- **Not transferable at the document level**: there is no way to hand ownership
+  of one document to someone else. Ownership of a *space* IS transferable —
+  promote another member to owner, and every document in that space is owned by
+  both of you
 
 ### Editor
 - **Edit access**: Can edit document content
@@ -21,12 +30,71 @@ The application uses a Role-Based Access Control (RBAC) system for document perm
 - **Limited sharing**: Can only add other users as viewers
 - **Cannot manage**: Cannot change roles or remove access
 
+## Spaces
+
+A **space** is a named container with a member list. Every document has exactly
+one home: a space, or the owner's personal area (`documents.space_id IS NULL`,
+the state of every document that predates spaces).
+
+### The union rule
+
+A user's effective role on a document is the **stronger of** their direct role
+and their role in the document's space. The space role passes through
+**uncapped**: a space owner is an owner of every document in that space,
+including delete, share management and move-out.
+
+This is computed in exactly ONE place — the `document_access` view — and every
+authorization site reads it, directly or through `documents.getRole()`. A new
+access site uses that relation, never another `document_shares` join. The
+failure this prevents is specific: a missed site makes space documents readable
+but absent from search results.
+
+WARNING: never `GREATEST()` a `doc_role`. The enum is declared
+`['owner','editor','viewer']`, so PostgreSQL collates `owner < editor < viewer`
+— the exact inverse of the privilege ladder, and `GREATEST('owner','viewer')`
+returns `'viewer'`. Role comparison is integer-rank arithmetic, and it happens
+only inside the view. `server/__tests__/spaces-model.test.js` asserts the
+inversion so it cannot be "cleaned up" back into the code.
+
+### "Owned" still means a direct owner share
+
+Everything that counts or filters on ownership — the list's `owned` filter, the
+search `owned` filter, the admin document count, the onboarding engagement check
+— reads `document_access.direct_role` or `document_shares` directly. Being an
+owner of a space does not make its documents *yours*; it makes them ones you can
+*act on*.
+
+### Operations
+
+| Operation | Who |
+|---|---|
+| Create a space | Any authenticated user |
+| Invite by email | Any member, at most at their own role — so only an owner can grant `owner` |
+| Change a member's role | Owner |
+| Remove a member | Owner (a member may always remove themselves — "leave") |
+| Revoke a pending invite | Owner |
+| Rename or delete the space | Owner |
+| Move a document IN | The document's **direct** owner, who is also an editor or owner of the target |
+| Move a document OUT | The document's direct owner, **or** an owner of the space (curation — may only move it to personal) |
+
+A space always has at least one owner: the last owner cannot leave, be removed,
+or be demoted. The refusal names the fix.
+
+Deleting a space deletes **no document**. Its documents revert to personal
+through `documents.space_id`'s `ON DELETE SET NULL`; content, history and direct
+shares are untouched.
+
+Non-members cannot distinguish a space they are not in from one that does not
+exist: every `/api/spaces/:id*` route answers a non-member with 404.
+
 ## Database Schema
 
 ### `documents` Table
 Stores document metadata:
 - `id` (UUID): Document identifier
 - `creator_id` (UUID): User who created the document (immutable audit trail)
+- `space_id` (UUID, nullable): the document's home. NULL means personal.
+  `ON DELETE SET NULL`, which IS the space-deletion semantic
 - `created_at`, `updated_at`: Timestamps
 
 ### `document_shares` Table
@@ -34,6 +102,35 @@ Manages user-document access relationships:
 - `doc_id` (UUID): Reference to document
 - `user_id` (UUID): Reference to user
 - `role` (enum): One of `'owner'`, `'editor'`, `'viewer'`
+- `granted_by` (UUID, NOT NULL): who made this grant. `ON DELETE NO ACTION`, so
+  a grantor cannot vanish under a live grant — `deleteUserByEmail` reassigns
+  grants to the document's current owner before deleting an account. Rows that
+  predate the column were backfilled to the most likely grantor (the document's
+  owner, then its creator, then the share's own holder), so a backfilled value
+  is a good guess rather than a record
+
+### `spaces`, `space_members`, `space_invites` Tables
+- `spaces`: `id`, `name` (100 chars max, duplicates allowed), `created_by`
+  (audit only — the *owner* is a `space_members` row), timestamps
+- `space_members`: `(space_id, user_id)` unique, `role` (the same `doc_role`
+  enum), `granted_by` NOT NULL
+- `space_invites`: pending invites for addresses with no account yet, unique per
+  `(space_id, lower(email))`, converted to memberships at first login in the
+  same transaction as document invites
+
+### `document_access` View
+The single derivation of effective access. Columns:
+- `doc_id`, `user_id`: the only non-aggregated columns, deliberately — quals on
+  them push down through the aggregate into both legs and reach the underlying
+  indexes. **Do not add `space_id` to this view**; the callers that need it
+  already have `documents` in scope
+- `role`: the effective role, the stronger of the two legs
+- `direct_role`: the `document_shares` role, or NULL. This is what "owned" means
+- `space_role`: the membership role via `documents.space_id`, or NULL
+
+A `(doc_id, user_id)` row exists **iff** the user has at least viewer access by
+some route. Absence means no access, exactly as a missing `document_shares` row
+did before spaces existed.
 
 ## Permission Enforcement
 
@@ -122,8 +219,41 @@ Remove a user's access:
 
 ### `DELETE /api/docs/:docId`
 Delete a document:
-- **Permission**: Owner only
+- **Permission**: Owner only (effective, so an owner of the document's space
+  qualifies)
 - **Action**: Deletes document record, all shares, and Yjs data
+
+### `GET /api/docs?space=`
+Scope the list to `all` (default, unchanged behavior), `personal`, or a space
+id. Composes with `filter=all|owned|shared_with_me`, which continues to mean
+**direct** ownership. Rows gain `spaceId` and `spaceName`.
+
+### `PUT /api/docs/:docId/space`
+Move a document. **Body**: `{ spaceId: "<uuid>" | null }`.
+- **200** moved (or already there — a same-target move is a no-op success)
+- **404** `Document not found` — no access, or the document does not exist
+- **404** `Space not found` — the target does not exist, or the caller is not a
+  member of it
+- **403** with the specific reason: not the document's owner, not an editor of
+  the target, or the curation path may only target personal
+
+Never writes `document_shares`: a move changes reachability, not grants.
+
+### Spaces
+
+| Route | Permission |
+|---|---|
+| `POST /api/spaces` | Any authenticated user. Body `{ name }` |
+| `GET /api/spaces` | Membership-scoped by construction |
+| `GET /api/spaces/:id` | Any member. Returns members, pending invites and the document count |
+| `PATCH /api/spaces/:id` | Owner. Body `{ name }` |
+| `DELETE /api/spaces/:id` | Owner. Returns `{ deleted, documentsReverted }` |
+| `POST /api/spaces/:id/members` | Any member, role at most their own. Body `{ email, role }` |
+| `PUT /api/spaces/:id/members/:userId` | Owner. Body `{ role }`. 409 for the last owner |
+| `DELETE /api/spaces/:id/members/:userId` | Owner, or the member themselves (leaving). 409 for the last owner |
+| `DELETE /api/spaces/:id/invites` | Owner. Body `{ email }`. Idempotent |
+
+Every `:id` route answers a non-member with **404 `Space not found`**.
 
 ## UI Features
 
@@ -151,9 +281,25 @@ Permission tests are in `server/__tests__/permissions.test.js`:
 - Role hierarchy checks
 - Permission enforcement
 - WebSocket edit message detection
+- Effective-role resolution through a space membership
 
 Document tests are in `server/__tests__/documents.test.js`:
 - Document creation and ownership
 - Share management
 - Role updates
 - Access removal
+
+Spaces:
+- `spaces-model.test.js` — the `doc_role` enum inversion, and the
+  `document_access` view's semantics at the SQL level
+- `spaces-effective-role.test.js` — the full 4x4 direct-by-space matrix through
+  `getRole`, the list, and `permissions.can.*`
+- `spaces-search.test.js` — visibility in all three search modes, for a member
+  and a non-member
+- `spaces-move.test.js` — the move rule set, share preservation, revocation
+- `spaces-api.test.js` and `spaces-membership.test.js` — the REST surface and
+  the membership lifecycle
+- `share-attribution.test.js` — `granted_by` on every write path, and the counts
+  that must NOT change
+- `server/mcp/__tests__/tools/space-access.test.js` — the MCP tools reach space
+  members through the same derivation

@@ -208,14 +208,14 @@ description: "Task list for 053-spaces"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T087 [P] Rewrite `docs/permissions.md` for spaces: the roles section (owner is now transferable **at the space level**, `:9-12` is currently wrong even before this feature), a new "Spaces" section covering the union model and the operations matrix, the `document_access` view in the schema section (`:24-37`), `granted_by` on `document_shares`, and the new endpoints in the API section (`:98-127`). Principle I — `README.md` and `docs/dev.md` are the merge queue's job (see `plan.md` "Merge-queue notes").
-- [ ] T088 [P] Sweep agent-facing prose for the now-false "only the document owner can share": tool descriptions under `server/mcp/tools/` and the `get_tool_documentation` content.
-- [ ] T089 [P] Add JSDoc to `server/spaces.js` and `server/share-service.js` matching the density of `server/documents.js`, and a header comment on `server/spaces.js` naming `design/spaces.md` as ground truth and D1–D8 as the decisions it implements.
-- [ ] T090 Re-run `T010`'s `EXPLAIN` checks after all search changes have landed, with representative row counts, and record the plans in `specs/053-spaces/promotion-notes.md` so a future regression has a baseline.
-- [ ] T091 Run the full authoritative gate in one pass: `npm run migrate && npm test && npm run build`. Backend suites run parallel by default; use `--runInBand` only to bisect a failure.
-- [ ] T092 Walk `quickstart.md`'s smoke sequence end to end against the dev server and record any divergence between documented and actual behavior in `specs/053-spaces/promotion-notes.md`.
-- [ ] T093 [P] Append the implementation-phase dispositions to `specs/053-spaces/promotion-notes.md`: manual checks owed to Sam (SC-008 two-minute walk, dark mode, mobile widths, a rendered invite email), plus anything relaxed during the build.
-- [ ] T094 Verify `.specify/feature.json` is unchanged and that no `README.md`, `CLAUDE.md`, or `docs/dev.md` edit slipped in (pipeline overrides).
+- [X] T087 [P] Rewrite `docs/permissions.md` for spaces: the roles section (owner is now transferable **at the space level**, `:9-12` is currently wrong even before this feature), a new "Spaces" section covering the union model and the operations matrix, the `document_access` view in the schema section (`:24-37`), `granted_by` on `document_shares`, and the new endpoints in the API section (`:98-127`). Principle I — `README.md` and `docs/dev.md` are the merge queue's job (see `plan.md` "Merge-queue notes").
+- [X] T088 [P] Sweep agent-facing prose for the now-false "only the document owner can share": tool descriptions under `server/mcp/tools/` and the `get_tool_documentation` content.
+- [X] T089 [P] Add JSDoc to `server/spaces.js` and `server/share-service.js` matching the density of `server/documents.js`, and a header comment on `server/spaces.js` naming `design/spaces.md` as ground truth and D1–D8 as the decisions it implements.
+- [X] T090 Re-run `T010`'s `EXPLAIN` checks after all search changes have landed, with representative row counts, and record the plans in `specs/053-spaces/promotion-notes.md` so a future regression has a baseline.
+- [X] T091 Run the full authoritative gate in one pass: `npm run migrate && npm test && npm run build`. Backend suites run parallel by default; use `--runInBand` only to bisect a failure.
+- [X] T092 Walk `quickstart.md`'s smoke sequence end to end against the dev server and record any divergence between documented and actual behavior in `specs/053-spaces/promotion-notes.md`.
+- [X] T093 [P] Append the implementation-phase dispositions to `specs/053-spaces/promotion-notes.md`: manual checks owed to Sam (SC-008 two-minute walk, dark mode, mobile widths, a rendered invite email), plus anything relaxed during the build.
+- [X] T094 Verify `.specify/feature.json` is unchanged and that no `README.md`, `CLAUDE.md`, or `docs/dev.md` edit slipped in (pipeline overrides).
 
 ---
 
