@@ -437,11 +437,27 @@ reap_nested_mounts() {
 #
 # mkdir is the atomic primitive here (macOS has no flock(1)). A lock older than
 # the timeout is treated as abandoned, so a killed process can't wedge it.
-COLLAB_DC_LOCK_DIR="${TMPDIR:-/tmp}/collab-devcontainer-mounts.lock"
+#
+# The name is keyed on the MINIKUBE PROFILE, not on this tool, because the
+# resource being protected is the node's mount table — which is shared by every
+# devcontainer CLI pointed at the same profile. wft-devcontainer configures the
+# same drop dirs as this one (~/Desktop, ~/Downloads, $TMPDIR/TemporaryItems,
+# /private/tmp) and installs its own LaunchAgent on the same 120s tick; a
+# tool-scoped lock let both heal the same path at once and reap each other's
+# fresh mount. Any sibling tool using this name interlocks with us for free.
+#
+# Resolved lazily, not at source time: COLLAB_DC_CONTEXT is only set once
+# load_config has run, so a top-level assignment would bake in the default
+# profile and silently stop interlocking for anyone on a non-default one.
+mount_lock_dir() {
+  local t="${TMPDIR:-/tmp}"
+  printf '%s/devcontainer-mounts.%s.lock' "${t%/}" "${COLLAB_DC_CONTEXT:-minikube}"
+}
 COLLAB_DC_LOCK_HELD=0
 
 acquire_mount_lock() {
   local waited=0 age
+  COLLAB_DC_LOCK_DIR="$(mount_lock_dir)"
   while ! mkdir "$COLLAB_DC_LOCK_DIR" 2>/dev/null; do
     # Steal a stale lock (>180s) — longer than the slowest legitimate heal.
     age="$(( $(date +%s) - $(stat -f %m "$COLLAB_DC_LOCK_DIR" 2>/dev/null || date +%s) ))"

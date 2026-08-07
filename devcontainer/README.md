@@ -181,7 +181,7 @@ collab-devcontainer mounts --uninstall-agent
 
 The agent only ever touches mounts — it never recreates the pod, since that would interrupt whatever is running inside it. Reaping is scoped to this repo's configured paths, so other repos' `minikube mount` processes on the same machine are left alone.
 
-Mount mutation is serialized with a lock (`$TMPDIR/collab-devcontainer-mounts.lock`, stale after 180s) so the agent's tick and a user-run command can't reap each other's freshly-started mounts.
+Mount mutation is serialized with a lock (`$TMPDIR/devcontainer-mounts.<profile>.lock`, stale after 180s) so the agent's tick and a user-run command can't reap each other's freshly-started mounts. The name is keyed on the minikube profile rather than on this tool, because the node's mount table is shared with any sibling devcontainer CLI on the same profile — wft-devcontainer configures the same drop dirs and runs its own agent on the same tick, so a tool-scoped lock would not have interlocked them.
 
 **Pods bind hostPath at creation.** If the pod started while a mount was down, healing the mount isn't always enough — propagation re-delivers a mount that simply reappeared, but not one that was unmounted and remounted under a running container. So `up` and `shell` check whether the pod can actually see its mounts and rebind it (a `restart`) when it can't. That check is why entering the sandbox after a reboot Just Works.
 
