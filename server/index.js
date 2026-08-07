@@ -124,7 +124,7 @@ const { createTokenClaimRouter } = require('./api/token-claim');
 const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
 const { sendShareInvite, sendShareNotification } = require('./email');
-const { shareDocumentByEmail } = require('./share-service');
+const { shareDocumentByEmail, changeRole, removeUserAccess } = require('./share-service');
 const { buildBaseUrl } = require('./url');
 const users = require('./auth/users');
 setupProcessHandlers();
@@ -1032,37 +1032,19 @@ app.post('/api/docs/:docId/share', requireAuth, async (req, res) => {
 });
 
 // API: Update a user's role
+//
+// A thin adapter over shareDocumentByEmail's siblings in
+// server/share-service.js, where the target-owner guard lives once.
 app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) => {
   try {
     const { docId, targetUserId } = req.params;
-    const { role } = req.body;
-    const userId = req.user.userId;
-    
-    // Check manage permission (editors and owners can manage)
-    const canManage = await permissions.can.manage(userId, docId);
-    if (!canManage.allowed) {
-      return res.status(403).json({ error: canManage.reason });
-    }
-    
-    // Validate role
-    if (!documents.ROLES[role] || role === 'owner') {
-      return res.status(400).json({ error: 'Invalid role. Use "editor" or "viewer"' });
-    }
-    
-    // Can't change your own role
-    if (targetUserId === userId) {
-      return res.status(400).json({ error: 'Cannot change your own role' });
-    }
-    
-    // Can't change another owner's role
-    const targetRole = await documents.getRole(docId, targetUserId);
-    if (targetRole === 'owner') {
-      return res.status(400).json({ error: 'Cannot change owner\'s role' });
-    }
-    
-    // A role change is a new grant by the acting user (D8).
-    const share = await documents.setRole(docId, targetUserId, role, userId);
-    res.json({ role: share.role });
+    const { status, body } = await changeRole({
+      actor: req.user,
+      docId,
+      targetUserId,
+      role: req.body?.role,
+    });
+    res.status(status).json(body);
   } catch (error) {
     console.error('Error updating role:', error);
     notifyException(error, { req, source: 'api' });
@@ -1074,31 +1056,12 @@ app.put('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) =>
 app.delete('/api/docs/:docId/share/:targetUserId', requireAuth, async (req, res) => {
   try {
     const { docId, targetUserId } = req.params;
-    const userId = req.user.userId;
-    
-    // Check manage permission (editors and owners can manage)
-    const canManage = await permissions.can.manage(userId, docId);
-    if (!canManage.allowed) {
-      return res.status(403).json({ error: canManage.reason });
-    }
-    
-    // Can't remove yourself
-    if (targetUserId === userId) {
-      return res.status(400).json({ error: 'Cannot remove your own access' });
-    }
-    
-    // Can't remove another owner
-    const targetRole = await documents.getRole(docId, targetUserId);
-    if (targetRole === 'owner') {
-      return res.status(400).json({ error: 'Cannot remove owner' });
-    }
-    
-    const removed = await documents.removeAccess(docId, targetUserId);
-    if (!removed) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json({ success: true });
+    const { status, body } = await removeUserAccess({
+      actor: req.user,
+      docId,
+      targetUserId,
+    });
+    res.status(status).json(body);
   } catch (error) {
     console.error('Error removing access:', error);
     notifyException(error, { req, source: 'api' });

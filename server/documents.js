@@ -75,6 +75,37 @@ async function getRole(docId, userId) {
 }
 
 /**
+ * Get a user's DIRECT role for a document — their `document_shares` row only,
+ * ignoring anything the space grants them.
+ *
+ * This is the question the target-owner guards ask ("is this user the owner
+ * whose direct row I must not touch?"), and it is NOT the same question as
+ * `getRole`. Since spaces exist, a space-owner MEMBER has EFFECTIVE owner on
+ * every document in the space (D5), so guarding on `getRole` would refuse to
+ * create, change or remove that member's DIRECT share — freezing exactly the
+ * grants a manager is trying to manage (post-merge review M1).
+ *
+ * Read through `document_access.direct_role` rather than `document_shares`, so
+ * "direct" has one definition (RBD-053-7) and stays aligned with the list's
+ * `direct_role` column and the owned/shared filters.
+ *
+ * @param {string} docId - Document UUID
+ * @param {string} userId - User UUID
+ * @returns {Promise<string|null>} Direct role, or null when the user has no
+ *   direct share (including when they DO have space-derived access)
+ */
+async function getDirectRole(docId, userId) {
+  if (!pool) throw new Error('Documents module not initialized');
+
+  const result = await pool.query(
+    'SELECT direct_role FROM document_access WHERE doc_id = $1 AND user_id = $2',
+    [docId, userId]
+  );
+
+  return result.rows[0]?.direct_role || null;
+}
+
+/**
  * Decide what a live connection's periodic access re-check should do.
  *
  * Extracted from the 60-second interval in `server/index.js` so the DECISION is
@@ -529,6 +560,7 @@ module.exports = {
   init,
   normalizeSpaceScope,
   getRole,
+  getDirectRole,
   evaluateAccessRecheck,
   hasRole,
   hasAccess,

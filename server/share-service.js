@@ -19,6 +19,7 @@
  */
 
 const documents = require('./documents');
+const permissions = require('./permissions');
 const users = require('./auth/users');
 const { sendShareInvite, sendShareNotification } = require('./email');
 
@@ -109,8 +110,11 @@ async function shareDocumentByEmail({ actor, docId, email, role = 'editor', base
     return { status: 400, body: { error: 'Cannot share with yourself' } };
   }
 
-  const targetRole = await documents.getRole(docId, targetUser.id);
-  if (targetRole === 'owner') {
+  // The DIRECT role, not the effective one (post-merge review M1). This guard
+  // protects the document's own owner row; a space-owner MEMBER holds effective
+  // owner here through passthrough (D5) and their direct grants stay managable.
+  const targetDirectRole = await documents.getDirectRole(docId, targetUser.id);
+  if (targetDirectRole === 'owner') {
     return { status: 400, body: { error: "Cannot change owner's role" } };
   }
 
@@ -141,4 +145,88 @@ async function shareDocumentByEmail({ actor, docId, email, role = 'editor', base
   };
 }
 
-module.exports = { shareDocumentByEmail };
+/**
+ * Change an existing collaborator's role.
+ *
+ * Lifted out of `PUT /api/docs/:docId/share/:targetUserId` in server/index.js
+ * unchanged in behavior, for the same reason `shareDocumentByEmail` was: the
+ * target-owner guard now has to distinguish direct from effective ownership,
+ * and a guard copy-pasted into three route bodies is a guard that drifts. The
+ * route is a thin adapter over this.
+ *
+ * The ACTOR's permission is the EFFECTIVE role (a space editor may manage
+ * shares on a space document); the TARGET's protection is their DIRECT role.
+ *
+ * @param {object} opts
+ * @param {{userId: string}} opts.actor
+ * @param {string} opts.docId
+ * @param {string} opts.targetUserId
+ * @param {string} opts.role
+ * @returns {Promise<{status: number, body: object}>}
+ */
+async function changeRole({ actor, docId, targetUserId, role }) {
+  // Check manage permission (editors and owners can manage)
+  const canManage = await permissions.can.manage(actor.userId, docId);
+  if (!canManage.allowed) {
+    return { status: 403, body: { error: canManage.reason } };
+  }
+
+  if (!documents.ROLES[role] || role === 'owner') {
+    return { status: 400, body: { error: 'Invalid role. Use "editor" or "viewer"' } };
+  }
+
+  if (targetUserId === actor.userId) {
+    return { status: 400, body: { error: 'Cannot change your own role' } };
+  }
+
+  // The DIRECT owner row is what may not be changed (post-merge review M1).
+  const targetDirectRole = await documents.getDirectRole(docId, targetUserId);
+  if (targetDirectRole === 'owner') {
+    return { status: 400, body: { error: "Cannot change owner's role" } };
+  }
+
+  // A role change is a new grant by the acting user (D8).
+  const share = await documents.setRole(docId, targetUserId, role, actor.userId);
+  return { status: 200, body: { role: share.role } };
+}
+
+/**
+ * Remove a collaborator's direct access.
+ *
+ * Lifted out of `DELETE /api/docs/:docId/share/:targetUserId` in
+ * server/index.js, unchanged in behavior. Same split as changeRole: effective
+ * role for the actor, direct role for the target.
+ *
+ * Removing the direct row of a space member does NOT remove their
+ * space-derived access — that is a space membership, revoked from the space.
+ *
+ * @param {object} opts
+ * @param {{userId: string}} opts.actor
+ * @param {string} opts.docId
+ * @param {string} opts.targetUserId
+ * @returns {Promise<{status: number, body: object}>}
+ */
+async function removeUserAccess({ actor, docId, targetUserId }) {
+  const canManage = await permissions.can.manage(actor.userId, docId);
+  if (!canManage.allowed) {
+    return { status: 403, body: { error: canManage.reason } };
+  }
+
+  if (targetUserId === actor.userId) {
+    return { status: 400, body: { error: 'Cannot remove your own access' } };
+  }
+
+  const targetDirectRole = await documents.getDirectRole(docId, targetUserId);
+  if (targetDirectRole === 'owner') {
+    return { status: 400, body: { error: 'Cannot remove owner' } };
+  }
+
+  const removed = await documents.removeAccess(docId, targetUserId);
+  if (!removed) {
+    return { status: 404, body: { error: 'User not found' } };
+  }
+
+  return { status: 200, body: { success: true } };
+}
+
+module.exports = { shareDocumentByEmail, changeRole, removeUserAccess };

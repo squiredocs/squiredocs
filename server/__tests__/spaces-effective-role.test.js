@@ -15,9 +15,16 @@
 const crypto = require('crypto');
 const { createPool, cleanupTestUser } = require('./helpers/db');
 
+jest.mock('../email', () => ({
+  sendShareInvite: jest.fn(async () => ({ ok: true })),
+  sendShareNotification: jest.fn(async () => ({ ok: true })),
+}));
+
 const documents = require('../documents');
 const permissions = require('../permissions');
 const spaces = require('../spaces');
+const users = require('../auth/users');
+const { shareDocumentByEmail, changeRole, removeUserAccess } = require('../share-service');
 
 const LEVELS = [null, 'viewer', 'editor', 'owner'];
 const RANK = { viewer: 1, editor: 2, owner: 3 };
@@ -60,6 +67,7 @@ describe('Spaces effective role', () => {
     pool = createPool();
     documents.init(pool);
     spaces.init(pool);
+    users.init(pool);
   });
 
   afterAll(async () => {
@@ -204,6 +212,119 @@ describe('Spaces effective role', () => {
         .map((r) => r.doc_id)).toContain(owned);
       expect((await documents.getAccessibleDocuments(alice.id, { filter: 'shared_with_me' })).rows
         .map((r) => r.doc_id)).toContain(shared);
+    });
+  });
+
+  /**
+   * Post-merge review M1. The three target-owner guards (share, role change,
+   * unshare) protect the document's DIRECT owner row. Reading the EFFECTIVE
+   * role there froze direct-share management for every space-owner member,
+   * because D5 passthrough already calls them an owner of the document.
+   */
+  describe('review M1 — the target-owner guards read the DIRECT role', () => {
+    let author;
+    let curator;
+    let spaceId;
+    let docId;
+
+    beforeEach(async () => {
+      author = await makeUser('m1-author');
+      curator = await makeUser('m1-curator');
+      spaceId = await makeSpace(author.id, 'Manageable');
+      await pool.query(
+        "INSERT INTO space_members (space_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $3)",
+        [spaceId, curator.id, author.id]
+      );
+      docId = await makeDoc(author.id, spaceId);
+
+      // The precondition that made the bug: effective owner, no direct row.
+      expect(await documents.getRole(docId, curator.id)).toBe('owner');
+      expect(await documents.getDirectRole(docId, curator.id)).toBeNull();
+    });
+
+    test('sharing TO a space-owner member with no direct row succeeds', async () => {
+      const res = await shareDocumentByEmail({
+        actor: { userId: author.id, email: author.email },
+        docId,
+        email: curator.email,
+        role: 'editor',
+        baseUrl: 'https://example.test',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.user.role).toBe('editor');
+      expect(await documents.getDirectRole(docId, curator.id)).toBe('editor');
+      // Their effective role is still owner — the space grant is untouched.
+      expect(await documents.getRole(docId, curator.id)).toBe('owner');
+    });
+
+    test('a stale direct viewer row on a space-owner member can be changed', async () => {
+      await documents.setRole(docId, curator.id, 'viewer', author.id);
+
+      const res = await changeRole({
+        actor: { userId: author.id },
+        docId,
+        targetUserId: curator.id,
+        role: 'editor',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.role).toBe('editor');
+      expect(await documents.getDirectRole(docId, curator.id)).toBe('editor');
+    });
+
+    test('a stale direct viewer row on a space-owner member can be removed', async () => {
+      await documents.setRole(docId, curator.id, 'viewer', author.id);
+
+      const res = await removeUserAccess({
+        actor: { userId: author.id },
+        docId,
+        targetUserId: curator.id,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(await documents.getDirectRole(docId, curator.id)).toBeNull();
+      // Removing the direct row does not revoke space-derived access (FR-022).
+      expect(await documents.getRole(docId, curator.id)).toBe('owner');
+    });
+
+    describe('the real direct owner is still protected at all three sites', () => {
+      test('share', async () => {
+        const res = await shareDocumentByEmail({
+          actor: { userId: curator.id, email: curator.email },
+          docId,
+          email: author.email,
+          role: 'viewer',
+          baseUrl: 'https://example.test',
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Cannot change owner's role");
+        expect(await documents.getDirectRole(docId, author.id)).toBe('owner');
+      });
+
+      test('role change', async () => {
+        const res = await changeRole({
+          actor: { userId: curator.id },
+          docId,
+          targetUserId: author.id,
+          role: 'viewer',
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Cannot change owner's role");
+        expect(await documents.getDirectRole(docId, author.id)).toBe('owner');
+      });
+
+      test('unshare', async () => {
+        const res = await removeUserAccess({
+          actor: { userId: curator.id },
+          docId,
+          targetUserId: author.id,
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Cannot remove owner');
+        expect(await documents.getDirectRole(docId, author.id)).toBe('owner');
+      });
     });
   });
 
