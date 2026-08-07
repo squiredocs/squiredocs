@@ -3,7 +3,7 @@
 
 # Proposal: Spaces (Shared Team Workspaces)
 
-_Status: Draft 2026-08-07 (D1 to D4 and D8 decided by Sam; D5 to D7 proposed defaults) · Scope: a named container for documents with a member list, so a team shares a set of documents by joining one space instead of sharing each document individually. Also adds granted_by attribution to document shares._
+_Status: Draft 2026-08-07 (D1 to D5 and D8 decided by Sam; D6 and D7 proposed defaults) · Scope: a named container for documents with a member list, so a team shares a set of documents by joining one space instead of sharing each document individually. Also adds granted_by attribution to document shares._
 
 ## Summary
 
@@ -32,7 +32,7 @@ space_members
   space_id uuid references spaces(id) on delete cascade
   user_id uuid references users(id) on delete cascade
   role doc_role not null
-  granted_by uuid null references users(id) on delete set null
+  granted_by uuid not null references users(id)
   created_at
   unique (space_id, user_id)
 
@@ -46,6 +46,9 @@ space_invites
 
 documents
   add space_id uuid null references spaces(id) on delete set null
+
+document_shares
+  add granted_by uuid not null references users(id)  (backfilled; see below)
 ```
 
 Notes:
@@ -54,6 +57,47 @@ Notes:
 - documents.space_id is nullable; null means personal, the state of every document today. The on delete set null clause encodes space deletion: deleting a space reverts its documents to personal and never deletes them.
 - space_invites mirrors document_share_invites: pending grants for addresses with no account yet, converted at first login.
 
+```mermaid
+erDiagram
+  users ||--o{ spaces : "created_by"
+  users ||--o{ space_members : "user_id"
+  users ||--o{ space_members : "granted_by"
+  users ||--o{ space_invites : "invited_by_user_id"
+  users ||--o{ document_shares : "granted_by"
+  spaces ||--o{ space_members : "space_id"
+  spaces ||--o{ space_invites : "space_id"
+  spaces ||--o{ documents : "space_id"
+  documents ||--o{ document_shares : "doc_id"
+
+  spaces {
+    uuid id PK
+    varchar name
+    uuid created_by FK
+  }
+  space_members {
+    uuid space_id FK
+    uuid user_id FK
+    doc_role role
+    uuid granted_by FK
+  }
+  space_invites {
+    uuid space_id FK
+    text email
+    doc_role role
+    uuid invited_by_user_id FK
+  }
+  documents {
+    uuid id PK
+    uuid space_id FK
+  }
+  document_shares {
+    uuid doc_id FK
+    uuid user_id FK
+    doc_role role
+    uuid granted_by FK
+  }
+```
+
 ## Permission Model
 
 A user's effective role on a document is:
@@ -61,14 +105,14 @@ A user's effective role on a document is:
 ```
 effective_role(doc, user) = GREATEST(
   direct role from document_shares,
-  LEAST(space role from space_members via doc.space_id, editor)
+  space role from space_members via doc.space_id
 )
 ```
 
 Two rules produce that expression:
 
 - Union (D3): direct shares and space membership both grant access, and the stronger one wins. Moving a document into a space never revokes an existing collaborator, and a space document can still be shared directly with someone outside the space (a contractor, for example).
-- Editor cap (D5): the space-derived role never exceeds editor. A space owner runs the space (name, members, deletion, curation) but does not become owner of other people's documents, so they cannot delete a teammate's document or change its direct share list. Document deletion keeps requiring a direct owner share.
+- Passthrough (D5): the space role is not capped. A space-owner member holds the owner role on every document in the space, including deletion, direct-share management, and move-out. Granting the space owner role is therefore a grant of ownership over every current and future document in the space; the invite rule below means only an existing space owner can grant it. Unlike document sharing, where the owner role is never grantable, the space owner role is grantable by design: that is how a space gets more than one owner and how ownership transfer works.
 
 Space-level operations:
 
@@ -112,10 +156,11 @@ Leaving and removal:
 
 document_shares has no record of who granted a share, so the admin sharing view can only infer the grantor for owner-granted shares. This proposal closes that gap while the sharing surface is being touched anyway (D8):
 
-- Add a nullable granted_by column to document_shares referencing users(id) on delete set null.
-- Existing rows stay null and render as unknown.
+- Add a granted_by column to document_shares referencing users(id), NOT NULL once the backfill has run.
+- Backfill: existing rows get the document's current owner (the role='owner' share row for that document). A document whose owner account was deleted falls back to documents.creator_id, then to the share's own user_id, so the constraint holds everywhere. Backfilled values record the most likely grantor, not a verified one; only rows written after this change are exact.
 - Every write path that inserts or upserts a share row records the acting user: the REST share endpoint, invite conversion in convertPendingInvites (from invited_by_user_id, which the invite row already carries), the MCP share_document tool, onboarding's welcome-doc owner row, and the owner row written at document creation (granted_by is the creator).
-- The new space tables carry granted_by and invited_by_user_id from the start.
+- The grantor foreign key is ON DELETE NO ACTION. There is no account-deletion path today; if one is added, it must first reassign rows the account granted to the document's current owner, the same rule as the backfill.
+- space_members.granted_by is NOT NULL from the start, under the same reassignment rule. space_invites.invited_by_user_id stays nullable, matching document_share_invites.
 - The admin per-user sharing view shows the grantor instead of the current unknowable caveat.
 
 ## Where Access Is Derived (Integration Points)
@@ -165,7 +210,7 @@ GET /api/docs gains a space parameter (a space id, personal, or all).
 - The document creator leaves the space: the document stays in the space, and the creator keeps their direct owner share, so they can still open it, move it out, or delete it.
 - A member is removed mid-edit: the 60-second recheck downgrades or disconnects their live connection. Direct shares they hold survive.
 - Space deleted: documents revert to personal through the foreign key, and members lose only the space-derived access. The confirm dialog states the document count.
-- Deleting a document in a space is unchanged: it requires a direct owner share.
+- Deleting a document in a space requires the owner role, which a space owner now holds through passthrough. Members below space owner cannot delete documents they do not directly own.
 - Ownership transfer is a role change by an owner: set another member to owner, then optionally step down or leave.
 
 ## Decisions
@@ -176,10 +221,10 @@ GET /api/docs gains a space parameter (a space id, personal, or all).
 | D2 | Space membership reuses the doc_role ladder (owner, editor, viewer) as the baseline role on space documents | Decided 2026-08-07 (Sam) |
 | D3 | Union model: effective role is the stronger of the direct share and the space role; a move never revokes access | Decided 2026-08-07 (Sam) |
 | D4 | Email invites only in v1; no join links | Decided 2026-08-07 (Sam) |
-| D5 | The space-derived role is capped at editor; document deletion and direct-share management keep requiring direct ownership | Proposed default |
+| D5 | The space role passes through uncapped: a space-owner member holds owner on every document in the space, including deletion, direct-share management, and move-out | Decided 2026-08-07 (Sam) |
 | D6 | Document-level REQUIRED_ROLES unchanged in v1 (a viewer can share onward, an editor can manage shares) | Proposed default |
 | D7 | Move-in requires direct document ownership plus editor membership in the target; move-out requires document ownership or space ownership | Proposed default |
-| D8 | granted_by is added to document_shares and recorded on all new grants; existing rows stay null | Decided 2026-08-07 (Sam) |
+| D8 | granted_by is added to document_shares as NOT NULL: existing rows are backfilled with the document's owner, and every new grant records the acting user | Decided 2026-08-07 (Sam; amended same day: backfill with the document owner, then disallow null) |
 
 ## Non-Goals (Deferred)
 
