@@ -258,6 +258,23 @@ encoded in the spec verbatim, not relitigated:
     the odd one out; if Sam wants it tightened, it is a one-line filter in the detail
     endpoint.
 
+17. **RBD-053-17 — Account deletion deletes spaces where the account is the last owner;
+    no member is auto-promoted** — RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-07,
+    recorded by the orchestrator resolving post-merge review finding M2).
+    *Question*: deleteUserByEmail CASCADEs the account's space_members rows, so wiping a
+    sole owner left a space with members but no owner: permanently unmanageable
+    (requireOwner refuses everyone), violating the "a space always has at least one
+    owner" invariant (RBD-053-2 family, FR-010).
+    *Why it matters*: the prod reset and synthetic wipe are the exact paths 053 already
+    hardened for grantor reassignment; leaving orphan spaces behind is the same class of
+    lifecycle bug.
+    *Rationale*: deletion is the conservative branch. Space deletion already has ratified
+    semantics (documents revert to personal via ON DELETE SET NULL, direct shares
+    survive), so nobody loses document ownership and nobody gains it. Auto-promotion was
+    rejected because under D5's uncapped passthrough it would silently grant a member
+    owner rights over every document in the space. Design doc Edge Cases amended in the
+    same pass.
+
 ## Explicitly deferred (flagged, not decided here)
 
 - **Non-goals list** (design): join links, folders, space-scoped tokens, per-space

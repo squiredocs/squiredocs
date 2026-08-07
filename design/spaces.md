@@ -212,6 +212,7 @@ GET /api/docs gains a space parameter (a space id, personal, or all).
 - Space deleted: documents revert to personal through the foreign key, and members lose only the space-derived access. The confirm dialog states the document count.
 - Deleting a document in a space requires the owner role, which a space owner now holds through passthrough. Members below space owner cannot delete documents they do not directly own.
 - Ownership transfer is a role change by an owner: set another member to owner, then optionally step down or leave.
+- The last owner's account is deleted (deleteUserByEmail: synthetic wipe or prod reset): spaces where the account is the last owner are deleted before the user row, so documents revert to personal and direct shares survive. No member is promoted: under D5's uncapped passthrough, silent promotion would grant a member owner rights over every document in the space, a grant nobody made. (Added 2026-08-07 from post-merge review finding M2: the deletion path previously left such spaces permanently ownerless and unmanageable.)
 
 ## Decisions
 
