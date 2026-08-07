@@ -21,6 +21,21 @@ function escapeIlike(str) {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Is this value a well-formed UUID?
+ *
+ * The one shape check for ids that reach a `uuid` column. Postgres answers a
+ * malformed one with 22P02, which surfaces as a 500 and an exception
+ * notification — so callers that promise a 404 (the /api/spaces/:id routes,
+ * invariant I11) test the shape first.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
+/**
  * Normalize the `space` scope shared by the document list, search and the MCP
  * `list_documents` tool (feature 053, FR-026/FR-040/FR-047).
  *
@@ -33,7 +48,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 function normalizeSpaceScope(space) {
   if (space === null || space === undefined || space === '' || space === 'all') return null;
   if (space === 'personal') return 'personal';
-  if (typeof space === 'string' && UUID_PATTERN.test(space)) return space;
+  if (isUuid(space)) return space;
   throw new Error("space must be 'all', 'personal', or a space id");
 }
 
@@ -558,6 +573,7 @@ async function deleteDocument(docId) {
 module.exports = {
   ROLES,
   init,
+  isUuid,
   normalizeSpaceScope,
   getRole,
   getDirectRole,

@@ -60,6 +60,14 @@ function fail(res, req, error, message) {
  * @returns {Promise<string|null>} the caller's role, or null if already answered
  */
 async function requireMembership(req, res) {
+  // A malformed id is a space that does not exist, and I11 says that is a 404.
+  // Without this the id reaches a uuid column, Postgres raises 22P02, and the
+  // caller gets a 500 plus an exception notification (post-merge review L1).
+  if (!documents.isUuid(req.params.id)) {
+    res.status(404).json({ error: 'Space not found' });
+    return null;
+  }
+
   const role = await spaces.getMemberRole(req.params.id, req.user.userId);
   if (!role) {
     res.status(404).json({ error: 'Space not found' });

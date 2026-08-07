@@ -14,6 +14,13 @@ const { createPool, cleanupTestUser } = require('./helpers/db');
 process.env.ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'test-access-secret';
 process.env.REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'test-refresh-secret';
 
+// L1: a malformed :id must not reach the exception notifier.
+const mockNotifyException = jest.fn();
+jest.mock('../exception-notifier', () => ({
+  notifyException: (...a) => mockNotifyException(...a),
+  setupProcessHandlers: jest.fn(),
+}));
+
 const spacesApi = require('../api/spaces');
 const spaces = require('../spaces');
 const documents = require('../documents');
@@ -210,6 +217,31 @@ describe('Spaces REST API', () => {
         expect(res.status).toBe(404);
         expect(res.body).toEqual({ error: 'Space not found' });
       }
+    });
+
+    /**
+     * Post-merge review L1. A malformed id used to reach a uuid column, where
+     * Postgres raised 22P02 — a 500 and an exception notification for what the
+     * contract (I11) calls a space that does not exist.
+     */
+    test('a malformed :id is the same 404, with no exception notification', async () => {
+      const alice = await makeUser('bad-uuid');
+      mockNotifyException.mockClear();
+
+      const calls = [
+        auth(request(app).get('/api/spaces/not-a-uuid'), alice),
+        auth(request(app).patch('/api/spaces/not-a-uuid'), alice).send({ name: 'Nope' }),
+        auth(request(app).delete('/api/spaces/not-a-uuid'), alice),
+        auth(request(app).post('/api/spaces/not-a-uuid/members'), alice).send({ email: 'x@y.z', role: 'viewer' }),
+        auth(request(app).put(`/api/spaces/not-a-uuid/members/${alice.id}`), alice).send({ role: 'viewer' }),
+        auth(request(app).delete(`/api/spaces/not-a-uuid/members/${alice.id}`), alice),
+        auth(request(app).delete('/api/spaces/not-a-uuid/invites'), alice).send({ email: 'x@y.z' }),
+      ];
+      for (const res of await Promise.all(calls)) {
+        expect(res.status).toBe(404);
+        expect(res.body).toEqual({ error: 'Space not found' });
+      }
+      expect(mockNotifyException).not.toHaveBeenCalled();
     });
   });
 
