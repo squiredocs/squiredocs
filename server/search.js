@@ -8,6 +8,7 @@
 const sanitizeHtml = require('sanitize-html');
 const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./search-indexer');
 const { getSearchConfig } = require('./search/config');
+const documents = require('./documents');
 
 // Max cosine distance for vector search results (0 = identical, 1 = orthogonal).
 // 0.5 ≈ cosine similarity ≥ 0.5. Agents can override via the distanceThreshold option.
@@ -79,15 +80,84 @@ function buildRecencyJoin(docIdExpr, paramIdx) {
 }
 
 /**
+ * Build a SQL fragment restricting candidates to a space scope (feature 053,
+ * FR-026/FR-040). Applied INSIDE each candidate CTE, the same way the recency
+ * join is, so the vector CTE's LIMIT is spent on rows that can actually be
+ * returned rather than filtered away afterwards.
+ * @param {string} docIdExpr - the CTE's doc id expression
+ * @param {string|null} scope - null (no clause), 'personal', or a space uuid
+ * @param {number|null} paramIdx - 1-based param index of the uuid, when scope is one
+ * @returns {string} SQL fragment (empty string or a JOIN)
+ */
+function buildSpaceJoin(docIdExpr, scope, paramIdx) {
+  if (!scope) return '';
+  if (scope === 'personal') {
+    return `
+       JOIN documents sd ON sd.id = ${docIdExpr} AND sd.space_id IS NULL`;
+  }
+  return `
+       JOIN documents sd ON sd.id = ${docIdExpr} AND sd.space_id = $${paramIdx}::uuid`;
+}
+
+/**
+ * Both candidate-narrowing joins for one CTE, in a fixed order.
+ * @param {string} docIdExpr
+ * @param {{updatedAfterParam: number|null, spaceScope: string|null, spaceParam: number|null}} scopes
+ * @returns {string}
+ */
+function buildScopeJoins(docIdExpr, scopes = {}) {
+  return (
+    buildRecencyJoin(docIdExpr, scopes.updatedAfterParam || null) +
+    buildSpaceJoin(docIdExpr, scopes.spaceScope || null, scopes.spaceParam || null)
+  );
+}
+
+/**
  * Build a SQL fragment for filtering by document ownership role.
+ *
+ * Reads `direct_role`, not the effective `role` (RBD-053-14, the search half of
+ * RBD-053-7): "owned" means the user holds a DIRECT owner share, not that a
+ * space membership lets them act like an owner. A filter that disagreed with
+ * the document list and with every admin count would be incoherent.
+ *
+ * `shared_with_me` must accept NULL: a space-only document has no direct role
+ * at all, and dropping it here is exactly the "readable but absent from search"
+ * failure the design names.
+ *
  * @param {string} filter - 'all', 'owned', or 'shared_with_me'
- * @param {string} alias - The document_shares table alias (e.g. 'ds', 'ds2')
+ * @param {string} alias - The document_access view alias (e.g. 'ds', 'ds2')
  * @returns {string} SQL fragment (empty string or ' AND ...')
  */
 function buildRoleCondition(filter, alias = 'ds') {
-  if (filter === 'owned') return ` AND ${alias}.role = 'owner'`;
-  if (filter === 'shared_with_me') return ` AND ${alias}.role != 'owner'`;
+  if (filter === 'owned') return ` AND ${alias}.direct_role = 'owner'`;
+  if (filter === 'shared_with_me') {
+    return ` AND (${alias}.direct_role IS NULL OR ${alias}.direct_role <> 'owner')`;
+  }
   return '';
+}
+
+/** A space scope needs a bound parameter only when it is a concrete space id. */
+function spaceNeedsParam(space) {
+  return !!space && space !== 'personal';
+}
+
+/**
+ * Assemble a mode's parameter array with the optional scope params spliced in
+ * ahead of limit/offset, in the SAME order the param indices above assume:
+ * ...fixed, [updatedAfter], [spaceId], limit, offset.
+ * @param {Array} fixed - the mode's leading params (userId first)
+ * @param {Date|string|null} updatedAfter
+ * @param {string|null} space
+ * @param {number} limit
+ * @param {number} offset
+ * @returns {Array}
+ */
+function withScopeParams(fixed, updatedAfter, space, limit, offset) {
+  const params = [...fixed];
+  if (updatedAfter) params.push(updatedAfter);
+  if (spaceNeedsParam(space)) params.push(space);
+  params.push(limit, offset);
+  return params;
 }
 
 /**
@@ -140,6 +210,9 @@ async function searchDocuments(userId, query, options = {}) {
   const updatedAfter = options.updatedAfter == null
     ? null
     : parseUpdatedAfter(options.updatedAfter, { hasContentSearch: true });
+  // Space scope (feature 053). Normalized by the same helper the document list
+  // uses, so 'all'/omitted is byte-identical to pre-spaces behavior.
+  const space = documents.normalizeSpaceScope(options.space);
 
   // Determine effective mode: fall back to fulltext if no embeddings or no API key
   let effectiveMode = mode;
@@ -153,11 +226,11 @@ async function searchDocuments(userId, query, options = {}) {
 
   let results;
   if (effectiveMode === 'fulltext') {
-    results = await fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter);
+    results = await fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter, space);
   } else if (effectiveMode === 'semantic') {
-    results = await semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter, space);
   } else {
-    results = await hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter);
+    results = await hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter, space);
   }
 
   // Optional LLM rerank stage (feature 018 D10 — FR-030: OFF by default,
@@ -244,29 +317,30 @@ async function getQueryEmbedding(query) {
  * every snippet (ts_headline over content_text — FR-018/FR-020) and its
  * title-weight-A ranking.
  *
- * BOTH sub-selects carry the document_shares join + role condition (FR-021)
- * and, when active, the updatedAfter recency join (017). Legacy rows have
- * search_vector IS NULL and never match the chunk sub-select.
+ * BOTH sub-selects carry the document_access join + role condition (FR-021)
+ * and, when active, the updatedAfter recency join (017) and the space scope
+ * join (053). Legacy rows have search_vector IS NULL and never match the chunk
+ * sub-select.
  *
  * Emits CTEs `..., kw_matches` where kw_matches outputs (doc_id, rank).
  *
  * @param {number} queryParam - 1-based param index of the query text
  * @param {string} roleCondition - buildRoleCondition fragment (alias 'ds')
- * @param {number|null} updatedAfterParam - param index of the recency cutoff, or null
+ * @param {object} [scopes] - { updatedAfterParam, spaceScope, spaceParam }
  */
-function buildKeywordMatchCTEs(queryParam, roleCondition, updatedAfterParam = null) {
+function buildKeywordMatchCTEs(queryParam, roleCondition, scopes = {}) {
   return `kw_doc AS (
        SELECT si.doc_id,
               ts_rank_cd(si.search_vector, websearch_to_tsquery('english', $${queryParam})) AS rank
        FROM document_search_index si
-       JOIN document_shares ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('si.doc_id', updatedAfterParam)}
+       JOIN document_access ds ON ds.doc_id = si.doc_id AND ds.user_id = $1${roleCondition}${buildScopeJoins('si.doc_id', scopes)}
        WHERE si.search_vector @@ websearch_to_tsquery('english', $${queryParam})
      ),
      kw_chunk AS (
        SELECT de.doc_id,
               MAX(ts_rank_cd(de.search_vector, websearch_to_tsquery('english', $${queryParam}))) AS rank
        FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('de.doc_id', updatedAfterParam)}
+       JOIN document_access ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildScopeJoins('de.doc_id', scopes)}
        WHERE de.search_vector @@ websearch_to_tsquery('english', $${queryParam})
        GROUP BY de.doc_id
      ),
@@ -282,12 +356,12 @@ function buildKeywordMatchCTEs(queryParam, roleCondition, updatedAfterParam = nu
  * Build the top_chunks CTE for HNSW-accelerated vector search.
  * Returns the nearest chunks filtered by distance threshold, capped at VECTOR_CANDIDATE_LIMIT.
  */
-function buildVectorCTE(embeddingParam, thresholdParam, roleCondition, updatedAfterParam = null) {
+function buildVectorCTE(embeddingParam, thresholdParam, roleCondition, scopes = {}) {
   return `top_chunks AS (
        SELECT de.doc_id, de.chunk_text,
               (de.embedding <=> $${embeddingParam}::vector) AS distance
        FROM document_embeddings de
-       JOIN document_shares ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildRecencyJoin('de.doc_id', updatedAfterParam)}
+       JOIN document_access ds ON ds.doc_id = de.doc_id AND ds.user_id = $1${roleCondition}${buildScopeJoins('de.doc_id', scopes)}
        WHERE (de.embedding <=> $${embeddingParam}::vector) < $${thresholdParam}
        ORDER BY de.embedding <=> $${embeddingParam}::vector
        LIMIT ${VECTOR_CANDIDATE_LIMIT}
@@ -311,6 +385,8 @@ async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
        cte.doc_id,
        d.title,
        d.updated_at,
+       d.space_id,
+       sp.name AS space_name,
        ds2.role,
        owner_user.name AS owner_name,
        owner_user.email AS owner_email,
@@ -320,7 +396,8 @@ async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
        COUNT(*) OVER() AS total_count
      FROM cte
      JOIN documents d ON d.id = cte.doc_id
-     JOIN document_shares ds2 ON ds2.doc_id = cte.doc_id AND ds2.user_id = $1${roleCondition}
+     JOIN document_access ds2 ON ds2.doc_id = cte.doc_id AND ds2.user_id = $1${roleCondition}
+     LEFT JOIN spaces sp ON sp.id = d.space_id
      LEFT JOIN document_shares owner_share ON d.id = owner_share.doc_id AND owner_share.role = 'owner'
      LEFT JOIN users owner_user ON owner_share.user_id = owner_user.id
      ${orderClause}
@@ -334,12 +411,14 @@ async function runSearchQuery(cteSql, params, { filter, sortBy, sortOrder }) {
 /**
  * Full-text search only.
  */
-async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter = null) {
+async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sortOrder, updatedAfter = null, space = null) {
   const roleCondition = buildRoleCondition(filter);
   const updatedAfterParam = updatedAfter ? 3 : null;
+  const spaceParam = spaceNeedsParam(space) ? (updatedAfter ? 4 : 3) : null;
+  const scopes = { updatedAfterParam, spaceScope: space, spaceParam };
 
   return runSearchQuery(
-    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, scopes)},
      cte AS (
        SELECT
          m.doc_id,
@@ -349,7 +428,7 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
        FROM kw_matches m
        JOIN document_search_index si ON si.doc_id = m.doc_id
      )`,
-    updatedAfter ? [userId, query, updatedAfter, limit, offset] : [userId, query, limit, offset],
+    withScopeParams([userId, query], updatedAfter, space, limit, offset),
     { filter, sortBy, sortOrder }
   );
 }
@@ -357,13 +436,15 @@ async function fulltextSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Semantic (vector) search only.
  */
-async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null) {
+async function semanticSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null, space = null) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
   const updatedAfterParam = updatedAfter ? 4 : null;
+  const spaceParam = spaceNeedsParam(space) ? (updatedAfter ? 5 : 4) : null;
+  const scopes = { updatedAfterParam, spaceScope: space, spaceParam };
 
   return runSearchQuery(
-    `WITH ${buildVectorCTE(2, 3, roleCondition, updatedAfterParam)},
+    `WITH ${buildVectorCTE(2, 3, roleCondition, scopes)},
      cte AS (
        SELECT DISTINCT ON (doc_id)
          doc_id,
@@ -372,9 +453,13 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
        FROM top_chunks
        ORDER BY doc_id, distance ASC
      )`,
-    updatedAfter
-      ? [userId, JSON.stringify(queryEmbedding), distanceThreshold, updatedAfter, limit, offset]
-      : [userId, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
+    withScopeParams(
+      [userId, JSON.stringify(queryEmbedding), distanceThreshold],
+      updatedAfter,
+      space,
+      limit,
+      offset
+    ),
     { filter, sortBy, sortOrder }
   );
 }
@@ -382,13 +467,15 @@ async function semanticSearch(userId, query, limit, offset, filter, sortBy, sort
 /**
  * Hybrid search using Reciprocal Rank Fusion (RRF).
  */
-async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null) {
+async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOrder, distanceThreshold, updatedAfter = null, space = null) {
   const queryEmbedding = await getQueryEmbedding(query);
   const roleCondition = buildRoleCondition(filter);
   const updatedAfterParam = updatedAfter ? 5 : null;
+  const spaceParam = spaceNeedsParam(space) ? (updatedAfter ? 6 : 5) : null;
+  const scopes = { updatedAfterParam, spaceScope: space, spaceParam };
 
   return runSearchQuery(
-    `WITH ${buildKeywordMatchCTEs(2, roleCondition, updatedAfterParam)},
+    `WITH ${buildKeywordMatchCTEs(2, roleCondition, scopes)},
      fts AS (
        SELECT
          m.doc_id,
@@ -398,7 +485,7 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        FROM kw_matches m
        JOIN document_search_index si ON si.doc_id = m.doc_id
      ),
-     ${buildVectorCTE(3, 4, roleCondition, updatedAfterParam)},
+     ${buildVectorCTE(3, 4, roleCondition, scopes)},
      vec AS (
        SELECT DISTINCT ON (doc_id) doc_id, chunk_text AS chunk_snippet, distance
        FROM top_chunks
@@ -417,9 +504,13 @@ async function hybridSearch(userId, query, limit, offset, filter, sortBy, sortOr
        FROM fts f
        FULL OUTER JOIN vec_ranked vr ON f.doc_id = vr.doc_id
      )`,
-    updatedAfter
-      ? [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, updatedAfter, limit, offset]
-      : [userId, query, JSON.stringify(queryEmbedding), distanceThreshold, limit, offset],
+    withScopeParams(
+      [userId, query, JSON.stringify(queryEmbedding), distanceThreshold],
+      updatedAfter,
+      space,
+      limit,
+      offset
+    ),
     { filter, sortBy, sortOrder }
   );
 }
@@ -443,6 +534,8 @@ function formatResults(rows, limit, offset) {
       doc_id: row.doc_id,
       title: row.title,
       updated_at: row.updated_at,
+      space_id: row.space_id || null,
+      space_name: row.space_name || null,
       role: row.role,
       owner_name: row.owner_name,
       owner_email: row.owner_email,

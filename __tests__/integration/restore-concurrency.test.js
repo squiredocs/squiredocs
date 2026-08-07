@@ -76,8 +76,8 @@ describe('US4: restore under concurrency', () => {
     const docGuid = crypto.randomUUID();
     createdGuids.push(docGuid);
     await documents.createDocument(docGuid, owner.userId, 'US4 restore concurrency');
-    await documents.setRole(docGuid, owner.userId, 'editor');
-    await documents.setRole(docGuid, other.userId, 'editor');
+    await documents.setRole(docGuid, owner.userId, 'editor', owner.userId);
+    await documents.setRole(docGuid, other.userId, 'editor', other.userId);
 
     const client = await harness.connect(docGuid, owner.token);
     const clientDoc = new Y.Doc();

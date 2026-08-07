@@ -83,7 +83,7 @@ describe('Documents module', () => {
 
     test('returns role for user with access', async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       const role = await documents.getRole(testDocId, testUser2Id);
       expect(role).toBe('editor');
@@ -102,7 +102,7 @@ describe('Documents module', () => {
     });
 
     test('editor has editor and viewer roles', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       expect(await documents.hasRole(testDocId, testUser2Id, 'owner')).toBe(false);
       expect(await documents.hasRole(testDocId, testUser2Id, 'editor')).toBe(true);
@@ -110,7 +110,7 @@ describe('Documents module', () => {
     });
 
     test('viewer has only viewer role', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       expect(await documents.hasRole(testDocId, testUser2Id, 'owner')).toBe(false);
       expect(await documents.hasRole(testDocId, testUser2Id, 'editor')).toBe(false);
@@ -126,26 +126,26 @@ describe('Documents module', () => {
     test('hasAccess returns true for any role', async () => {
       expect(await documents.hasAccess(testDocId, testUserId)).toBe(true);
       
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       expect(await documents.hasAccess(testDocId, testUser2Id)).toBe(true);
     });
 
     test('canEdit returns true for editor and owner', async () => {
       expect(await documents.canEdit(testDocId, testUserId)).toBe(true);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       expect(await documents.canEdit(testDocId, testUser2Id)).toBe(true);
     });
 
     test('canEdit returns false for viewer', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       expect(await documents.canEdit(testDocId, testUser2Id)).toBe(false);
     });
 
     test('isOwner returns true only for owner', async () => {
       expect(await documents.isOwner(testDocId, testUserId)).toBe(true);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       expect(await documents.isOwner(testDocId, testUser2Id)).toBe(false);
     });
   });
@@ -156,7 +156,7 @@ describe('Documents module', () => {
     });
 
     test('creates new share with role', async () => {
-      const share = await documents.setRole(testDocId, testUser2Id, 'editor');
+      const share = await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       expect(share.doc_id).toBe(testDocId);
       expect(share.user_id).toBe(testUser2Id);
@@ -164,14 +164,14 @@ describe('Documents module', () => {
     });
 
     test('updates existing role', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
-      const updated = await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
+      const updated = await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       expect(updated.role).toBe('editor');
     });
 
     test('throws for invalid role', async () => {
-      await expect(documents.setRole(testDocId, testUser2Id, 'invalid'))
+      await expect(documents.setRole(testDocId, testUser2Id, 'invalid', testUser2Id))
         .rejects.toThrow('Invalid role');
     });
   });
@@ -179,7 +179,7 @@ describe('Documents module', () => {
   describe('removeAccess', () => {
     beforeEach(async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
     });
 
     test('removes user access', async () => {
@@ -200,7 +200,7 @@ describe('Documents module', () => {
   describe('getDocumentUsers', () => {
     beforeEach(async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
     });
 
     test('returns all users with access', async () => {
@@ -225,7 +225,7 @@ describe('Documents module', () => {
   describe('getAccessibleDocuments', () => {
     test('returns documents user has access to', async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
 
       const { rows: docsForUser1 } = await documents.getAccessibleDocuments(testUserId);
       const { rows: docsForUser2 } = await documents.getAccessibleDocuments(testUser2Id);
@@ -355,7 +355,7 @@ describe('Documents module', () => {
 
     test('excludes users already shared on the doc', async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
 
       const results = await documents.searchUsers('test-doc-user2', {
         excludeUserId: testUserId,
@@ -403,7 +403,7 @@ describe('Documents module', () => {
   describe('deleteDocument', () => {
     beforeEach(async () => {
       await documents.createDocument(testDocId, testUserId);
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
     });
 
     test('deletes document and all shares', async () => {

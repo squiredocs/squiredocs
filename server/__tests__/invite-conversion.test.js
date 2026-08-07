@@ -79,7 +79,7 @@ describe('Pending invite conversion on login', () => {
       picture: null,
     });
     // Already an editor on the doc
-    await documents.setRole(docId, user.id, 'editor');
+    await documents.setRole(docId, user.id, 'editor', user.id);
     // A viewer invite arrives, then they log in again
     await documents.createInvite(docId, 'test-invite-new3@example.com', 'viewer', inviterId);
 

@@ -91,8 +91,8 @@ describe('US3: a live edit whose durable write fails (characterization)', () => 
     const docGuid = crypto.randomUUID();
     createdGuids.push(docGuid);
     await documents.createDocument(docGuid, editor.userId, 'US3 persistence failure');
-    await documents.setRole(docGuid, editor.userId, 'editor');
-    await documents.setRole(docGuid, observer.userId, 'editor');
+    await documents.setRole(docGuid, editor.userId, 'editor', editor.userId);
+    await documents.setRole(docGuid, observer.userId, 'editor', observer.userId);
     return docGuid;
   }
 

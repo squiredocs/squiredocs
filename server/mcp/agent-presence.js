@@ -7,7 +7,8 @@
 const WebSocket = require('ws');
 const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
-const { ROLES } = require('../documents');
+const documents = require('../documents');
+const { ROLES } = documents;
 const presenceClaim = require('./presence-claim');
 
 // Persistence provider - set by init function
@@ -149,6 +150,11 @@ function _onClaimAcquired(claimKey) {
  */
 function init(persistence) {
   persistenceProvider = persistence;
+  // _verifyDocumentAccess reads the role through the shared documents module
+  // (feature 053), so it must be wired to the same pool.
+  if (persistence && persistence.getPool) {
+    documents.init(persistence.getPool());
+  }
   // Wire the presence-claim coordinator (feature 015). Runs before
   // redisPubSub.init() — the nudge subscription is recorded now and
   // subscribed when pub/sub initializes (contract C init-ordering rule).
@@ -157,28 +163,37 @@ function init(persistence) {
 
 /**
  * Verify user has access to a document and return user info
+ *
+ * The de-facto permission gate for get_collaborators, create_document, modify,
+ * read_document and restore_document_version — none of which has SQL of its
+ * own. That makes it the highest-leverage single access site in the MCP layer,
+ * which is why feature 053 split it in two: the ROLE comes from
+ * `documents.getRole` (the one derivation, so space members reach every one of
+ * those tools), and the identity fields stay a plain `users` lookup. The
+ * `options.requiredRole` gate downstream and the error string are unchanged.
+ *
  * @private
  * @param {string} docGuid - Document UUID
  * @param {string} userId - User ID
- * @returns {Promise<{userName: string, email: string, picture: string}>}
+ * @returns {Promise<{role: string, userName: string, email: string, picture: string}>}
  * @throws {Error} If document not found or user lacks access
  */
 async function _verifyDocumentAccess(docGuid, userId) {
-  const pool = persistenceProvider.getPool();
-  const accessResult = await pool.query(
-    `SELECT d.id, ds.role, u.name, u.email, u.picture
-     FROM documents d
-     JOIN document_shares ds ON d.id = ds.doc_id AND ds.user_id = $2
-     JOIN users u ON u.id = $2
-     WHERE d.id = $1`,
-    [docGuid, userId]
-  );
-
-  if (accessResult.rows.length === 0) {
+  const role = await documents.getRole(docGuid, userId);
+  if (!role) {
     throw new Error('Document not found or you do not have access');
   }
 
-  const { role, name: userName, email, picture } = accessResult.rows[0];
+  const pool = persistenceProvider.getPool();
+  const userResult = await pool.query(
+    'SELECT name, email, picture FROM users WHERE id = $1',
+    [userId]
+  );
+  if (userResult.rows.length === 0) {
+    throw new Error('Document not found or you do not have access');
+  }
+
+  const { name: userName, email, picture } = userResult.rows[0];
   return { role, userName, email, picture };
 }
 

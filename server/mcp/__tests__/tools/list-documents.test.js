@@ -77,7 +77,7 @@ describe('list_documents tool', () => {
       [testUser1Id]
     );
     testDoc1Id = doc1Result.rows[0].id;
-    await documents.setRole(testDoc1Id, testUser1Id, 'owner');
+    await documents.setRole(testDoc1Id, testUser1Id, 'owner', testUser1Id);
 
     // Doc 2: owned by user 1, shared with user 2 as editor
     const doc2Result = await pool.query(
@@ -87,8 +87,8 @@ describe('list_documents tool', () => {
       [testUser1Id]
     );
     testDoc2Id = doc2Result.rows[0].id;
-    await documents.setRole(testDoc2Id, testUser1Id, 'owner');
-    await documents.setRole(testDoc2Id, testUser2Id, 'editor');
+    await documents.setRole(testDoc2Id, testUser1Id, 'owner', testUser1Id);
+    await documents.setRole(testDoc2Id, testUser2Id, 'editor', testUser2Id);
 
     // Doc 3: owned by user 2
     const doc3Result = await pool.query(
@@ -98,7 +98,7 @@ describe('list_documents tool', () => {
       [testUser2Id]
     );
     testDoc3Id = doc3Result.rows[0].id;
-    await documents.setRole(testDoc3Id, testUser2Id, 'owner');
+    await documents.setRole(testDoc3Id, testUser2Id, 'owner', testUser2Id);
   });
 
   describe('schema', () => {

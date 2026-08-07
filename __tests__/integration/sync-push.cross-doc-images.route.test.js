@@ -158,7 +158,7 @@ describe('sync-push cross-doc image reconciliation (mode=sync)', () => {
     // Source doc owned by the stranger, with an image; pusher granted viewer.
     const source = await seedDoc(strangerId, '# Source\n\nsource body');
     const srcUrl = await seedImage(source.docId, strangerId);
-    await documents.setRole(source.docId, pusherId, 'viewer');
+    await documents.setRole(source.docId, pusherId, 'viewer', pusherId);
 
     const target = await seedDoc(pusherId, '# Target\n\ntarget body');
     const res = await put(target.docId, fileFor(target.docId, target.clock,

@@ -156,7 +156,7 @@ describe('Feature 029 US1 — faucet + synthetic wipe', () => {
       );
       const docId = docRes.rows[0].id;
       await pool.query(
-        "INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)",
         [docId, userId]
       );
       await pool.query(

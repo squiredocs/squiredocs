@@ -175,8 +175,8 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
     // Share document with test user (as editor)
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role)
-       VALUES ($1, $2, $3)`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+       VALUES ($1, $2, $3, $2)`,
       [testDocGuid, testUserId, 'editor']
     );
 
@@ -256,9 +256,9 @@ describe('Document Editing Workflow Integration Test (modify)', () => {
 
       // Add share for test user
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [newDocGuid, testUserId, 'owner']
       );
 
@@ -331,9 +331,9 @@ export default function edit(doc) {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [newDocGuid, testUserId, 'owner']
       );
 
@@ -393,9 +393,9 @@ export default function edit(doc) {
 
       await new Promise((resolve) => setTimeout(resolve, 50));
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [newDocGuid, testUserId, 'owner']
       );
 
@@ -457,9 +457,9 @@ export default function edit(doc) {
 
       await new Promise((resolve) => setTimeout(resolve, 50));
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [newDocGuid, testUserId, 'owner']
       );
 
@@ -547,9 +547,9 @@ export default function edit(doc) {
 
       // Add share for the test user to access the document
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [newDocGuid, testUserId, 'owner']
       );
 
@@ -701,9 +701,9 @@ export default function edit(doc) {
 
       // Add share for test user
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3`,
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by)
+         VALUES ($1, $2, $3, $2)
+         ON CONFLICT (doc_id, user_id) DO UPDATE SET role = $3, granted_by = EXCLUDED.granted_by`,
         [bugTestDocGuid, testUserId, 'owner']
       );
 

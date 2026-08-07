@@ -106,7 +106,7 @@ describe('modify editRange recording', () => {
     );
     const docGuid = d.rows[0].id;
     await pool.query(
-      `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1,$2,'editor')`,
+      `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'editor', $2)`,
       [docGuid, testUserId]
     );
     await pool.query(

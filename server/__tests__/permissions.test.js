@@ -155,7 +155,7 @@ describe('Permissions module', () => {
     });
 
     test('allows editor to view, edit, share, and manage', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       
       const viewResult = await permissions.checkPermission(testUser2Id, testDocId, 'view');
       const editResult = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
@@ -171,7 +171,7 @@ describe('Permissions module', () => {
     });
 
     test('allows viewer only to view and share', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const viewResult = await permissions.checkPermission(testUser2Id, testDocId, 'view');
       const editResult = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
@@ -200,7 +200,7 @@ describe('Permissions module', () => {
     });
 
     test('includes reason when permission denied', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.checkPermission(testUser2Id, testDocId, 'edit');
       
@@ -221,14 +221,14 @@ describe('Permissions module', () => {
     });
 
     test('can.edit checks edit permission', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.can.edit(testUser2Id, testDocId);
       expect(result.allowed).toBe(false);
     });
 
     test('can.share checks share permission', async () => {
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       
       const result = await permissions.can.share(testUser2Id, testDocId);
       expect(result.allowed).toBe(true);
@@ -237,10 +237,10 @@ describe('Permissions module', () => {
     test('can.manage checks manage permission', async () => {
       const ownerResult = await permissions.can.manage(testUserId, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       const editorResult = await permissions.can.manage(testUser2Id, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'viewer');
+      await documents.setRole(testDocId, testUser2Id, 'viewer', testUser2Id);
       const viewerResult = await permissions.can.manage(testUser2Id, testDocId);
       
       expect(ownerResult.allowed).toBe(true);
@@ -251,7 +251,7 @@ describe('Permissions module', () => {
     test('can.delete checks delete permission (owner only)', async () => {
       const ownerResult = await permissions.can.delete(testUserId, testDocId);
       
-      await documents.setRole(testDocId, testUser2Id, 'editor');
+      await documents.setRole(testDocId, testUser2Id, 'editor', testUser2Id);
       const editorResult = await permissions.can.delete(testUser2Id, testDocId);
       
       expect(ownerResult.allowed).toBe(true);

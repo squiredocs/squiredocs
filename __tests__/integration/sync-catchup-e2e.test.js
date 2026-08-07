@@ -70,9 +70,9 @@ describe('US2: reconnect catch-up produces honest attribution', () => {
     const docGuid = crypto.randomUUID();
     createdGuids.push(docGuid);
     await documents.createDocument(docGuid, author.userId, 'US2 catch-up');
-    await documents.setRole(docGuid, author.userId, 'editor');
-    await documents.setRole(docGuid, relayer.userId, relayerRole);
-    await documents.setRole(docGuid, viewer.userId, 'viewer');
+    await documents.setRole(docGuid, author.userId, 'editor', author.userId);
+    await documents.setRole(docGuid, relayer.userId, relayerRole, relayer.userId);
+    await documents.setRole(docGuid, viewer.userId, 'viewer', viewer.userId);
     return docGuid;
   }
 

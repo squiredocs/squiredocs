@@ -26,7 +26,10 @@ const description = `List and search documents accessible to you.
 With "search", performs hybrid content search (keyword + semantic) across document bodies, ranked by relevance with snippets. Without "search", lists documents with optional filtering and sorting. Parameter details live in the input schema; note updatedAfter (search path) and updatedSince (list path) are not combinable.
 
 RETURNS:
-- documents: Array of { id, title, url, role, updatedAt, ... }
+- documents: Array of { id, title, url, role, updatedAt, space, ... }
+  - space: { id, name } when the document lives in a shared space, else null.
+    Everyone in a space can reach every document in it, so a document with a
+    space is visible to that whole team.
   - When searching: includes snippet and score
   - When listing: includes createdAt, shareCount, clock (update counter) and
     lastModifiedAt (last content edit, null if never edited; not bumped by
@@ -44,7 +47,13 @@ list_documents({ search: "TODO refactor", searchMode: "fulltext" })
 list_documents({ search: "deploy", updatedAfter: "2026-07-01T00:00:00Z" })
 
 // List owned documents, oldest first
-list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })`;
+list_documents({ filter: "owned", sortBy: "createdAt", sortOrder: "asc" })
+
+// Only the documents in one space (get the id from any result's space field)
+list_documents({ space: "8f1c...e2" })
+
+// Only documents that are in no space at all
+list_documents({ space: "personal" })`;
 
 const inputSchema = {
   type: 'object',
@@ -63,7 +72,16 @@ const inputSchema = {
       type: 'string',
       enum: ['owned', 'shared_with_me', 'all'],
       default: 'all',
-      description: 'Filter by ownership: "owned", "shared_with_me", or "all"',
+      description:
+        'Filter by ownership: "owned", "shared_with_me", or "all". "owned" means you hold a '
+        + 'direct owner share — being an owner of the SPACE a document lives in does not make '
+        + 'it yours here.',
+    },
+    space: {
+      type: 'string',
+      description:
+        "Scope results to a space: a space id, 'personal' for documents not in any space, "
+        + "or 'all' (default). Space ids come back on every result's space field.",
     },
     sortBy: {
       type: 'string',
@@ -147,6 +165,7 @@ async function handler(args, agentToken) {
       offset: args.offset,
       distanceThreshold: args.distanceThreshold,
       updatedAfter,
+      space: args.space,
     });
 
     return {
@@ -158,6 +177,7 @@ async function handler(args, agentToken) {
         updatedAt: row.updated_at,
         snippet: row.snippet,
         score: row.score,
+        space: row.space_id ? { id: row.space_id, name: row.space_name } : null,
       })),
       pagination,
     };
@@ -179,6 +199,7 @@ async function handler(args, agentToken) {
     limit: args.limit || 50,
     offset: args.offset || 0,
     updatedSince: args.updatedSince,
+    space: args.space,
   });
 
   return {
@@ -192,6 +213,7 @@ async function handler(args, agentToken) {
       clock: row.last_clock == null ? null : Number(row.last_clock),
       lastModifiedAt: row.last_modified_at,
       shareCount: parseInt(row.share_count, 10),
+      space: row.space_id ? { id: row.space_id, name: row.space_name } : null,
     })),
     pagination: {
       total,

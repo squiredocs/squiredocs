@@ -338,7 +338,7 @@ describe('REST import API', () => {
     });
 
     test('viewer role gets 403 and the document is unchanged', async () => {
-      await documents.setRole(docId, otherId, 'viewer');
+      await documents.setRole(docId, otherId, 'viewer', otherId);
       const before = toMarkdown(fragmentOf(docId));
       const res = await put(docId, 'nope', { auth: `Bearer ${otherJwt}` });
       expect(res.status).toBe(403);
@@ -346,7 +346,7 @@ describe('REST import API', () => {
     });
 
     test('editor role passes the gate', async () => {
-      await documents.setRole(docId, otherId, 'editor');
+      await documents.setRole(docId, otherId, 'editor', otherId);
       const res = await put(docId, '## From Editor', { auth: `Bearer ${otherJwt}` });
       expect(res.status).toBe(200);
       // Attributed to the acting editor.

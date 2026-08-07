@@ -188,6 +188,47 @@ const sendShareInvite = (opts) => sendShareEmail({ ...opts, pending: true });
 /** Notify an existing user that a document has just been shared with them. */
 const sendShareNotification = (opts) => sendShareEmail({ ...opts, pending: false });
 
+/**
+ * Send a "you were added to a space" email (feature 053). Structurally the
+ * same as sendShareEmail: the invite variant adds a sign-in instruction.
+ *
+ * The SPACE NAME is user-authored text (design/spaces.md — any user may create
+ * a space and name it anything), so it reaches a subject line and an HTML body
+ * from an untrusted source. `sanitizeHeader` on the subject and `escapeHtml` on
+ * every interpolation are mandatory here, not stylistic (Constitution V).
+ *
+ * @param {boolean} pending - true for a not-yet-registered invitee
+ */
+function sendSpaceEmail({ to, spaceName, inviterName, spaceUrl, replyTo, pending }) {
+  const name = spaceName || 'Untitled space';
+  const inviter = inviterName || 'Someone';
+  const safeName = escapeHtml(name);
+  const safeInviter = escapeHtml(inviter);
+  const safeUrl = escapeHtml(spaceUrl);
+  const action = pending ? 'invited you to' : 'added you to';
+  const signInHint = pending
+    ? `<p>You'll need to sign in with Google using this email address to join it.</p>`
+    : '';
+  return sendEmail({
+    to,
+    replyTo,
+    subject: sanitizeHeader(`${inviter} added you to "${name}" on Squire Docs`),
+    html: `
+      <h3>${safeInviter} added you to a space</h3>
+      <p><strong>${safeInviter}</strong> ${action} the space <strong>"${safeName}"</strong> on Squire Docs.</p>
+      <p>Everyone in a space can see the documents in it, so you now have access to everything ${safeName} holds.</p>
+      <p><a href="${safeUrl}">Open the space</a></p>
+      ${signInHint}
+    `,
+  });
+}
+
+/** Invite a person who is NOT yet signed up to a space. */
+const sendSpaceInvite = (opts) => sendSpaceEmail({ ...opts, pending: true });
+
+/** Notify an existing user that they have just been added to a space. */
+const sendSpaceNotification = (opts) => sendSpaceEmail({ ...opts, pending: false });
+
 /** Render the beta welcome email body. `firstName` is already escaped by the caller. */
 function welcomeEmailHtml(firstName) {
   return `
@@ -225,4 +266,4 @@ function sendWelcomeEmail({ to, firstName }) {
   });
 }
 
-module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification, sendWelcomeEmail };
+module.exports = { sendEmail, notifyNewUser, notifyLogin, notifyCreditLimitReached, notifySupportRequest, sendShareInvite, sendShareNotification, sendSpaceInvite, sendSpaceNotification, sendWelcomeEmail };

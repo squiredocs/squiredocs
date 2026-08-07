@@ -13,7 +13,9 @@ describe('Admin: email-enabled + sharing review', () => {
   let pool;
   let ownerId;
   let memberId;
+  let outsiderId;
   let docId;
+  let foreignDocId;
 
   beforeAll(async () => {
     pool = createPool();
@@ -34,10 +36,25 @@ describe('Admin: email-enabled + sharing review', () => {
     );
     memberId = member.rows[0].id;
 
+    const outsider = await pool.query(
+      `INSERT INTO users (google_id, email, name)
+       VALUES ('test-admin-sharing-outsider', 'test-admin-sharing-outsider@example.com', 'Outsider')
+       RETURNING id`
+    );
+    outsiderId = outsider.rows[0].id;
+
     docId = require('crypto').randomUUID();
     await documents.createDocument(docId, ownerId, 'Owned Doc');
-    await documents.setRole(docId, memberId, 'editor');
+    await documents.setRole(docId, memberId, 'editor', ownerId);
     await documents.createInvite(docId, 'invited@example.com', 'viewer', ownerId);
+
+    // Feature 053 (FR-037): a share the profiled user GRANTED on a document
+    // they do NOT own. Before granted_by existed the endpoint could not see
+    // this row at all — it was scoped to owned documents.
+    foreignDocId = require('crypto').randomUUID();
+    await documents.createDocument(foreignDocId, outsiderId, 'Someone Else\'s Doc');
+    await documents.setRole(foreignDocId, ownerId, 'editor', outsiderId);
+    await documents.setRole(foreignDocId, memberId, 'viewer', ownerId);
 
     app = express();
     app.use(express.json());
@@ -45,9 +62,10 @@ describe('Admin: email-enabled + sharing review', () => {
   });
 
   afterAll(async () => {
-    await pool.query('DELETE FROM document_share_invites WHERE doc_id = $1', [docId]);
-    await pool.query('DELETE FROM document_shares WHERE doc_id = $1', [docId]);
-    await pool.query('DELETE FROM documents WHERE id = $1', [docId]);
+    const docs = [docId, foreignDocId];
+    await pool.query('DELETE FROM document_share_invites WHERE doc_id = ANY($1::uuid[])', [docs]);
+    await pool.query('DELETE FROM document_shares WHERE doc_id = ANY($1::uuid[])', [docs]);
+    await pool.query('DELETE FROM documents WHERE id = ANY($1::uuid[])', [docs]);
     await pool.query("DELETE FROM users WHERE email LIKE 'test-admin-sharing-%@example.com'");
     await pool.end();
   });
@@ -86,14 +104,41 @@ describe('Admin: email-enabled + sharing review', () => {
   });
 
   describe('GET /:userId/sharing', () => {
-    test('returns invites created by the user and collaborators on owned docs', async () => {
+    test('returns invites created by the user and the shares they granted', async () => {
       const res = await request(app).get(`/api/admin/users/${ownerId}/sharing`);
       expect(res.status).toBe(200);
 
       expect(res.body.invites.some((i) => i.email === 'invited@example.com' && i.docTitle === 'Owned Doc')).toBe(true);
-      expect(res.body.shares.some((s) => s.email === 'test-admin-sharing-member@example.com' && s.role === 'editor')).toBe(true);
+      expect(res.body.shares.some((s) => s.email === 'test-admin-sharing-member@example.com' && s.role === 'editor' && s.docTitle === 'Owned Doc')).toBe(true);
       // The owner themselves should not appear in their own doc's collaborator list.
       expect(res.body.shares.some((s) => s.email === 'test-admin-sharing-owner@example.com')).toBe(false);
+    });
+
+    test('shows shares the user granted on documents they do NOT own (FR-037)', async () => {
+      const res = await request(app).get(`/api/admin/users/${ownerId}/sharing`);
+      expect(res.status).toBe(200);
+      const foreign = res.body.shares.find((s) => s.docId === foreignDocId);
+      expect(foreign).toBeDefined();
+      expect(foreign.email).toBe('test-admin-sharing-member@example.com');
+      expect(foreign.role).toBe('viewer');
+    });
+
+    test('every row carries its grantor', async () => {
+      const res = await request(app).get(`/api/admin/users/${ownerId}/sharing`);
+      expect(res.body.shares.length).toBeGreaterThan(0);
+      for (const share of res.body.shares) {
+        expect(share.grantedByEmail).toBe('test-admin-sharing-owner@example.com');
+      }
+    });
+
+    test('a share the user RECEIVED is not reported as one they granted', async () => {
+      // ownerId holds an editor share on foreignDocId, granted by the outsider.
+      const res = await request(app).get(`/api/admin/users/${ownerId}/sharing`);
+      expect(
+        res.body.shares.some(
+          (s) => s.docId === foreignDocId && s.email === 'test-admin-sharing-owner@example.com'
+        )
+      ).toBe(false);
     });
 
     test('returns empty lists for a user with no sharing activity', async () => {
