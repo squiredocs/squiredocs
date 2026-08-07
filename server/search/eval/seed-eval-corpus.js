@@ -507,7 +507,9 @@ async function main() {
         [doc.id, doc.title, EVAL_USER_ID]
       );
       await pool.query(
-        `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')`,
+        // granted_by is NOT NULL since feature 053 (D8). The eval user grants
+        // itself owner, exactly as createDocument stamps a creator's own row.
+        `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)`,
         [doc.id, EVAL_USER_ID]
       );
       const ydoc = buildYDoc(doc.title, doc.blocks);

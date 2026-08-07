@@ -24,7 +24,9 @@ async function createTestDocument(persistence, pool, userId, docGuid) {
 
   // Grant access
   await pool.query(
-    `INSERT INTO document_shares (doc_id, user_id, role) VALUES ($1, $2, 'owner')
+    // granted_by is NOT NULL since feature 053 (D8): self-grant, as the owner
+    // row created by documents.createDocument does.
+    `INSERT INTO document_shares (doc_id, user_id, role, granted_by) VALUES ($1, $2, 'owner', $2)
      ON CONFLICT (doc_id, user_id) DO NOTHING`,
     [docGuid, userId]
   );

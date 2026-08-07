@@ -113,6 +113,57 @@ describe('Share attribution (granted_by)', () => {
     expect(rows[0].n).toBe(0);
   });
 
+  /**
+   * Post-merge review M3. A grantorless INSERT is now a runtime 23502, and the
+   * paths that carry one are exactly the ones no suite exercises — the
+   * search-eval corpus seeder and the perf scripts, which fail only when
+   * somebody runs them. A static sweep is the test those paths can have.
+   *
+   * `migrations/` is excluded: migration 006 predates the column by design and
+   * must never be rewritten. This file is excluded because the case below
+   * writes a grantorless row ON PURPOSE, to prove the constraint bites.
+   */
+  test('M3: no source file writes document_shares without granted_by', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const repoRoot = path.resolve(__dirname, '../..');
+    const SKIP_DIRS = new Set([
+      'node_modules', '.git', '.jest-cache', '.claude', 'dist', 'build', 'coverage',
+      'migrations',
+    ]);
+    const selfPath = __filename;
+
+    /** Every .js/.mjs/.cjs file in the tree, minus the skipped directories. */
+    function walk(dir, out = []) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          if (!SKIP_DIRS.has(entry.name)) walk(path.join(dir, entry.name), out);
+        } else if (/\.[cm]?js$/.test(entry.name)) {
+          out.push(path.join(dir, entry.name));
+        }
+      }
+      return out;
+    }
+
+    const offenders = [];
+    for (const file of walk(repoRoot)) {
+      if (file === selfPath) continue;
+      // Read as latin1: two files in this repo contain NUL bytes, and a utf8
+      // read of them silently yields replacement characters.
+      const source = fs.readFileSync(file, 'latin1');
+      const pattern = /INSERT\s+INTO\s+document_shares\s*\(([^)]*)\)/gi;
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        if (!/\bgranted_by\b/.test(match[1])) {
+          const line = source.slice(0, match.index).split('\n').length;
+          offenders.push(`${path.relative(repoRoot, file)}:${line}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
   test('the column is NOT NULL, so a grantorless row cannot be written at all', async () => {
     const alice = await makeUser('notnull');
     const docId = await makeDoc(alice.id);
