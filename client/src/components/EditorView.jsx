@@ -24,7 +24,7 @@ import { formatVersionTimestamp } from '../utils/datetime';
 import './EditorView.css';
 import './MenuCommon.css';
 
-function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, showVersionHistory = false, user, aiPanel }) {
+function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateToSettings, onNavigateToSupport, onNavigateToAdmin, onNavigateToChat, onNavigateToDoc, onNavigateToSpace, showVersionHistory = false, user, aiPanel }) {
   const { logout, api, accessToken, isAuthenticated, refreshAccessToken } = useAuth();
 
   // Generate user color deterministically from user ID
@@ -587,12 +587,18 @@ function EditorView({ docGuid, onNavigateHome, onNavigateToVersions, onNavigateT
                 }
               }}
             />
-            {/* Feature 053: which space this document lives in. Read-only and
-                quiet — it answers "who else can see this" at a glance. */}
+            {/* Feature 053: which space this document lives in — and the way
+                into it. Quiet, but clickable: it answers "who else can see
+                this" and takes you to the space. */}
             {docSpace && !isMobile && (
-              <span className="editor-space-chip" title={`In ${docSpace.name}`}>
+              <button
+                type="button"
+                className="editor-space-chip"
+                title={`Open ${docSpace.name}`}
+                onClick={() => onNavigateToSpace?.(docSpace.id)}
+              >
                 {docSpace.name}
-              </span>
+              </button>
             )}
           </div>
           <div className="app-header-right">

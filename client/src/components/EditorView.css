@@ -455,4 +455,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.editor-space-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.editor-space-chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }

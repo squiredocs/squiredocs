@@ -186,9 +186,9 @@ export default function SpaceSettingsPage({
     return (
       <>
         {header}
-        <div className="space-settings">
+        <div className="space-settings"><div className="space-settings-content">
           <div className="space-settings-error">{loadError}</div>
-        </div>
+        </div></div>
       </>
     );
   }
@@ -197,7 +197,7 @@ export default function SpaceSettingsPage({
     return (
       <>
         {header}
-        <div className="space-settings"><div className="space-settings-loading">Loading...</div></div>
+        <div className="space-settings"><div className="space-settings-content"><div className="space-settings-loading">Loading...</div></div></div>
       </>
     );
   }
@@ -205,7 +205,7 @@ export default function SpaceSettingsPage({
   return (
     <>
       {header}
-      <div className="space-settings">
+      <div className="space-settings"><div className="space-settings-content">
         {error && <div className="space-settings-error" role="alert">{error}</div>}
         {notice && <div className="space-settings-notice">{notice}</div>}
 
@@ -345,7 +345,7 @@ export default function SpaceSettingsPage({
             is deleted.
           </p>
         </section>
-      </div>
+      </div></div>
     </>
   );
 }

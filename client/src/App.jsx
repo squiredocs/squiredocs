@@ -373,6 +373,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToSupport={navigateToSupport}
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
+        onNavigateToSpace={navigateToSpace}
         showVersionHistory={false}
         user={user}
         aiPanel={aiPanel}
@@ -390,6 +391,7 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
         onNavigateToAdmin={user?.isAdmin ? navigateToAdmin : null}
         onNavigateToChat={navigateToChat}
         onNavigateToDoc={navigateToDoc}
+        onNavigateToSpace={navigateToSpace}
         showVersionHistory={true}
         user={user}
         aiPanel={aiPanel}

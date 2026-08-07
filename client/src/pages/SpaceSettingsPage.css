@@ -1,10 +1,20 @@
 /* Space settings (feature 053). Uses the app's tokens throughout so the page
    follows the theme without a dark-mode branch of its own. */
 
+/* The app shell is a grid (App.css .app-body): each page's main container
+   must claim grid row 3 or the AI panel's row-3 slot renders as a detached
+   bottom band (the 2026-08-07 chat-layout break on this page). */
 .space-settings {
+  grid-row: 3;
+  grid-column: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 20px 64px;
+}
+
+.space-settings-content {
   max-width: 720px;
   margin: 0 auto;
-  padding: 24px 20px 64px;
 }
 
 .space-settings-section {
