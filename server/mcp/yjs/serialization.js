@@ -90,7 +90,9 @@ function toPlainText(xmlFragment) {
  */
 function orderedListStart(node) {
   const raw = Number(node.getAttribute('start'));
-  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+  // Backstop the parsers' nine-digit CommonMark cap: an oversized attr (e.g.
+  // written by a script) must not emit a marker that re-parses as a paragraph.
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(999999999, Math.floor(raw)) : 1;
 }
 
 /**

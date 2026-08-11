@@ -17139,9 +17139,11 @@ ${err.toString()}`);
             i = listItems.nextIndex;
             continue;
           }
-          if (/^\s*\d+\. /.test(line)) {
+          const orderedStart = line.match(/^\s*(\d+)\. /);
+          if (orderedStart) {
             const listItems = parseListItems(lines, i, /^(\s*)\d+\. (.*)$/, diffMark);
-            blocks.push({ type: "orderedList", attrs: { start: 1 }, content: listItems.items });
+            const start = Math.min(999999999, Math.max(1, Number(orderedStart[1])));
+            blocks.push({ type: "orderedList", attrs: { start }, content: listItems.items });
             i = listItems.nextIndex;
             continue;
           }
@@ -18105,7 +18107,7 @@ ${err.toString()}`);
           }
         }
         if (ordered) {
-          return { nodes: [{ type: "orderedList", attrs: { start: first.start }, content: items }], next: i };
+          return { nodes: [{ type: "orderedList", attrs: { start: Math.min(999999999, Math.max(1, first.start)) }, content: items }], next: i };
         }
         const groups = [];
         for (const item of items) {
@@ -40221,6 +40223,11 @@ ${d}`);
   var require_cursor_operations = __commonJS({
     "server/mcp/yjs/cursor-operations.js"(exports, module) {
       var Y2 = require_yjs();
+      function serializeTextPosition(textNode, offset) {
+        const assoc = offset === 0 ? -1 : 0;
+        const relPos = Y2.createRelativePositionFromTypeIndex(textNode, offset, assoc);
+        return Y2.relativePositionToJSON(relPos);
+      }
       function createCursorPosition(xmlFragment2, blockIndex, charOffset) {
         const blocks = xmlFragment2.toArray();
         if (blockIndex < 0 || blockIndex >= blocks.length) {
@@ -40261,14 +40268,13 @@ ${d}`);
           var getLastTextNode = getLastTextNode2;
           const lastTextNode = getLastTextNode2(block);
           if (!lastTextNode) {
-            const relPos3 = Y2.createRelativePositionFromTypeIndex(block, 0);
-            return Y2.relativePositionToJSON(relPos3);
+            const relPos2 = Y2.createRelativePositionFromTypeIndex(block, 0);
+            return Y2.relativePositionToJSON(relPos2);
           }
-          const relPos2 = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
-          return Y2.relativePositionToJSON(relPos2);
+          const relPos = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
+          return Y2.relativePositionToJSON(relPos);
         }
-        const relPos = Y2.createRelativePositionFromTypeIndex(result.textNode, result.offset);
-        return Y2.relativePositionToJSON(relPos);
+        return serializeTextPosition(result.textNode, result.offset);
       }
       function resolveCursorPosition(xmlFragment2, relativePos) {
         try {
@@ -40620,14 +40626,13 @@ ${d}`);
           var getLastTextNode = getLastTextNode2;
           const lastTextNode = getLastTextNode2(currentElement);
           if (!lastTextNode) {
-            const relPos3 = Y2.createRelativePositionFromTypeIndex(currentElement, 0);
-            return Y2.relativePositionToJSON(relPos3);
+            const relPos2 = Y2.createRelativePositionFromTypeIndex(currentElement, 0);
+            return Y2.relativePositionToJSON(relPos2);
           }
-          const relPos2 = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
-          return Y2.relativePositionToJSON(relPos2);
+          const relPos = Y2.createRelativePositionFromTypeIndex(lastTextNode, lastTextNode.length);
+          return Y2.relativePositionToJSON(relPos);
         }
-        const relPos = Y2.createRelativePositionFromTypeIndex(result.textNode, result.offset);
-        return Y2.relativePositionToJSON(relPos);
+        return serializeTextPosition(result.textNode, result.offset);
       }
       function resolveCursorPositionToPath(xmlFragment2, relativePos) {
         try {

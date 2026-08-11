@@ -255,7 +255,9 @@ function markdownToPm(markdown, diffMark = null) {
       // list starting at 3, because per-item eccentricity was never
       // representable in the model. `0` and anything that would number the
       // list from below 1 clamps to 1, matching `<ol start>`.
-      const start = Math.max(1, Number(orderedStart[1]));
+      // Nine-digit CommonMark marker cap: a larger value would serialize to a
+      // marker that re-parses as a paragraph (054 review LOW-3).
+      const start = Math.min(999999999, Math.max(1, Number(orderedStart[1])));
       blocks.push({ type: 'orderedList', attrs: { start }, content: listItems.items });
       i = listItems.nextIndex;
       continue;

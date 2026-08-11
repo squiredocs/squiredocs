@@ -443,7 +443,10 @@ function parseList(lines, start, diffMark, depth) {
     // clamp, so both parser modes agree on the domain. `0.` is the one value
     // the `\d+` marker can produce that is not a legal numbering, and HTML
     // treats `<ol start="0">` the same way: not a renumbering, an absent value.
-    return { nodes: [{ type: 'orderedList', attrs: { start: Math.max(1, first.start) }, content: items }], next: i };
+    // CommonMark caps list markers at nine digits; anything larger would
+    // serialize to a marker (e.g. `1e+24.`) that re-parses as a paragraph,
+    // breaking the round-trip invariant (054 review LOW-3).
+    return { nodes: [{ type: 'orderedList', attrs: { start: Math.min(999999999, Math.max(1, first.start)) }, content: items }], next: i };
   }
   // Unordered items are taskItem or listItem per line (FR-005). The schema
   // requires homogeneous containers (taskList: taskItem+, bulletList:
