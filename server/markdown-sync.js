@@ -834,9 +834,26 @@ function buffersEqual(a, b) {
   return true;
 }
 
-/** First ~80 chars of a block's text content, whitespace-collapsed, plain. */
+/**
+ * First ~120 chars of a block's text content, whitespace-collapsed, plain,
+ * with a trailing ellipsis when it was cut (feature 054, RBD-054-6 as amended).
+ *
+ * ONE helper for BOTH block lists on a receipt — `overlaps[].excerpt` and
+ * `blocksChanged[].excerpt`. Two block lists in one payload whose excerpts
+ * truncate at different lengths is a needless inconsistency, so the widening
+ * deliberately reaches the overlap flags too (research R6). The ellipsis is
+ * what tells a reader the block continues; without it a truncated excerpt
+ * reads as the block's whole text.
+ *
+ * The cap counts characters BEFORE the marker, so the returned string is at
+ * most 121 characters (120 + '…') and the visible text is never more than the
+ * 120 the contract promises.
+ */
+const EXCERPT_MAX_CHARS = 120;
+
 function blockExcerpt(md) {
-  return md.replace(/\s+/g, ' ').trim().slice(0, 80);
+  const flat = md.replace(/\s+/g, ' ').trim();
+  return flat.length > EXCERPT_MAX_CHARS ? `${flat.slice(0, EXCERPT_MAX_CHARS)}…` : flat;
 }
 
 /** Doc-side changed baseline blocks (array index → 'edited'|'deleted') via block LCS. */

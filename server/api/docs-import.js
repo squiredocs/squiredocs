@@ -79,6 +79,28 @@ function parseOnBehalfOf(req) {
 }
 
 /**
+ * Parse a boolean query parameter the way this route has always parsed
+ * `?frontmatter` (feature 054, FR-004/FR-008, RBD-054-9): `true`/`1` → true,
+ * `false`/`0` → false, anything else → an error, never a quiet falsy default.
+ *
+ * Failing loudly is the point. `strict=yes` silently reading as false would
+ * apply the merge the caller asked us to refuse, and `dryRun=yes` would apply
+ * the push the caller asked us to preview — the two worst outcomes this
+ * feature exists to prevent.
+ *
+ * @param {*} value      - the raw `req.query` value (may be undefined)
+ * @param {string} name  - the parameter name, for the error message
+ * @param {boolean} [fallback=false] - value when the parameter is absent
+ * @returns {{value: boolean}|{error: string}}
+ */
+function parseBooleanParam(value, name, fallback = false) {
+  if (value === undefined) return { value: fallback };
+  if (value === 'true' || value === '1') return { value: true };
+  if (value === 'false' || value === '0') return { value: false };
+  return { error: `Unsupported ${name} value: ${value}. Accepted values: true, false, 1, 0` };
+}
+
+/**
  * Handle a mode=sync push: validate baseline/identity, dispatch to the sync
  * engine, shape the receipt. Auth/editor-role were already enforced by the
  * caller (no privileged path — FR-003).
@@ -248,15 +270,12 @@ function parseReceiptOptions(req) {
     }
     flavor = flavorParam;
   }
-  let frontmatter = false;
-  if (frontmatterParam !== undefined) {
-    if (frontmatterParam === 'true' || frontmatterParam === '1') {
-      frontmatter = true;
-    } else if (frontmatterParam !== 'false' && frontmatterParam !== '0') {
-      return { error: `Unsupported frontmatter value: ${frontmatterParam}. Accepted values: true, false, 1, 0` };
-    }
-  }
-  return { flavor, frontmatter };
+  // Feature 054 (T004): the same helper `?strict` and `?dryRun` parse through,
+  // so all three booleans share one message shape. Behavior and message text
+  // are unchanged from the hand-rolled version this replaced.
+  const frontmatter = parseBooleanParam(frontmatterParam, 'frontmatter');
+  if (frontmatter.error) return { error: frontmatter.error };
+  return { flavor, frontmatter: frontmatter.value };
 }
 
 /**
