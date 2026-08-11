@@ -80,7 +80,8 @@ these at plan/review time by amending the spec and noting the reversal here.
 
 ## RBD-054-6 — Excerpt shape: single line, ~120 chars, ellipsis
 
-- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-11)
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-11); **AMENDED at plan time
+  2026-08-11** — see the amendment note at the end of this entry.
 - **Question**: How large is a `blocksChanged` excerpt, and is the list capped?
 - **Why it matters**: A replace-heavy sync can touch hundreds of blocks; unbounded
   excerpts could balloon receipts past what agents comfortably ingest.
@@ -89,6 +90,16 @@ these at plan/review time by amending the spec and noting the reversal here.
 - **Rationale**: 120 chars is enough to recognize a block ("pressure point 11 — …") and
   keeps even a 500-block replace receipt in the tens of KB; pagination is speculative
   machinery the field report did not ask for.
+- **Amendment (plan phase, 2026-08-11)**: the spec assumed a new excerpt helper. One already
+  exists — `blockExcerpt` (`server/markdown-sync.js:838`), which produces the `excerpt` on
+  every overlap flag and caps at **80** chars with no ellipsis. Rather than ship two
+  differently-shaped excerpts inside one receipt, `blocksChanged` **reuses `blockExcerpt`**
+  and the helper's cap is **raised to 120 with an ellipsis marker**, per this entry's shape.
+  Consequence: existing `overlaps[].excerpt` values widen from 80 to 120 chars and gain the
+  ellipsis. Non-breaking — no test pins the length (the only assertion is a loose
+  `toContain('Bravo')` at `server/__tests__/markdown-sync.overlap.test.js:58`) and the field
+  is documented as advisory prose. Rationale: one excerpt shape per receipt; a caller that
+  renders both lists side by side should not see two truncation rules.
 
 ## RBD-054-7 — Staleness/report fields are response-only; receipt frontmatter untouched
 
@@ -146,3 +157,77 @@ these at plan/review time by amending the spec and noting the reversal here.
   distribution flow if their generated content changes — not hand-edited.
 - **Rationale**: Matches the amendment's list ("agents.md, and the in-app chat prompt" —
   repo-level surfaces) and the standing rule that plugin copies are generated.
+
+---
+
+# Added at plan time (2026-08-11)
+
+The three entries below were opened by the plan phase, not the spec phase: each is a
+consequence of the ratified items that the amendments do not address, found by reading the
+code. Same no-interaction rule — best default, recorded, overturnable at review.
+
+## RBD-054-11 — Dry run runs the staged image pass (disclosed side effect)
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-11), **plan phase**
+- **Question**: FR-006 says a dry run applies "nothing". But the canonicalization step that
+  produces the string the plan is diffed against — `canonicalizePushedStaged`
+  (`server/markdown-sync.js:1096`) — runs `stageImagePass`
+  (`server/markdown-import.js:150`), which **rehosts external images to S3** and **copies
+  cross-document images onto the target doc**. Both happen before any dry-run cut point.
+  Does the dry run skip image staging?
+- **Why it matters**: It is the one place "nothing applied" is not literally true. Left
+  undocumented, an agent using dry run habitually would be quietly uploading bytes.
+- **Decision**: The dry run runs the **same** staged image pass as a real push, and the
+  contract **discloses it** (`contracts/sync-receipt-v2.md`, "Disclosed exception"). The four
+  things FR-006 and SC-003 actually enumerate and measure — document mutation, stored update,
+  version entry, clock advance — plus fan-out, presence, and selection all remain guaranteed
+  absent.
+- **Rationale**: The staged pass is what determines the canonical pushed string; the
+  non-staged sibling (`canonicalizePushed`, :310) produces a *different* string for any
+  document with images (unvetted `data:` srcs present, external srcs un-degraded). A dry run
+  built on it would predict the wrong plan — exactly what RBD-054-2 rules out. The effects are
+  storage-side, idempotent in practice, and invisible in the document, its history, and its
+  viewers. It also means dry run cannot be used to bypass image vetting (Constitution V).
+- **Flag**: This is the one place the dry run is not literally free. If review prefers strict
+  purity over predictive fidelity, the alternative is a documented "image effects are not
+  previewed" caveat plus the non-staged path — a smaller change than it sounds, but it makes
+  the preview lie for image-bearing documents.
+
+## RBD-054-12 — Diff cache version bumped v10 → v11
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-11), **plan phase**
+- **Question**: FR-013 changes the **strict** parser. The strict parser is not on the sync
+  path at all — it is the **diff engine's** parser (`server/diff-service.js:316-323`,
+  `server/diff/apply-word-marks.js:35`). Diffs are cached in Redis under
+  `CACHE_VERSION` (`diff-service.js:35`, currently `'v10'`). Must the cache be invalidated?
+- **Why it matters**: Without a bump, every diff cached before the change keeps rendering
+  ordered lists flattened to `1.` while the document itself now reads `11.` — a stale cache
+  contradicting the doc, for the life of the key.
+- **Decision**: Bump `CACHE_VERSION` to `'v11'` in the same change. Two pins move with it:
+  `server/__tests__/diff-service.test.js:992-993` and
+  `server/__tests__/markdown-strict-characterization.test.js:77`.
+- **Rationale**: The established convention in this repo — the same bump was taken for feature
+  022's two-tier word diff (v7→v8) and for the tail-gap/parity cut (v9→v10). Cost is one
+  constant and two assertions; the alternative is a quietly wrong diff, the class of defect
+  features 038-049 spent a campaign removing.
+
+## RBD-054-13 — FR-015's surface list resolves to twelve files, three of them generated
+
+- **Status**: RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-08-11), **plan phase**
+- **Question**: FR-015 item 6 names `distribution/kiro-power/steering/` as a write site, and
+  the spec notes only that *plugin copies* are generated from `distribution/shared/*`. Where
+  are the Kiro and Cursor surfaces actually authored?
+- **Why it matters**: `distribution/kiro-power/steering/*.md`, `kiro-power/POWER.md`, and
+  `cursor-plugin/rules/squire-spec-loop.mdc` are **generated from inline text in
+  `distribution/publish.mjs`** — *not* from `distribution/shared/`. Editing the checked-in
+  copies would be silently reverted by the next `node distribution/publish.mjs`, and the edit
+  would appear to have landed until someone regenerated.
+- **Decision**: The write-site table in `contracts/guidance-split.md` is authoritative:
+  `publish.mjs:420-422` (Kiro steering), `:332` (POWER.md), `:499` (Cursor rule) are edited at
+  their inline sources; `distribution/shared/skill.md` and `onboard.md` remain the sources for
+  the Claude plugin skill, the onboard command, and the Cursor SKILL.md. Regeneration runs and
+  its output is committed. Surface 9 (`server/api/chat.js`) is additionally recorded as an
+  **addition** — that prompt contains no channel-rule text today.
+- **Rationale**: FR-015's intent is "every surface that teaches the rule actually says the
+  split". Naming generated artifacts as write sites would satisfy the letter and fail the
+  intent at the next regenerate.
