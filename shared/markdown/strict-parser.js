@@ -13,6 +13,17 @@
  * used by the diff engine via `{ strict: true }`. Do NOT "improve" it — any
  * grammar work happens under shared/markdown/tolerant/. Byte-identity is pinned
  * by server/__tests__/markdown-strict-characterization.test.js.
+ *
+ * ONE sanctioned exception to the freeze, and it is closed: ordered-list
+ * `start` preservation (feature 054, FR-013; design amendment 2026-08-11 to
+ * design/markdown-import-two-way-sync.md). The freeze exists to stop grammar
+ * drift between this parser and the tolerant one, and here the freeze was
+ * CAUSING the drift: the serializers now emit a list's real `start`, so a
+ * parser that read every list back as starting at 1 would make every
+ * ordered-list item differ from itself on every version comparison. The
+ * amendment requires both parser modes to round-trip `start`, so this one
+ * attribute moved to keep the two in agreement. It changed no fixture in the
+ * 70-case characterization snapshot. Nothing else here is open for revision.
  */
 
 const {
@@ -235,9 +246,17 @@ function markdownToPm(markdown, diffMark = null) {
     }
 
     // Ordered list
-    if (/^\s*\d+\. /.test(line)) {
+    const orderedStart = line.match(/^\s*(\d+)\. /);
+    if (orderedStart) {
       const listItems = parseListItems(lines, i, /^(\s*)\d+\. (.*)$/, diffMark);
-      blocks.push({ type: 'orderedList', attrs: { start: 1 }, content: listItems.items });
+      // The FIRST item's literal number becomes the list's `start` (feature
+      // 054, FR-013). Later items' numbers are ignored, as CommonMark
+      // specifies and as the tolerant parser already did — `3. 7. 9.` is a
+      // list starting at 3, because per-item eccentricity was never
+      // representable in the model. `0` and anything that would number the
+      // list from below 1 clamps to 1, matching `<ol start>`.
+      const start = Math.max(1, Number(orderedStart[1]));
+      blocks.push({ type: 'orderedList', attrs: { start }, content: listItems.items });
       i = listItems.nextIndex;
       continue;
     }

@@ -32,7 +32,15 @@ const { extractXml, extractText } = require('./yjs-utils');
 //      code computes.
 // Old entries are never read again and expire naturally; there is no purge job.
 // THIS IS THE ONLY BUMP IN FEATURE 039 — do not bump again for a later change.
-const CACHE_VERSION = 'v10';
+//
+// v10 → v11 (feature 054, RBD-054-12): the strict parser now preserves an
+// ordered list's `start`, and this engine serializes a version to markdown and
+// re-parses it with exactly that parser. Every cached diff over a document
+// containing a list that does not start at 1 was computed against the old
+// flattened numbering, and cached entries are read for the life of the key —
+// so without this bump version history would keep rendering numbering that
+// contradicts the document it is describing.
+const CACHE_VERSION = 'v11';
 
 class DiffService {
   /**

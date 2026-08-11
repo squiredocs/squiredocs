@@ -944,6 +944,28 @@ describe('sync-push route (mode=sync)', () => {
       expect(created.body.error).toContain('only supported with mode=sync');
     });
 
+    // Feature 054, US4 (T057, SC-005): the defect this feature exists to close,
+    // observed end to end. Before the fix, exporting a list that starts at 11
+    // and pushing the unchanged file straight back registered as an edit to
+    // every item in it.
+    test('AS-2: an unchanged export of a list starting at 11 pushes back as a noop', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Runbook\n\n11. Check the queue depth\n12. Scale the workers\n13. Confirm the backlog drains');
+      // The export itself keeps the numbering.
+      expect(body).toContain('11. Check the queue depth');
+      expect(body).toContain('13. Confirm the backlog drains');
+
+      const res = await put(docId, fileFor(docId, clock, body));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+      // No new update row: a noop push must not accrete version history.
+      expect(await maxClock(docId)).toBe(clock);
+      expect(await currentBody(docId)).toContain('11. Check the queue depth');
+    });
+
     test('RBD-054-1: a baseline AHEAD of the doc is still sync_baseline_invalid', async () => {
       const { docId, clock, body } = await seedDoc('# Notes\n\nAhead of its time.');
       // Both with and without strict — strict governs ONLY the stale case, so

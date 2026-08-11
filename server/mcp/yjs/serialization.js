@@ -73,6 +73,27 @@ function toPlainText(xmlFragment) {
 }
 
 /**
+ * The number an `orderedList` numbers its first item with (feature 054,
+ * FR-012, RBD-054-8).
+ *
+ * Shared by BOTH serializer copies deliberately. They have to emit the same
+ * bytes or `toMarkdownWithSourceMap`'s offsets stop describing `toMarkdown`'s
+ * output, and one helper is a stronger guarantee of that than two parallel
+ * expressions someone might edit singly.
+ *
+ * The attribute reaches a `Y.XmlElement` as a NUMBER from the tolerant parser
+ * and as a STRING from JSON-shaped block appends — the same dual typing the
+ * `taskItem` `checked` handling nearby already spells out. `Number()` covers
+ * both. Anything that is not a finite value of at least 1 collapses to 1,
+ * matching HTML's own treatment of `<ol start>`: `0`, negatives, and garbage
+ * are not renumberings, they are absent values.
+ */
+function orderedListStart(node) {
+  const raw = Number(node.getAttribute('start'));
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+}
+
+/**
  * Serialize an array of Yjs nodes to Markdown
  * @param {Array<Y.XmlElement|Y.XmlText>} nodes - Yjs nodes (e.g. fragment blocks or xpath matches)
  * @param {object} [options] - Serialization options (backward-compatible; all
@@ -253,7 +274,12 @@ function toMarkdownNodes(nodes, options = {}) {
         }
       }
     } else if (tag === 'orderedList') {
-      let num = 1;
+      // Numbering starts at the list's own `start`, not always at 1 (feature
+      // 054, FR-012). The attribute is first-class in the schema and the
+      // tolerant parser already preserves it; only the two serializers dropped
+      // it, which is what made a "12." in a repo file come back as "2." and
+      // then diff as a change on every subsequent pull.
+      let num = orderedListStart(node);
       for (const child of node.toArray()) {
         if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
           renderListItem(child, indent, `${num}. `);
@@ -644,7 +670,11 @@ function toMarkdownWithSourceMap(nodes, options = {}) {
         }
       }
     } else if (tag === 'orderedList') {
-      let num = 1;
+      // Byte-identical to the `toMarkdown` copy above (feature 054, FR-012).
+      // These two must stay textually parallel: this one also emits the source
+      // map, so any divergence in what it writes desynchronizes every offset
+      // downstream of the list.
+      let num = orderedListStart(node);
       for (const child of node.toArray()) {
         if (child instanceof Y.XmlElement && child.nodeName === 'listItem') {
           renderListItemC(child, indent, `${num}. `);

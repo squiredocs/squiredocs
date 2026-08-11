@@ -320,6 +320,78 @@ describe.each([false, true])('Format round-trip (strict=%s)', (strict) => {
       expect(pmStr).toContain('"type":"table"');
       expect(pmStr).toContain('"text":"data"');
     });
+
+    // ---------------------------------------------------------------------
+    // Feature 054 (US4, FR-012/FR-013/FR-014) — ordered-list `start`.
+    //
+    // Inside `describe.each([false, true])`, so every case below runs in BOTH
+    // parser modes. That is the point: the serializers and the two parsers had
+    // to move together, and running one mode would have hidden the half of the
+    // bug that actually bit — the diff engine's strict re-parse.
+    // ---------------------------------------------------------------------
+
+    /** A doc holding one ordered list with the given `start` attribute. */
+    function orderedListDoc(start, texts = ['one', 'two', 'three']) {
+      const doc = new Y.Doc();
+      doc.transact(() => {
+        const ol = new Y.XmlElement('orderedList');
+        if (start !== undefined) ol.setAttribute('start', start);
+        for (const text of texts) {
+          const item = new Y.XmlElement('listItem');
+          const p = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, text);
+          p.insert(0, [t]);
+          item.insert(0, [p]);
+          ol.insert(ol.length, [item]);
+        }
+        doc.getXmlFragment('default').insert(0, [ol]);
+      });
+      return doc;
+    }
+
+    test('a list starting at 11 exports 11., 12., 13. and reads back as 11', () => {
+      const { md, pmJson } = roundTrip(orderedListDoc(11));
+      expect(md).toContain('11. one');
+      expect(md).toContain('12. two');
+      expect(md).toContain('13. three');
+      // ...and specifically NOT the flattened numbering. Anchored, because
+      // '11. one' trivially contains '1. one'.
+      expect(md).not.toMatch(/^1\. one$/m);
+      expect(pmJson.content[0]).toMatchObject({ type: 'orderedList', attrs: { start: 11 } });
+    });
+
+    test('a default list is unchanged: 1., 2., 3.', () => {
+      const { md, pmJson } = roundTrip(orderedListDoc(undefined));
+      expect(md).toContain('1. one');
+      expect(md).toContain('2. two');
+      expect(pmJson.content[0].attrs.start).toBe(1);
+    });
+
+    test('the exported numbering survives a second round trip unchanged', () => {
+      const { md } = roundTrip(orderedListDoc(11));
+      // Re-serializing the parsed result must reproduce the same bytes, or a
+      // repo pull would show a numbering diff nobody made. Re-parsed in THIS
+      // mode, so the strict pass is the one the diff engine actually performs.
+      const again = docFromPm(markdownToPm(md, null, { strict }));
+      expect(toMarkdown(again.getXmlFragment('default'))).toBe(md);
+      again.destroy();
+    });
+
+    test.each([
+      ['zero', 0],
+      ['negative', -5],
+      ['non-numeric', 'eleven'],
+      ['numeric string', '11'],
+      ['empty string', ''],
+    ])('start = %s coerces to a legal numbering (RBD-054-8)', (_label, value) => {
+      const { md } = roundTrip(orderedListDoc(value));
+      // '11' is the one value above that IS legal — a string from a
+      // JSON-shaped block append. Everything else collapses to 1.
+      const expected = value === '11' ? 11 : 1;
+      expect(md).toContain(`${expected}. one`);
+      expect(md).toContain(`${expected + 1}. two`);
+    });
   });
 
   describe('edge cases', () => {
@@ -1018,6 +1090,16 @@ describe('sync round-trip invariant (push(export(doc)) is a no-op)', () => {
   corpus['headings'] = () => [1, 2, 3].map((lvl) => { const h = elx('heading', `H${lvl}`); h.setAttribute('level', String(lvl)); return h; });
   corpus['code + mermaid'] = () => { const cb = elx('codeBlock', 'const x=1;'); cb.setAttribute('language', 'js'); return [cb, elx('mermaid', 'graph TD')]; };
   corpus['bullet + ordered lists'] = () => { const b = new Y.XmlElement('bulletList'); b.insert(0, [li('one'), li('two')]); const o = new Y.XmlElement('orderedList'); o.insert(0, [li('a'), li('b')]); return [b, o]; };
+  // Feature 054 (T051, FR-014): an ordered list that does NOT start at 1. As a
+  // corpus entry it automatically gains both-flavor push(export) coverage and
+  // the three-cycle phantom-edit guard, which is the invariant that broke —
+  // exporting `11.` and reading it back as `1.` made every pull a fake edit.
+  corpus['ordered list with a non-default start'] = () => {
+    const o = new Y.XmlElement('orderedList');
+    o.setAttribute('start', 11);
+    o.insert(0, [li('eleventh'), li('twelfth'), li('thirteenth')]);
+    return [elx('paragraph', 'intro'), o];
+  };
   corpus['nested list'] = () => { const outer = new Y.XmlElement('bulletList'); const item = li('parent'); const inner = new Y.XmlElement('bulletList'); inner.insert(0, [li('child')]); item.insert(1, [inner]); outer.insert(0, [item]); return [outer]; };
   corpus['task list'] = () => { const tl = new Y.XmlElement('taskList'); tl.insert(0, [ti(false, 'todo'), ti(true, 'done')]); return [tl]; };
   corpus['blockquote + hr'] = () => { const bq = new Y.XmlElement('blockquote'); bq.insert(0, [elx('paragraph', 'quoted')]); return [bq, new Y.XmlElement('horizontalRule')]; };

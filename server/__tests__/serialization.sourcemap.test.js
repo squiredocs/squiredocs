@@ -275,4 +275,34 @@ describe('source map — coverage & byte-identity (registry-driven)', () => {
     expect(cov.has(0)).toBe(false); // _
     doc.destroy();
   });
+
+  // Feature 054 (T055, SC-006). The ordered-list `start` fix had to be applied
+  // to BOTH serializer copies, and a wider marker (`11. ` is one byte longer
+  // than `1. `) is exactly the sort of change that desynchronizes a source map
+  // if only one copy moves: every offset after the list would shift.
+  test('ordered-list start: both serializer copies agree, offsets included', () => {
+    const { doc, nodes } = docNodes((f) => {
+      const ol = new Y.XmlElement('orderedList');
+      for (const text of ['eleventh', 'twelfth']) {
+        const item = new Y.XmlElement('listItem');
+        item.insert(0, [el('paragraph', text)]);
+        ol.insert(ol.length, [item]);
+      }
+      ol.setAttribute('start', 11);
+      f.insert(0, [ol, el('paragraph', 'after the list')]);
+    });
+    // `verify` asserts byte-identity with toMarkdownNodes plus every run and
+    // block invariant, so a one-sided change fails here rather than surfacing
+    // later as a mis-sliced sync hunk.
+    const { markdown, sourceMap } = verify(nodes);
+    expect(markdown).toContain('11. eleventh');
+    expect(markdown).toContain('12. twelfth');
+
+    // The run for the block AFTER the list still points at the right bytes —
+    // the specific thing a stale offset would break.
+    const cov = coveredSet(sourceMap.runs);
+    const at = markdown.indexOf('after the list');
+    for (let i = at; i < at + 'after the list'.length; i++) expect(cov.has(i)).toBe(true);
+    doc.destroy();
+  });
 });

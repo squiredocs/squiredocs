@@ -198,9 +198,29 @@ describe('Edge cases', () => {
     expect(plainText(doc)).toBe('[x] item');
   });
 
-  test('ordered list honors start number; strict fixes start at 1', () => {
+  // Feature 054 (FR-013): strict used to flatten `start` to 1, and this test
+  // pinned that. Both modes now preserve it. The change was NOT cosmetic — the
+  // diff engine serializes a version and re-parses it with the strict parser,
+  // so once the serializers began emitting a real `start` a flattening parser
+  // would have made every ordered-list item differ from itself.
+  test('ordered list honors start number in BOTH parser modes', () => {
     expect(parse('3. third').content[0].attrs.start).toBe(3);
-    expect(markdownToPm('3. third', null, { strict: true }).content[0].attrs.start).toBe(1);
+    expect(markdownToPm('3. third', null, { strict: true }).content[0].attrs.start).toBe(3);
+  });
+
+  test('ordered-list start: only the first item counts, and the floor is 1', () => {
+    for (const strict of [false, true]) {
+      const p = (md) => markdownToPm(md, null, { strict }).content[0];
+      // CommonMark: later items' numbers are ignored. `3. 7. 9.` starts at 3.
+      expect(p('3. third\n7. seventh\n9. ninth').attrs.start).toBe(3);
+      // A default list is still 1, in both modes.
+      expect(p('1. first\n2. second').attrs.start).toBe(1);
+      // `0.` is not a renumbering — same as HTML's <ol start="0">.
+      expect(p('0. zeroth\n1. first').attrs.start).toBe(1);
+      // Multi-digit starts survive intact; this is the case the repo-sync
+      // round trip actually cared about.
+      expect(p('11. eleventh\n12. twelfth').attrs.start).toBe(11);
+    }
   });
 
   test('CRLF normalized, no \\r leaks into text', () => {

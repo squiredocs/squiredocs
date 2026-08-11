@@ -74,7 +74,12 @@ describe('--- and hunk-fragment disambiguation pins', () => {
   // that stopped SHORT of the requested newest version (gap-free-looking but
   // incomplete), and they were shaped by the pre-parity chat segmentation and the
   // regex-based plain-text extractor. Bumped exactly once for that whole feature.
-  test('diff-service CACHE_VERSION is v10 — clean cut from tail-gap-poisoned, pre-parity entries', () => {
-    expect(require('../diff-service').CACHE_VERSION).toBe('v10');
+  //
+  // v10 → v11 for feature 054 (RBD-054-12): this parser now preserves an
+  // ordered list's `start`, which is exactly the kind of change the pin exists
+  // to catch — cached diffs computed against the old flattened numbering would
+  // otherwise keep being served.
+  test('diff-service CACHE_VERSION is v11 — clean cut from entries parsed without ordered-list start', () => {
+    expect(require('../diff-service').CACHE_VERSION).toBe('v11');
   });
 });

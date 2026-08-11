@@ -109,12 +109,33 @@ describe('order-independence (T014, SC-004)', () => {
     const route = fs.readFileSync(path.join(__dirname, '..', 'api', 'docs-import.js'), 'utf8');
     // no compare-and-set / conflict-retry anywhere in the sync engine
     expect(/compareAndSet|compare-and-set/i.test(engine)).toBe(false);
-    // the ONLY 409 anywhere (engine or route) is the docGuid IDENTITY mismatch,
-    // never an edit conflict — the protocol has no conflict-based rejection.
-    for (const src of [engine, route]) {
-      for (const line of src.split('\n')) {
-        if (/\b409\b/.test(line)) expect(line).toMatch(/sync_doc_mismatch/);
+    // The engine still has exactly one 409, and it is the docGuid IDENTITY
+    // mismatch. Nothing about a merge can make the engine refuse a push.
+    for (const line of engine.split('\n')) {
+      if (/\b409\b/.test(line)) expect(line).toMatch(/sync_doc_mismatch/);
+    }
+  });
+
+  // Feature 054 (US1): the route gained a SECOND 409, `sync_baseline_stale`.
+  // That is a deliberate, ratified addition and not a walk-back of the rule
+  // above — the rule is about the DEFAULT protocol, which still never refuses
+  // a push over an edit conflict. Strict mode is a refusal the caller asked
+  // for by name. This test keeps the original guard meaningful by pinning the
+  // thing that would actually break it: the new rejection being reachable
+  // without `strict`.
+  test('the only conflict-shaped 409 is opt-in strict mode (054, FR-003/FR-004)', () => {
+    const route = fs.readFileSync(path.join(__dirname, '..', 'api', 'docs-import.js'), 'utf8');
+    const lines = route.split('\n');
+    for (const line of lines) {
+      if (/\b409\b/.test(line)) {
+        expect(line).toMatch(/sync_doc_mismatch|res\.status\(409\)|sync_baseline_stale/);
       }
     }
+    // `sync_baseline_stale` is raised behind a `strict &&` guard and nowhere
+    // else, so a default push can never receive it.
+    const raiseSites = lines.filter((l) => /error: 'sync_baseline_stale'/.test(l));
+    expect(raiseSites).toHaveLength(1);
+    const guard = lines[lines.findIndex((l) => /error: 'sync_baseline_stale'/.test(l)) - 2];
+    expect(guard).toMatch(/if \(strict &&/);
   });
 });

@@ -792,7 +792,7 @@ describe('DiffService', () => {
       expect(setex).toHaveBeenCalledTimes(1);
       const [key, ttl, payload] = setex.mock.calls[0];
       expect(key).toBe(`diff${CACHE_VERSION}:${docGuid}:${prev}:${curr}`);
-      expect(key.startsWith('diffv10:')).toBe(true);   // CW-T6
+      expect(key.startsWith('diffv11:')).toBe(true);   // CW-T6
       expect(ttl).toBe(3600);                          // CW-6, unchanged
       expect(typeof payload).toBe('string');
     }
@@ -982,20 +982,23 @@ describe('DiffService', () => {
       expectServedNotCached(result, setex);
     });
 
-    test('CW-T7: the healthy path caches exactly as before — TTL 3600, v10 key', async () => {
+    test('CW-T7: the healthy path caches exactly as before — TTL 3600, v11 key', async () => {
       const { setex } = withRedis();
       mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
       const result = await diffService.computeDiff('doc-healthy', -1, 0);
       expectServedAndCached(result, setex, 'doc-healthy', -1, 0);
     });
 
-    test('CW-T6: CACHE_VERSION is v10 and a v9 entry is never read', async () => {
-      expect(CACHE_VERSION).toBe('v10');
+    // Bumped v10 → v11 for feature 054 (RBD-054-12): the strict parser that
+    // feeds this engine now preserves an ordered list's `start`, so entries
+    // cached before it render numbering the document no longer agrees with.
+    test('CW-T6: CACHE_VERSION is v11 and a v10 entry is never read', async () => {
+      expect(CACHE_VERSION).toBe('v11');
       const { get } = withRedis();
       mockPersistence.getUpdateRowsUpTo.mockResolvedValue({ rows: [singleRow()], gapped: false });
       await diffService.computeDiff('doc-ns', 1, 2);
-      expect(get).toHaveBeenCalledWith('diffv10:doc-ns:1:2');
-      expect(get).not.toHaveBeenCalledWith(expect.stringContaining('diffv9:'));
+      expect(get).toHaveBeenCalledWith('diffv11:doc-ns:1:2');
+      expect(get).not.toHaveBeenCalledWith(expect.stringContaining('diffv10:'));
     });
 
     test('CW-T8: a throwing setex is caught and logged, and never fails the request', async () => {
