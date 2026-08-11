@@ -233,6 +233,25 @@ describe('buildChangeReport (054, US2/FR-009)', () => {
     insertDoc.destroy();
   });
 
+  // Feature 055: the report builder was written against plan lists, so the
+  // aligner's forced whole-block ops need no change in it — they arrive in
+  // `plan.structural` like any other structural entry. This pins that, and
+  // pins the one thing 055 does change about the report: WHICH entries appear.
+  test('a forced whole-block replace (055) reports as op "structural"', () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Restart the queue workers.'),
+      el('paragraph', 'Then page the on-call.'),
+    ]));
+    const { entries, plan } = report(base, 'Drain connections, then flip the flag.\n\nThen page the on-call.');
+    // The aligner decided this, not the classifier.
+    expect(plan.structural.filter((h) => h.forced)).toHaveLength(1);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      op: 'structural', blockType: 'paragraph', excerpt: 'Restart the queue workers.',
+    });
+    base.destroy();
+  });
+
   test('AS-2: an insertion at the document head reports position "start"', () => {
     const base = mkDoc((f) => f.insert(0, [el('paragraph', 'Alpha'), el('paragraph', 'Bravo')]));
     const entries = report(base, 'Zero new\n\nAlpha\n\nBravo').entries;

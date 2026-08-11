@@ -441,4 +441,66 @@ describe('forced whole-block ops (T008/T009, research R6)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+describe('US1 — edits land only in the blocks that were edited (FR-006, contract I8)', () => {
+  /** Every baseline block the plan touches, by array index. */
+  function touchedIndices(plan, baseBlocks) {
+    const idxOf = new Map(baseBlocks.map((b, i) => [b, i]));
+    const out = new Set();
+    for (const tb of plan.textBlocks) out.add(idxOf.get(tb.block));
+    for (const rb of plan.reconcileBlocks) out.add(idxOf.get(rb.block));
+    for (const h of plan.structural) for (const b of h.blocks || []) out.add(idxOf.get(b));
+    return [...out].sort((a, b) => a - b);
+  }
+
+  const decoyDoc = () => [
+    heading(1, 'Deployment'),
+    el('paragraph', 'How the service is deployed.'),
+    heading(1, 'Deployment Notes'),
+    el('paragraph', 'Notes about the deployment.'),
+  ];
+
+  test('the field-report regression: renaming "Deployment" never touches "Deployment Notes"', () => {
+    const { plan, sourceMap, baselineMd } = planFor(decoyDoc(),
+      '# Rollout\n\nHow the service is deployed.\n\n# Deployment Notes\n\nNotes about the deployment.');
+
+    expect(touchedIndices(plan, sourceMap.blocks)).toEqual([0]);
+    // The decoy heading appears in no plan list at all.
+    const decoy = sourceMap.blocks[2];
+    expect(plan.textBlocks.some((tb) => tb.block === decoy)).toBe(false);
+    expect(plan.reconcileBlocks.some((rb) => rb.block === decoy)).toBe(false);
+    expect(plan.structural.some((h) => (h.blocks || []).includes(decoy))).toBe(false);
+    // Nothing the plan does reaches into the decoy's extent.
+    for (const h of [...plan.structural, ...plan.textBlocks.flatMap((tb) => tb.hunks)]) {
+      expect(h.oldStart >= decoy.mdEnd || h.oldEnd <= decoy.mdStart).toBe(true);
+    }
+    assertNoCrossBlockSplice(plan, sourceMap.blocks);
+    expect(baselineMd).toContain('# Deployment Notes');
+  });
+
+  test('the same regression when the rename makes the decoy MORE similar', () => {
+    // The nastiest shape for a character diff: the renamed heading now shares
+    // its whole text with the decoy's prefix, so a whole-document diff has
+    // every reason to anchor on the wrong one.
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(decoyDoc(),
+      '# Deployment Rollout\n\nHow the service is deployed.\n\n# Deployment Notes\n\nNotes about the deployment.');
+    expect(touchedIndices(plan, baseBlocks)).toEqual([0]);
+    expect(resultMd).toBe(pushedMd);
+    expect(resultMd).toContain('# Deployment Notes');
+  });
+
+  test('distant blocks stay independent in a 40-block document (US1 AS2)', () => {
+    const blocks = Array.from({ length: 40 }, (_, i) => el('paragraph', `Paragraph number ${i} with some body text.`));
+    const pushedBody = blocks
+      .map((_, i) => `Paragraph number ${i} with some body text.`)
+      .map((s, i) => (i === 3 || i === 37 ? s.replace('some body text', 'some EDITED body text') : s))
+      .join('\n\n');
+    const { plan, sourceMap } = planFor(blocks, pushedBody);
+
+    expect(touchedIndices(plan, sourceMap.blocks)).toEqual([3, 37]);
+    expect(plan.structural).toEqual([]);
+    assertNoCrossBlockSplice(plan, sourceMap.blocks);
+  });
+});
+
 module.exports = { assertNoCrossBlockSplice };
