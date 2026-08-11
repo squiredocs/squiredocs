@@ -773,4 +773,190 @@ describe('sync-push route (mode=sync)', () => {
       expect(presenceDouble.sessions).toHaveLength(0);
     });
   });
+
+  // ==========================================================================
+  // Feature 054, US1 — the staleness signal and strict mode.
+  //
+  // The trust core: a pusher can always see how far its baseline had drifted,
+  // and can opt into refusing to merge over changes it never saw.
+  // ==========================================================================
+  describe('staleness signal and strict mode (054, US1)', () => {
+    /**
+     * Edit the live document out from under a baseline, the way a collaborator
+     * would between the pusher's export and its push. Returns the new clock.
+     */
+    async function editDocLive(docId, find, replaceWith) {
+      const shared = documentService.getSharedDoc(docId);
+      const para = shared.get('default', Y.XmlFragment).toArray()
+        .find((n) => n.get && n.get(0) && String(n.get(0)).includes(find));
+      shared.transact(() => {
+        const t = para.get(0);
+        const at = String(t).indexOf(find);
+        t.delete(at, find.length);
+        t.insert(at, replaceWith);
+      }, { userId: ownerId });
+      await drain();
+      return maxClock(docId);
+    }
+
+    /** Every one of the four fields, on every sync response (FR-001). */
+    function expectStalenessShape(body) {
+      expect(body).toMatchObject({
+        baselineClock: expect.any(Number),
+        currentClock: expect.any(Number),
+        clockGap: expect.any(Number),
+        docChangedSinceBaseline: expect.any(Boolean),
+      });
+      // RBD-054-1: clamped. A gap must never render negative, anywhere.
+      expect(body.clockGap).toBeGreaterThanOrEqual(0);
+      // The documented invariant: not stale implies no gap.
+      if (body.docChangedSinceBaseline === false) expect(body.clockGap).toBe(0);
+    }
+
+    test('AS-1: an untouched doc reports a zero gap and applies', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nRetries use exponential backoff.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('exponential backoff', 'fixed 5s intervals')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expectStalenessShape(res.body);
+      expect(res.body.baselineClock).toBe(clock);
+      expect(res.body.currentClock).toBe(clock);
+      expect(res.body.clockGap).toBe(0);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+      // Applied, not merely reported on.
+      expect(res.body.noop).toBe(false);
+      expect(await currentBody(docId)).toContain('fixed 5s intervals');
+    });
+
+    test('AS-2/FR-003: a changed doc still merges without strict, and says so', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.\n\nBravo line.');
+      const newClock = await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED BY SOMEONE ELSE.');
+      expect(newClock).toBeGreaterThan(clock);
+
+      // Pushing the OLD baseline: advisory only, so this still applies.
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha line PUSHED.')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expectStalenessShape(res.body);
+      expect(res.body.baselineClock).toBe(clock);
+      expect(res.body.clockGap).toBeGreaterThan(0);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      expect(res.body.noop).toBe(false);
+      // Both edit streams survive — behavior is byte-for-byte what it was.
+      const after = await currentBody(docId);
+      expect(after).toContain('Alpha line PUSHED.');
+      expect(after).toContain('EDITED BY SOMEONE ELSE');
+    });
+
+    test('AS-3/FR-004: strict=true over a changed doc → 409, and nothing was applied', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.\n\nBravo line.');
+      await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED.');
+
+      const beforeBody = await currentBody(docId);
+      const beforeClock = await maxClock(docId);
+      const beforeRows = (await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      const beforeVersions = (await getVersionTimeline(persistence, docId)).versions.length;
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha line PUSHED.')),
+        { query: '?mode=sync&strict=true' });
+      await drain();
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('sync_baseline_stale');
+      expect(res.body.message).toContain('changed since your baseline');
+      expect(res.body.message).toContain('Strict mode refuses to merge');
+      // The remedy names both the way forward and the escape hatch.
+      expect(res.body.guidance).toContain('Re-export');
+      expect(res.body.guidance).toContain('strict=true');
+      expectStalenessShape(res.body);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      expect(res.body.clockGap).toBeGreaterThan(0);
+      // The gap in the prose is the gap in the payload.
+      expect(res.body.message).toContain(String(res.body.clockGap));
+
+      // Untouched: content, clock, update rows, version history.
+      expect(await currentBody(docId)).toBe(beforeBody);
+      expect(await maxClock(docId)).toBe(beforeClock);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(beforeRows);
+      expect((await getVersionTimeline(persistence, docId)).versions).toHaveLength(beforeVersions);
+      expect(await currentBody(docId)).not.toContain('PUSHED');
+    });
+
+    test('AS-4: strict=true over an untouched doc applies normally', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nStrict but current.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('current', 'still current')),
+        { query: '?mode=sync&strict=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(false);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+      expect(await currentBody(docId)).toContain('still current');
+    });
+
+    test('AS-5: a noop sync carries all four staleness fields', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nNothing to change here.');
+      const res = await put(docId, fileFor(docId, clock, body)); // byte-identical push
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expectStalenessShape(res.body);
+      expect(res.body.clockGap).toBe(0);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+    });
+
+    test('RBD-054-9: strict=1 is accepted; strict=yes is a 400, not a quiet false', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nBoolean parsing.');
+
+      const ok = await put(docId, fileFor(docId, clock, body.replace('parsing', 'parsing works')),
+        { query: '?mode=sync&strict=1' });
+      await drain();
+      expect(ok.status).toBe(200);
+      expect(ok.body.noop).toBe(false);
+
+      const clock2 = await maxClock(docId);
+      const bad = await put(docId, fileFor(docId, clock2, '# Notes\n\nShould never land.'),
+        { query: '?mode=sync&strict=yes' });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toBe('Unsupported strict value: yes. Accepted values: true, false, 1, 0');
+      // Fail closed: the push it carried was not applied.
+      expect(await currentBody(docId)).not.toContain('Should never land');
+    });
+
+    test('FR-008: strict is rejected on append, replace, and the create route', async () => {
+      const { docId } = await seedDoc('# Notes\n\nMode gate.');
+      for (const mode of ['append', 'replace']) {
+        const res = await put(docId, '# Notes\n\nnope', { query: `?mode=${mode}&strict=true` });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('strict is only supported with mode=sync on PUT /api/docs/:docId/import');
+      }
+      const created = await request(app)
+        .post('/api/docs/import?strict=true')
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('Content-Type', 'text/markdown')
+        .send('# Nope\n\nbody');
+      expect(created.status).toBe(400);
+      expect(created.body.error).toContain('only supported with mode=sync');
+    });
+
+    test('RBD-054-1: a baseline AHEAD of the doc is still sync_baseline_invalid', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAhead of its time.');
+      // Both with and without strict — strict governs ONLY the stale case, so
+      // the pre-existing rejection must win either way (FR-005).
+      for (const query of ['?mode=sync', '?mode=sync&strict=true']) {
+        const res = await put(docId, fileFor(docId, clock + 100, body.replace('time', 'TIME')), { query });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('sync_baseline_invalid');
+        // No staleness block on a rejection that never got as far as computing
+        // one — and so, in particular, no negative gap.
+        expect(res.body.clockGap).toBeUndefined();
+        expect(res.body.currentClock).toBe(clock);
+      }
+    });
+  });
 });

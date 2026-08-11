@@ -101,6 +101,70 @@ function parseBooleanParam(value, name, fallback = false) {
 }
 
 /**
+ * Parse the two sync-only booleans and enforce their mode gate (feature 054,
+ * FR-004/FR-008, RBD-054-4/9).
+ *
+ * Both are meaningful only against a baseline, and only `mode=sync` has one.
+ * Accepting them elsewhere would be actively dangerous: `dryRun=true` silently
+ * ignored on `mode=replace` applies the wholesale overwrite the caller believed
+ * they were previewing. So an unsupported combination is a 400 that names the
+ * combination that does work, never a quiet passthrough.
+ *
+ * Called before the presence session opens, so neither a bad value nor a bad
+ * mode ever announces an agent (see the `mode` gate directly above it).
+ *
+ * @param {object} req
+ * @param {string} mode - 'sync' | 'append' | 'replace' | 'create'
+ * @returns {{strict: boolean, dryRun: boolean}|{error: string}}
+ */
+function parseSyncOptions(req, mode) {
+  const out = {};
+  for (const name of ['strict', 'dryRun']) {
+    const raw = req.query[name];
+    if (raw !== undefined && mode !== 'sync') {
+      return { error: `${name} is only supported with mode=sync on PUT /api/docs/:docId/import` };
+    }
+    const parsed = parseBooleanParam(raw, name);
+    if (parsed.error) return { error: parsed.error };
+    out[name] = parsed.value;
+  }
+  return out;
+}
+
+/**
+ * The staleness signal carried by every `mode=sync` response — applied, noop,
+ * idempotent-noop, dry run, and the `sync_baseline_stale` rejection body
+ * (feature 054, FR-001, data-model §1).
+ *
+ * Built in the ROUTE rather than the engine (research R1). `validateSyncBaseline`
+ * has always computed `currentClock`; the route simply stopped throwing it away.
+ * One construction site covers all three of the engine's receipt exits, and
+ * `currentClock` keeps the meaning FR-001 gives it — the document's clock at
+ * VALIDATION time, which is a different (earlier) number than the re-export
+ * clock an applied receipt reports as `clock`.
+ *
+ * Two deliberate asymmetries:
+ *  - `clockGap` is clamped at 0 so it never renders negative (RBD-054-1), even
+ *    though a baseline ahead of the doc is already rejected upstream as
+ *    `sync_baseline_invalid`.
+ *  - `docChangedSinceBaseline` tests INEQUALITY, not `>`. A baseline ahead of
+ *    the document (a version restore, a hand-edited frontmatter clock) is not a
+ *    faithful baseline either, and should not read as "nothing changed".
+ *
+ * Clock-based only: a document edited and reverted to identical bytes still
+ * reports `true`. That is the honest answer to "has anyone touched this since
+ * you looked", which is the question a pusher is actually asking.
+ */
+function buildStaleness(baselineClock, currentClock) {
+  return {
+    baselineClock,
+    currentClock,
+    clockGap: Math.max(0, currentClock - baselineClock),
+    docChangedSinceBaseline: currentClock !== baselineClock,
+  };
+}
+
+/**
  * Handle a mode=sync push: validate baseline/identity, dispatch to the sync
  * engine, shape the receipt. Auth/editor-role were already enforced by the
  * caller (no privileged path — FR-003).
@@ -115,9 +179,27 @@ const REJECTION_MESSAGES = {
     + 'markdown receipt back over the file — it is then a valid sync baseline.',
   sync_baseline_invalid: 'The baseline clock is malformed, negative, or beyond the document\'s current clock.',
   sync_baseline_unavailable: 'The document can no longer be reconstructed at that baseline clock.',
+  // Feature 054 (FR-004): the strict-mode stale rejection. Unlike its
+  // neighbours this one is a FUNCTION — the size of the gap is the message's
+  // whole point, and a pusher deciding whether to re-export wants the number.
+  // It is never reached through the `REJECTION_MESSAGES[v.error]` lookup below:
+  // `validateSyncBaseline` does not know about strict mode and never returns
+  // this code. The route raises it, after validation has passed.
+  sync_baseline_stale: (clockGap) => `The document changed since your baseline `
+    + `(${clockGap} clock ${clockGap === 1 ? 'tick' : 'ticks'}). `
+    + 'Strict mode refuses to merge over changes you have not seen.',
 };
 
-async function handleSyncPush(persistence, req, res, docId, user, presence = null) {
+/**
+ * The stale rejection's remedy. Both halves matter: how to succeed (re-export,
+ * re-apply, push), and the escape hatch (drop strict and take the advisory
+ * overlap warnings instead) — a strict push that only ever says "no" teaches an
+ * agent to stop using strict.
+ */
+const STALE_GUIDANCE = 'Re-export the document to get a fresh baseline, re-apply your edits on top '
+  + 'of it, and push again. Or drop strict=true to merge with advisory overlap warnings.';
+
+async function handleSyncPush(persistence, req, res, docId, user, presence = null, syncOpts = {}) {
   const markdown = typeof req.body === 'string' ? req.body : '';
   const { squire, body } = parseFrontmatter(markdown);
 
@@ -135,7 +217,27 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
     if (v.currentClock !== undefined) b.currentClock = v.currentClock;
     return res.status(v.status).json(b);
   }
-  const { baselineClock, flavor } = v;
+  // `currentClock` has always been returned here (markdown-sync.js) and always
+  // been dropped on the floor. Feature 054 keeps it: it is the whole staleness
+  // signal, free, and read at exactly the moment FR-001 defines.
+  const { baselineClock, flavor, currentClock } = v;
+  const { strict = false, dryRun = false } = syncOpts;
+  const staleness = buildStaleness(baselineClock, currentClock);
+
+  // Strict gate (FR-004). Placed here — after validation, before the engine is
+  // entered and before the changed-range observation attaches — so "nothing was
+  // applied" is a property of control flow rather than a promise: the sync
+  // engine is never called at all. Precedence is automatic (FR-005): every
+  // existing rejection returns above this line, so a missing or invalid
+  // baseline still wins, with or without strict.
+  if (strict && staleness.docChangedSinceBaseline) {
+    return res.status(409).json({
+      error: 'sync_baseline_stale',
+      message: REJECTION_MESSAGES.sync_baseline_stale(staleness.clockGap),
+      guidance: STALE_GUIDANCE,
+      ...staleness,
+    });
+  }
 
   // A sync push edits an arbitrary subset of blocks, so the changed span is
   // only knowable from what actually lands. Observe it around the apply (037,
@@ -145,8 +247,12 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
   // A per-push origin, so an overlapping push to the same document on this
   // instance cannot bleed its indices into this one's observation (037 LOW-3).
   // Every other consumer treats it exactly like the shared sentinel.
+  // A dry run announces nothing (RBD-054-3): no observation here, no settle
+  // below, and no session opened upstream. A preview that parks an avatar on a
+  // document and flashes a selection over blocks it is not going to touch is
+  // not a preview — it is a visible edit that happens to change no bytes.
   const pushOrigin = createSyncPushOrigin(docId);
-  const observed = presence ? importPresence.observeSyncRange(docId, pushOrigin) : null;
+  const observed = presence && !dryRun ? importPresence.observeSyncRange(docId, pushOrigin) : null;
   let receipt;
   try {
     receipt = await applySyncPush(persistence, docId, {
@@ -182,7 +288,7 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
   // Fire-and-forget (never awaited): refresh the session TTL and show the
   // changed range. Only on the success path — a failed push leaves any open
   // session to expire on its own TTL (ledger RBD-2).
-  if (presence) {
+  if (presence && !dryRun) {
     // Feature 046 (NEW-3): peek here too, or this line re-creates the very doc
     // the call above stopped leaking. The fragment exists only to place the
     // agent's presence cursor over the changed range; with no live doc on this
@@ -196,7 +302,11 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
       observed,
     });
   }
-  return res.status(200).json(receipt);
+  // Staleness merges onto whatever receipt the engine returned — applied, noop,
+  // idempotent-noop, or dry run — so FR-001's "every sync response" is a
+  // property of this one line rather than of three exits inside the engine
+  // (research R1). Purely additive: no receipt key collides with the four.
+  return res.status(200).json({ ...receipt, ...staleness });
 }
 
 // CN-1: markdown bodies are capped at 5 MB, rejected before parsing.
@@ -307,6 +417,14 @@ function createImportRouter(persistence) {
       if (receiptOpts.error) {
         return res.status(400).json({ error: receiptOpts.error });
       }
+      // Feature 054 (FR-008, T037): the create route has no baseline, so
+      // neither `strict` nor `dryRun` means anything here. Reject rather than
+      // ignore — an agent that believes it is previewing a create should not
+      // discover its mistake by finding a new document.
+      const createSyncOpts = parseSyncOptions(req, 'create');
+      if (createSyncOpts.error) {
+        return res.status(400).json({ error: createSyncOpts.error });
+      }
       const userId = req.user.userId;
 
       // Title precedence: ?title= → frontmatter squire title → first heading
@@ -408,6 +526,16 @@ function createImportRouter(persistence) {
         return res.status(400).json({ error: `Unknown import mode: ${mode} (use append or replace or sync)` });
       }
 
+      // Feature 054 (FR-004/FR-008): `?strict` and `?dryRun` are validated HERE,
+      // ahead of the presence announcement below, for the same reason the mode
+      // check sits above it — a request that is going to 400 should never park
+      // an avatar on the document. It also gives the announcement block the
+      // `dryRun` flag it needs to stay silent.
+      const syncOpts = parseSyncOptions(req, mode);
+      if (syncOpts.error) {
+        return res.status(400).json({ error: syncOpts.error });
+      }
+
       // Announce the agent BEFORE any content changes (feature 037, FR-006):
       // right after the auth + editor-role gates and mode resolution, before
       // receipt-option validation, the empty-body check, waitForDocReady, sync
@@ -419,14 +547,20 @@ function createImportRouter(persistence) {
       // await on presence anywhere in this request, and its ~2 s cap resolves
       // rather than rejects. Human (browser-session) imports skip it entirely
       // (FR-003), as does POST /api/docs/import (FR-004).
+      //
+      // Feature 054 (RBD-054-3): a dry run opens NO session. This is the
+      // upstream half of the skip — `handleSyncPush` also declines to observe
+      // and to settle, but the session has to not be opened in the first place
+      // or the avatar appears here, two calls before anything decides the push
+      // is only a preview.
       let presence = null;
-      if (req.user.isAgent === true) {
+      if (req.user.isAgent === true && !syncOpts.dryRun) {
         presence = importPresence.open({ docId, user: req.user, mode, baseUrl: buildBaseUrl(req) });
         await importPresence.awaitAttach(presence);
       }
 
       if (mode === 'sync') {
-        return await handleSyncPush(persistence, req, res, docId, req.user, presence);
+        return await handleSyncPush(persistence, req, res, docId, req.user, presence, syncOpts);
       }
       const receiptOpts = parseReceiptOptions(req);
       if (receiptOpts.error) {

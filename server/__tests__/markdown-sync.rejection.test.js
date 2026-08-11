@@ -100,3 +100,55 @@ describe('rejection messages (feature 019, US4/FR-022/SC-008)', () => {
     );
   });
 });
+
+// ===========================================================================
+// Feature 054, T019 (FR-005) — strict mode changes the rejection taxonomy by
+// ADDING to it, never by reordering it.
+//
+// `strict` is evaluated in the route, after `validateSyncBaseline` has already
+// returned. So precedence is not a rule anyone has to remember: the four
+// pre-existing rejections return before the strict gate is reached, and the
+// validator has no way to know strict was requested even if it wanted to.
+// ===========================================================================
+
+describe('strict mode and rejection precedence (054, US1/FR-005)', () => {
+  const { REJECTION_MESSAGES } = require('../api/docs-import');
+
+  test('validateSyncBaseline is oblivious to strict — no option, no branch', async () => {
+    // Passing strict through the options bag changes nothing: a missing
+    // baseline is still `sync_baseline_missing`, never a staleness verdict.
+    const missing = await validateSyncBaseline(fakePersistence(10), 'doc', {
+      squire: {}, strict: true,
+    });
+    expect(missing).toMatchObject({ error: 'sync_baseline_missing', status: 400 });
+    expect(missing.error).not.toBe('sync_baseline_stale');
+
+    // Same for an out-of-range baseline, which is the case most easily confused
+    // with staleness: both are "your clock does not match the document".
+    const invalid = await validateSyncBaseline(fakePersistence(10), 'doc', {
+      squire: { clock: 99 }, strict: true,
+    });
+    expect(invalid).toMatchObject({ error: 'sync_baseline_invalid', status: 400, currentClock: 10 });
+    expect(invalid.error).not.toBe('sync_baseline_stale');
+  });
+
+  test('a stale baseline is a VALID baseline as far as the engine is concerned', async () => {
+    // 3 against a doc at clock 10 is exactly the stale case. The validator
+    // accepts it — refusing it is strict mode's job, in the route, and only
+    // when the caller asked.
+    const v = await validateSyncBaseline(fakePersistence(10), 'doc', { squire: { clock: 3 } });
+    expect(v.error).toBeUndefined();
+    expect(v).toMatchObject({ baselineClock: 3, currentClock: 10 });
+  });
+
+  test('the stale message is parameterized by the gap and reads for both counts', () => {
+    expect(REJECTION_MESSAGES.sync_baseline_stale(32)).toBe(
+      'The document changed since your baseline (32 clock ticks). '
+      + 'Strict mode refuses to merge over changes you have not seen.'
+    );
+    // A one-tick gap is the common case for a busy document; "1 clock ticks"
+    // would be the sort of detail that makes an agent-facing message look
+    // machine-generated.
+    expect(REJECTION_MESSAGES.sync_baseline_stale(1)).toContain('(1 clock tick)');
+  });
+});
