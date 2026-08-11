@@ -1178,6 +1178,12 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
   }
 
   // 3) Structural replacements — block-node identity for live indices.
+  //    Each applied group records what it left in place of its baseline blocks,
+  //    so step 4 can still position an insertion anchored on a block this group
+  //    just deleted (the planner folds insertions onto FORCED replaces, but a
+  //    classifier-derived replace — a heading level change, a paragraph → list
+  //    change, a declined reconciliation — is only known here).
+  const groupOfBlockNode = new Map();
   for (const g of replacements) {
     const firstBlock = sourceMap.blocks[g.first];
     const lastBlock = sourceMap.blocks[g.last];
@@ -1195,18 +1201,53 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
     const newNodes = mdToNodes(s);
     fragment.delete(idx, count);
     if (newNodes.length > 0) fragment.insert(idx, newNodes);
+    g.tailNode = newNodes.length > 0 ? newNodes[newNodes.length - 1] : null;
+    for (let i = g.first; i <= g.last; i++) groupOfBlockNode.set(sourceMap.blocks[i].blockNode, g);
   }
 
   // 4) Boundary insertions between blocks.
+  //
+  // An insertion is anchored on the baseline block it follows. Resolving that
+  // anchor by node identity alone is not enough: step 3 may have replaced the
+  // anchor block, and a lookup that misses used to fall back to the END of the
+  // document — silently reordering the push. So the anchor resolves
+  // POSITIONALLY through the replacement that swallowed it: after the last node
+  // that replacement left behind, or — if it left nothing — after the nearest
+  // preceding baseline block that still resolves. Document start is the floor.
+  const blockPos = new Map();
+  sourceMap.blocks.forEach((b, i) => blockPos.set(b, i));
+  const anchorIndexFor = (block) => {
+    let i = blockPos.get(block);
+    if (i === undefined) return null;
+    while (i >= 0) {
+      const node = sourceMap.blocks[i].blockNode;
+      const pos = fragment.toArray().indexOf(node);
+      if (pos !== -1) return pos + 1;
+      const g = groupOfBlockNode.get(node);
+      if (g && g.tailNode) {
+        const tp = fragment.toArray().indexOf(g.tailNode);
+        if (tp !== -1) return tp + 1;
+      }
+      i = g ? g.first - 1 : i - 1;
+    }
+    return 0;
+  };
+
+  // Two insertions sharing one anchor would otherwise land in reverse order
+  // (both insert at anchor + 1). The planner emits one per anchor; this keeps
+  // apply order right even if a future caller does not.
+  const insertedAt = new Map();
   for (const ins of insertions) {
     const newNodes = mdToNodes(ins.newText);
     if (newNodes.length === 0) continue;
     let at = 0;
     if (ins.afterBlock) {
-      const pos = fragment.toArray().indexOf(ins.afterBlock.blockNode);
-      at = pos === -1 ? fragment.length : pos + 1;
+      const resolved = anchorIndexFor(ins.afterBlock);
+      at = resolved === null ? fragment.length : resolved;
     }
-    fragment.insert(at, newNodes);
+    const already = insertedAt.get(ins.afterBlock || null) || 0;
+    fragment.insert(at + already, newNodes);
+    insertedAt.set(ins.afterBlock || null, already + newNodes.length);
   }
 
   return { ...plan.counts };

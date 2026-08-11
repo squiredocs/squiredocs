@@ -743,4 +743,78 @@ describe('US3 — the same behaviour at every document size (FR-008, contract I6
   });
 });
 
+// ---------------------------------------------------------------------------
+describe('insertion anchors survive the replacement of their anchor block (review HIGH-1)', () => {
+  /**
+   * The planner folds an insertion onto the FORCED replace that swallowed its
+   * anchor, but only forced replaces are knowable at plan time. When the
+   * CLASSIFIER is what turns the anchor block into a replacement — a heading
+   * level change, a paragraph → list change, a declined reconciliation — the
+   * insertion still points at a node that step 3 of `applyHunks` deletes.
+   * Resolving that anchor by node identity alone sent the insertion to the END
+   * of the document: content silently reordered, push ≢ pushedMd, no error.
+   *
+   * Each case below pairs a classifier-replaced block with a brand-new block
+   * inserted directly after it, and asserts the whole push round-trips.
+   */
+  test('a heading level change with a new block right after it keeps push order', () => {
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(
+      [heading(2, 'Alpha'), el('paragraph', 'Common paragraph that stays put.')],
+      '### Alpha\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.'
+    );
+    // The heading pairs (high similarity) and the classifier declines the level
+    // change, so the heading node itself is replaced — the anchor is gone.
+    expect(plan.structural.some((h) => !h.forced && (h.blocks || []).length === 1)).toBe(true);
+    expect(resultMd).toBe(pushedMd);
+    expect(resultMd).toBe('### Alpha\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('a paragraph → list type change with a new block right after it keeps push order', () => {
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(
+      [el('paragraph', 'Bravo item text here'), el('paragraph', 'Common paragraph that stays put.')],
+      '- Bravo item text here\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.'
+    );
+    expect(resultMd).toBe(pushedMd);
+    expect(resultMd).toBe('- Bravo item text here\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('a declined reconciliation with a new block right after it keeps push order', () => {
+    // "> " in front of a paragraph re-parses as a blockquote, so
+    // reconcileBlockPlan refuses it (type mismatch) and the block replaces.
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(
+      [el('paragraph', 'Alpha the first.'), el('paragraph', 'Common paragraph that stays put.')],
+      '> Alpha the first.\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.'
+    );
+    expect(resultMd).toBe(pushedMd);
+    expect(resultMd).toBe('> Alpha the first.\n\nA brand new paragraph of content.\n\nCommon paragraph that stays put.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('an insertion anchored on a DELETED run lands where the run was', () => {
+    // The anchor block is deleted outright (replaced by nothing), so there is
+    // no tail node to hang off: the anchor walks back to the nearest surviving
+    // predecessor instead of falling to the end of the document.
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(
+      [el('paragraph', 'Keep me first.'),
+        el('paragraph', 'Delete me entirely.'),
+        el('paragraph', 'Keep me last.')],
+      'Keep me first.\n\nA brand new paragraph of content.\n\nKeep me last.'
+    );
+    expect(resultMd).toBe(pushedMd);
+    expect(resultMd).toBe('Keep me first.\n\nA brand new paragraph of content.\n\nKeep me last.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('an insertion anchored on the FIRST block when that block is replaced', () => {
+    const { plan, baseBlocks, resultMd, pushedMd } = replay(
+      [heading(1, 'Title'), el('paragraph', 'Body that stays put.')],
+      '## Title\n\nInserted directly under the title.\n\nBody that stays put.'
+    );
+    expect(resultMd).toBe(pushedMd);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+});
+
 module.exports = { assertNoCrossBlockSplice };
