@@ -6,7 +6,7 @@ const Y = require('yjs');
 const { toMarkdownWithSourceMap, toMarkdownNodes } = require('../mcp/yjs/serialization');
 const {
   detectOverlaps,
-  canonicalizePushed,
+  canonicalizePushedWithBlocks,
   computeHunks,
   planPush,
   buildChangeReport,
@@ -33,7 +33,9 @@ async function overlaps(baselineDoc, currentDoc, pushedBody) {
   const nodes = baselineDoc.get('default', Y.XmlFragment).toArray();
   const { markdown: canonicalMd, sourceMap } = toMarkdownWithSourceMap(nodes);
   const baselineSV = Y.encodeStateVector(baselineDoc);
-  const plan = planPush(computeHunks(canonicalMd, canonicalizePushed(pushedBody)), sourceMap, canonicalMd);
+  const pushed = canonicalizePushedWithBlocks(pushedBody);
+  const plan = planPush(
+    computeHunks(canonicalMd, pushed.markdown, sourceMap.blocks, pushed.blocks), sourceMap, canonicalMd);
   const before = toMarkdownNodes(currentDoc.get('default', Y.XmlFragment).toArray());
   const flags = await detectOverlaps({}, 'doc', {
     baselineSV, canonicalMd, sourceMap, plan, getSharedDoc: () => currentDoc, flavor: 'squire',
@@ -85,6 +87,32 @@ describe('overlap detection (T013, US2)', () => {
     const flags = await overlaps(base, cur, 'Alpha'); // deletes Bravo
     expect(flags).toHaveLength(1);
     expect(flags[0].pushSide).toBe('deleted');
+    base.destroy(); cur.destroy();
+  });
+
+  // Feature 055 (US2, FR-007): the same two outcomes when the whole-block op
+  // comes from the ALIGNER rather than the classifier. A wholesale rewrite is
+  // now an atomic replace, so a collaborator editing that block loses their
+  // edit with the old node — which is exactly why it must be flagged.
+  test('atomic replace of a rewritten block vs a concurrent edit → pushSide structural', async () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha'), el('paragraph', 'Restart the queue workers.')]));
+    const cur = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha'), el('paragraph', 'Restart the queue workers. Live note.')]));
+    const flags = await overlaps(base, cur, 'Alpha\n\nDrain connections, then flip the flag.');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ docSide: 'edited', pushSide: 'structural' });
+    base.destroy(); cur.destroy();
+  });
+
+  test('a block the push deletes wholesale vs a concurrent edit → pushSide deleted', async () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha keeps its place'), el('paragraph', 'Bravo is going away')]));
+    const cur = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha keeps its place'), el('paragraph', 'Bravo is going away, edited live')]));
+    const flags = await overlaps(base, cur, 'Alpha keeps its place');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ docSide: 'edited', pushSide: 'deleted' });
     base.destroy(); cur.destroy();
   });
 
@@ -167,8 +195,9 @@ describe('buildChangeReport (054, US2/FR-009)', () => {
   function report(baselineDoc, pushedBody) {
     const nodes = baselineDoc.get('default', Y.XmlFragment).toArray();
     const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(nodes);
+    const pushed = canonicalizePushedWithBlocks(pushedBody);
     const plan = planPush(
-      computeHunks(baselineMd, canonicalizePushed(pushedBody)), sourceMap, baselineMd);
+      computeHunks(baselineMd, pushed.markdown, sourceMap.blocks, pushed.blocks), sourceMap, baselineMd);
     return { entries: buildChangeReport(plan, sourceMap, baselineMd), plan, sourceMap, baselineMd };
   }
 
@@ -178,7 +207,14 @@ describe('buildChangeReport (054, US2/FR-009)', () => {
       el('paragraph', 'Bravo untouched'),
       el('paragraph', 'Charlie original'),
     ]));
-    const { entries } = report(base, 'Alpha CHANGED\n\nBravo untouched\n\nCharlie CHANGED');
+    // The pushed text APPENDS to each edited paragraph. Under the 055 block
+    // aligner, "Alpha original" → "Alpha CHANGED" shares only "Alpha " — a
+    // 0.44 Dice score, which is a wholesale rewrite by the ratified threshold
+    // and therefore an atomic replace, not a character edit (ledger gap #2:
+    // the frequency of atomic replacement rises, the semantics do not change).
+    // What this test is about is the report's shape for character edits, so
+    // the fixture is an edit that is one; every assertion below is untouched.
+    const { entries } = report(base, 'Alpha original CHANGED\n\nBravo untouched\n\nCharlie original CHANGED');
 
     expect(entries).toHaveLength(2);
     expect(entries.map((e) => e.op)).toEqual(['text', 'text']);
@@ -221,6 +257,25 @@ describe('buildChangeReport (054, US2/FR-009)', () => {
     expect(typeof insertion.blockIndex).toBe('number');
     expect(insertion.blockIndex).toBeGreaterThanOrEqual(0);
     insertDoc.destroy();
+  });
+
+  // Feature 055: the report builder was written against plan lists, so the
+  // aligner's forced whole-block ops need no change in it — they arrive in
+  // `plan.structural` like any other structural entry. This pins that, and
+  // pins the one thing 055 does change about the report: WHICH entries appear.
+  test('a forced whole-block replace (055) reports as op "structural"', () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Restart the queue workers.'),
+      el('paragraph', 'Then page the on-call.'),
+    ]));
+    const { entries, plan } = report(base, 'Drain connections, then flip the flag.\n\nThen page the on-call.');
+    // The aligner decided this, not the classifier.
+    expect(plan.structural.filter((h) => h.forced)).toHaveLength(1);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      op: 'structural', blockType: 'paragraph', excerpt: 'Restart the queue workers.',
+    });
+    base.destroy();
   });
 
   test('AS-2: an insertion at the document head reports position "start"', () => {

@@ -7,6 +7,12 @@
  * reconnected. Y.Doc in / update out; the live doc is never consulted during
  * diff/replay (FR-004). See specs/004-two-way-sync/.
  *
+ * Planning is BLOCK-ALIGNED (feature 055, see the pre-pass section below):
+ * baseline and pushed documents are matched block to block first, and character
+ * diffing happens only inside a matched pair. Blocks that match nothing become
+ * whole-block operations. There is no whole-document character diff and no
+ * separate path for large documents — every bound degrades one pair or one gap.
+ *
  * ===========================================================================
  * T001 — VERIFIED CONSUMED SURFACES FROM FEATURES 001/002/003 (as SHIPPED)
  * ===========================================================================
@@ -83,7 +89,7 @@
 
 const crypto = require('crypto');
 const Y = require('yjs');
-const { diffChars, diffLines, diffArrays } = require('diff');
+const { diffChars, diffArrays } = require('diff');
 const {
   toMarkdown,
   toMarkdownNodes,
@@ -302,22 +308,74 @@ async function buildBaseline(persistence, docGuid, baselineClock, { flavor = 'sq
 }
 
 /**
+ * The pushed markdown's block extents (feature 055, research R1).
+ *
+ * The alignment pre-pass needs to know where each PUSHED block starts and ends
+ * in the canonical pushed string, exactly as `sourceMap.blocks` says for the
+ * baseline. Those extents must byte-agree with the canonical string, so they
+ * come from the serializer that produced it — `toMarkdownWithSourceMap` on the
+ * canonicalization scratch fragment — and never from splitting the string on
+ * `\n\n`, which is wrong inside a fenced code block (the one construct whose
+ * canonical form can contain a blank line) and would make block boundaries a
+ * second, drift-prone notion.
+ *
+ * Only `{ mdStart, mdEnd, blockIndex }` survives: the source map's `blockNode`
+ * points into the scratch document, which is destroyed on the way out, and the
+ * pushed side carries no collaboration identity anyway (only the baseline's
+ * nodes do). Handing a dead node reference downstream could only invite a bug.
+ */
+function pushedBlockExtents(sourceMap) {
+  return sourceMap.blocks.map((b) => ({
+    mdStart: b.mdStart,
+    mdEnd: b.mdEnd,
+    blockIndex: b.blockIndex,
+  }));
+}
+
+/** Pushed BODY → detached, post-synchronous-policy Yjs nodes (shared prelude). */
+function pushedNodes(body) {
+  let pmJson = markdownToPm(body);
+  pmJson = reconstructImages(pmJson);
+  pmJson = sanitizeLinkMarks(pmJson);
+  return pmJsonToNodes(pmJson);
+}
+
+/**
  * Canonicalize pushed markdown BODY (frontmatter already stripped) the same way
  * an import would (tolerant parse → image reconstruction → link sanitation →
  * materialize), then serialize in the pushed flavor. Formatting-equivalent
  * inputs collapse to identical canonical strings (FR-005/FR-009).
  */
 function canonicalizePushed(body, { flavor = 'squire' } = {}) {
-  let pmJson = markdownToPm(body);
-  pmJson = reconstructImages(pmJson);
-  pmJson = sanitizeLinkMarks(pmJson);
-  const nodes = pmJsonToNodes(pmJson);
+  const nodes = pushedNodes(body);
   if (nodes.length === 0) return '';
   const scratch = new Y.Doc();
   try {
     const frag = scratch.get('default', Y.XmlFragment);
     scratch.transact(() => frag.insert(0, nodes));
     return toMarkdownNodes(frag.toArray(), { flavor });
+  } finally {
+    scratch.destroy();
+  }
+}
+
+/**
+ * `canonicalizePushed` plus the pushed block extents (055). Deliberately a
+ * sibling rather than a replacement: `canonicalizePushed` keeps returning a
+ * bare string for the callers that only want one, and the two serializer
+ * entry points are contractually byte-identical, which a test pins.
+ *
+ * @returns {{ markdown: string, blocks: Array<{mdStart,mdEnd,blockIndex}> }}
+ */
+function canonicalizePushedWithBlocks(body, { flavor = 'squire' } = {}) {
+  const nodes = pushedNodes(body);
+  if (nodes.length === 0) return { markdown: '', blocks: [] };
+  const scratch = new Y.Doc();
+  try {
+    const frag = scratch.get('default', Y.XmlFragment);
+    scratch.transact(() => frag.insert(0, nodes));
+    const { markdown, sourceMap } = toMarkdownWithSourceMap(frag.toArray(), { flavor });
+    return { markdown, blocks: pushedBlockExtents(sourceMap) };
   } finally {
     scratch.destroy();
   }
@@ -333,7 +391,12 @@ function canonicalizePushed(body, { flavor = 'squire' } = {}) {
  * every structural fragment re-parsed during replay (mdToNodes) — carries only
  * vetted srcs: app URLs, degraded links, or dropped alt text. A `data:` payload,
  * an unfetched external src, or a cross-doc ref the pusher can't read never
- * reaches the fork. Returns { markdown, images } (images: 002 report shape).
+ * reaches the fork. Returns { markdown, images, blocks } — `blocks` being the
+ * pushed block extents the 055 alignment pre-pass aligns against (research R1).
+ *
+ * The empty-content early returns carry `blocks: []` rather than omitting the
+ * field: an empty pushed document is a real push (it deletes every block), and
+ * it reaches the aligner through exactly these two returns.
  */
 async function canonicalizePushedStaged(body, { flavor = 'squire', imageContext } = {}) {
   let pmJson = markdownToPm(body);
@@ -342,15 +405,19 @@ async function canonicalizePushedStaged(body, { flavor = 'squire', imageContext 
   const rejected = rejectDataImages(pmJson);
   const detached = pmJsonToNodes(pmJson);
   if (detached.length === 0) {
-    return { markdown: '', images: { rehosted: [], copied: [], degraded: [], rejected } };
+    return {
+      markdown: '', blocks: [],
+      images: { rehosted: [], copied: [], degraded: [], rejected },
+    };
   }
   const { nodes, images } = await stageImagePass(detached, imageContext, rejected);
-  if (nodes.length === 0) return { markdown: '', images };
+  if (nodes.length === 0) return { markdown: '', blocks: [], images };
   const scratch = new Y.Doc();
   try {
     const frag = scratch.get('default', Y.XmlFragment);
     scratch.transact(() => frag.insert(0, nodes));
-    return { markdown: toMarkdownNodes(frag.toArray(), { flavor }), images };
+    const { markdown, sourceMap } = toMarkdownWithSourceMap(frag.toArray(), { flavor });
+    return { markdown, blocks: pushedBlockExtents(sourceMap), images };
   } finally {
     scratch.destroy();
   }
@@ -395,40 +462,332 @@ function mdToNodes(md) {
 }
 
 // ===========================================================================
-// T007 — Diff → anchored hunks → classification (research R3)
+// T007 — Alignment → in-pair diff → anchored hunks → classification
+// (research R3; rebuilt as a block-aligned pre-pass by feature 055)
 // ===========================================================================
 
 // Coalesce two same-block text hunks separated by fewer than this many common
 // characters into one (implementation-tunable; not protocol surface).
 const COALESCE_DISTANCE = 3;
 
-// diffChars edit-distance cap; over it we fall back to coarse line hunking (R11).
+// diffChars edit-distance cap for one block pair; over it, that pair alone is
+// replayed as a whole-block replacement.
 const MAX_EDIT_LENGTH = 10000;
-// Above this combined input size we skip the whole-document char diff entirely
-// (its O(N·D) cost is unbounded for large inputs) and go straight to line-level
-// coarse hunking — a small edit still yields a precise char hunk on its line.
-const COARSE_INPUT_THRESHOLD = 64 * 1024;
-// Within coarse mode, a changed line-cluster larger than this on either side is
-// replayed as a whole (structural) rather than char-diffed — bounds the work.
-const COARSE_CLUSTER_MAX = 16 * 1024;
+// A block larger than this on either side of a candidate pair is never
+// character-diffed — it scores 0 similarity and replaces as a unit. This bounds
+// the per-pair work, which is the only bound the planner needs now that there
+// is no whole-document comparison to bound (055/RBD-055-6).
+const PAIR_INPUT_MAX = 16 * 1024;
+
+// ===========================================================================
+// 055 — Block-alignment pre-pass (research R2–R4, R6)
+//
+// Before any character diffing happens, the baseline and the pushed document
+// are aligned BLOCK BY BLOCK. Exactly-equal blocks anchor via a block-level
+// LCS; the blocks in the gaps between anchors are paired by similarity; and
+// character diffing then runs only INSIDE a matched pair. Blocks that pair
+// with nothing — or pair too weakly to be "the same block, edited" — become
+// whole-block insert/delete/replace operations instead.
+//
+// That is what makes a cross-block splice impossible rather than unlikely: a
+// character hunk is computed from one baseline block string and one pushed
+// block string, so it cannot reach past either. The old whole-document
+// character diff could (and did) match the "Deployment" in one heading against
+// the "Deployment" in another and splice an edit into the wrong block.
+// ===========================================================================
+
+// Two blocks are "the same block, edited" at or above this Dice similarity;
+// below it they are different blocks and the push replaces one wholesale.
+// Implementation-tunable, not protocol surface (FR-011).
+const SIMILARITY_THRESHOLD = 0.5;
+
+// A gap whose pairing matrix would exceed this many cells degrades to
+// positional pairing (research R4). Bounds the worst case — a wholesale
+// rewrite of a many-hundred-block document is one giant gap — without ever
+// reaching for a whole-document fallback.
+const MAX_GAP_DP_CELLS = 10000;
+
+// Similarity scores are sums of floating-point Dice values, so DP totals are
+// compared with a tolerance rather than for exact equality.
+const SIM_EPSILON = 1e-9;
 
 /**
- * Character-diff baseline vs pushed canonical markdown into anchored hunks
- * `{ oldStart, oldEnd, newText }` in BASELINE coordinates (adjacency-0
- * clustering), then coalesce near-adjacent hunks that stay within one block.
+ * Dice similarity of two block strings with the bounded ladder of research R3,
+ * plus the character diff that produced it (so a matched pair never pays for
+ * the same diff twice — the hunk builder reuses these parts).
+ *
+ * Every step is deterministic and symmetric, which is what lets the same push
+ * plan the same way twice (FR-011):
+ *   1. identical            → 1        (no diff run at all)
+ *   2. either side oversized → 0       (bounded work, RBD-055-6)
+ *   3. lengths too far apart → 0       (sound: C <= min(|a|,|b|), so the true
+ *                                       Dice score could not reach threshold)
+ *   4. diff cap tripped      → 0       (cap-exceeded pairs are below threshold)
+ *   5. otherwise             → 2C/(|a|+|b|), C = common characters
+ *
+ * @returns {{ sim: number, parts: Array|null }}
  */
-function computeHunks(baselineMd, pushedMd) {
-  let parts = null;
-  if (baselineMd.length + pushedMd.length <= COARSE_INPUT_THRESHOLD) {
-    parts = diffChars(baselineMd, pushedMd, { maxEditLength: MAX_EDIT_LENGTH });
+function blockSimilarityDetail(a, b) {
+  if (a === b) return { sim: 1, parts: null };
+  const la = a.length;
+  const lb = b.length;
+  if (la > PAIR_INPUT_MAX || lb > PAIR_INPUT_MAX) return { sim: 0, parts: null };
+  const total = la + lb;
+  if (total === 0) return { sim: 1, parts: null };
+  if ((2 * Math.min(la, lb)) / total < SIMILARITY_THRESHOLD) return { sim: 0, parts: null };
+  const parts = diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH });
+  if (!parts) return { sim: 0, parts: null };
+  let common = 0;
+  for (const p of parts) if (!p.added && !p.removed) common += p.value.length;
+  return { sim: (2 * common) / total, parts };
+}
+
+/** The Dice similarity of two block strings (research R3). Deterministic, symmetric. */
+function blockSimilarity(a, b) {
+  return blockSimilarityDetail(a, b).sim;
+}
+
+/** [start, start+count) as an array of indices. */
+function indexRun(start, count) {
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(start + i);
+  return out;
+}
+
+/**
+ * Pair the blocks of ONE gap: the order-preserving matching that maximizes
+ * total similarity (research R4). Candidates below the threshold are never
+ * matched, so a pair always means "the same block, edited".
+ *
+ * Optimal-within-order is the standard alignment DP; the traceback tie-break
+ * is fixed (diagonal, then baseline, then pushed) so the result is a function
+ * of the inputs alone. Over MAX_GAP_DP_CELLS the gap degrades to positional
+ * pairing — i-th with i-th, still similarity-gated, still order-preserving —
+ * which is deterministic too and costs O(max(N, M)) comparisons.
+ */
+function pairGap(baseIdxs, pushedIdxs, baseMds, pushedMds) {
+  const N = baseIdxs.length;
+  const M = pushedIdxs.length;
+  if (N === 0 || M === 0) return [];
+  const detailOf = (i, j) => blockSimilarityDetail(baseMds[baseIdxs[i]], pushedMds[pushedIdxs[j]]);
+
+  if (N * M > MAX_GAP_DP_CELLS) {
+    const pairs = [];
+    for (let t = 0; t < Math.min(N, M); t++) {
+      const d = detailOf(t, t);
+      if (d.sim >= SIMILARITY_THRESHOLD) {
+        pairs.push({ baseIdx: baseIdxs[t], pushedIdx: pushedIdxs[t], sim: d.sim, parts: d.parts, degraded: false });
+      }
+    }
+    return pairs;
   }
-  if (!parts) {
-    // Large input or cap exceeded (R11): coarse line-level hunking, then
-    // character diff within small changed line clusters only. Bounded work.
-    parts = coarseDiff(baselineMd, pushedMd);
+
+  const details = [];
+  for (let i = 0; i < N; i++) {
+    const row = [];
+    for (let j = 0; j < M; j++) row.push(detailOf(i, j));
+    details.push(row);
   }
+
+  // dp[i][j] = best achievable total similarity over the first i baseline and
+  // first j pushed blocks of this gap.
+  const dp = [];
+  for (let i = 0; i <= N; i++) dp.push(new Array(M + 1).fill(0));
+  for (let i = 1; i <= N; i++) {
+    for (let j = 1; j <= M; j++) {
+      const s = details[i - 1][j - 1].sim;
+      let best = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      if (s >= SIMILARITY_THRESHOLD) best = Math.max(best, dp[i - 1][j - 1] + s);
+      dp[i][j] = best;
+    }
+  }
+
+  const pairs = [];
+  let i = N;
+  let j = M;
+  while (i > 0 && j > 0) {
+    const s = details[i - 1][j - 1].sim;
+    if (s >= SIMILARITY_THRESHOLD && dp[i - 1][j - 1] + s >= dp[i][j] - SIM_EPSILON) {
+      pairs.push({
+        baseIdx: baseIdxs[i - 1],
+        pushedIdx: pushedIdxs[j - 1],
+        sim: s,
+        parts: details[i - 1][j - 1].parts,
+        degraded: false,
+      });
+      i -= 1;
+      j -= 1;
+    } else if (dp[i - 1][j] >= dp[i][j] - SIM_EPSILON) {
+      i -= 1;
+    } else {
+      j -= 1;
+    }
+  }
+  pairs.reverse();
+  return pairs;
+}
+
+/**
+ * Align two block-string sequences (research R2/R4).
+ *
+ * `anchors` are exactly-equal blocks found by the block-level LCS — the same
+ * `diffArrays` approach the overlap detector already uses, so the engine has
+ * ONE notion of what "the same block" means. Everything between two anchors is
+ * a gap, paired by similarity. Whatever pairs with nothing is a residual run,
+ * reported in document order for the gap emitter to turn into whole-block ops.
+ *
+ * @returns {{ anchors: Array, pairs: Array, residualRuns: Array }}
+ */
+function alignBlocks(baseMds, pushedMds) {
+  const parts = diffArrays(baseMds, pushedMds);
+  const anchors = [];
+  const gaps = [];
+  let baseIdx = 0;
+  let pushedIdx = 0;
+  for (let k = 0; k < parts.length; k++) {
+    const p = parts[k];
+    if (!p.added && !p.removed) {
+      for (let n = 0; n < p.value.length; n++) anchors.push({ baseIdx: baseIdx++, pushedIdx: pushedIdx++ });
+      continue;
+    }
+    // A gap is a removed run and/or the added run paired with it. jsdiff emits
+    // removed-before-added; the reverse is handled too so the walk can never
+    // mis-attribute a gap's position.
+    let baseIdxs = [];
+    let pushedIdxs = [];
+    const next = parts[k + 1];
+    if (p.removed) {
+      baseIdxs = indexRun(baseIdx, p.value.length);
+      baseIdx += p.value.length;
+      if (next && next.added) {
+        pushedIdxs = indexRun(pushedIdx, next.value.length);
+        pushedIdx += next.value.length;
+        k += 1;
+      }
+    } else {
+      pushedIdxs = indexRun(pushedIdx, p.value.length);
+      pushedIdx += p.value.length;
+      if (next && next.removed) {
+        baseIdxs = indexRun(baseIdx, next.value.length);
+        baseIdx += next.value.length;
+        k += 1;
+      }
+    }
+    // `afterBaseIdx` is the baseline block this gap follows (-1 at document
+    // start) — the anchor a pure insertion in this gap hangs off.
+    gaps.push({ baseIdxs, pushedIdxs, afterBaseIdx: (baseIdxs.length ? baseIdxs[0] : baseIdx) - 1 });
+  }
+
+  const pairs = [];
+  const residualRuns = [];
+  for (const gap of gaps) {
+    const gapPairs = pairGap(gap.baseIdxs, gap.pushedIdxs, baseMds, pushedMds);
+    pairs.push(...gapPairs);
+
+    // Residual runs are the leftovers between pairing landmarks: the blocks
+    // before the first pair, between consecutive pairs, and after the last.
+    let bCursor = 0;
+    let pCursor = 0;
+    let prevBase = gap.afterBaseIdx;
+    const emitRun = (bEnd, pEnd) => {
+      const baseIdxs = gap.baseIdxs.slice(bCursor, bEnd);
+      const pushedIdxs = gap.pushedIdxs.slice(pCursor, pEnd);
+      if (baseIdxs.length > 0 || pushedIdxs.length > 0) {
+        residualRuns.push({ baseIdxs, pushedIdxs, afterBaseIdx: prevBase });
+      }
+      if (baseIdxs.length > 0) prevBase = baseIdxs[baseIdxs.length - 1];
+      bCursor = bEnd;
+      pCursor = pEnd;
+    };
+    for (const pr of gapPairs) {
+      emitRun(gap.baseIdxs.indexOf(pr.baseIdx), gap.pushedIdxs.indexOf(pr.pushedIdx));
+      bCursor += 1;
+      pCursor += 1;
+      prevBase = pr.baseIdx;
+    }
+    emitRun(gap.baseIdxs.length, gap.pushedIdxs.length);
+  }
+
+  return { anchors, pairs, residualRuns };
+}
+
+/**
+ * Turn residual runs and degraded pairs into forced whole-block hunks
+ * (research R6). These bypass hunk classification entirely — a paragraph the
+ * push rewrote wholesale must be replaced as a block, not re-classified into a
+ * giant character edit over the same extent.
+ *
+ * Two apply-time hazards are closed here, at plan time, where they are
+ * statically decidable:
+ *   - ONE insertion hunk per anchor. `applyHunks` inserts each boundary
+ *     insertion at `anchor + 1`, so two hunks sharing an anchor would land in
+ *     reverse order. A run's pushed blocks are therefore joined into a single
+ *     hunk.
+ *   - Never anchor an insertion on a block a forced replace covers. Replacements
+ *     are applied before insertions and insertion anchors resolve by node
+ *     identity, so the anchor node would already be gone and the insertion
+ *     would silently fall to the end of the document. Instead the inserted text
+ *     is folded onto the replace hunk that swallowed its anchor.
+ */
+function emitForcedHunks(alignment, baseBlocks, baseMds, pushedMds) {
+  const { pairs, residualRuns } = alignment;
+  const replaceByLastBlock = new Map(); // baseline index -> forced replace hunk
+  const covered = new Set();
+  const forced = [];
+
+  const addReplace = (baseIdxs, pushedIdxs) => {
+    const first = baseBlocks[baseIdxs[0]];
+    const last = baseBlocks[baseIdxs[baseIdxs.length - 1]];
+    const hunk = {
+      oldStart: first.mdStart,
+      oldEnd: last.mdEnd,
+      newText: pushedIdxs.map((p) => pushedMds[p]).join('\n\n'),
+      forced: true,
+      blocks: baseIdxs.map((b) => baseBlocks[b]),
+    };
+    for (const b of baseIdxs) covered.add(b);
+    replaceByLastBlock.set(baseIdxs[baseIdxs.length - 1], hunk);
+    forced.push(hunk);
+    return hunk;
+  };
+
+  // Degraded pairs first: a pair whose in-pair character diff gave up is a
+  // whole-block replacement of exactly that block. (Defensive — the similarity
+  // ladder already scores a cap-tripping pair 0, so it never becomes a pair in
+  // the first place. Kept because the alternative failure mode is silence.)
+  for (const pr of pairs) {
+    if (pr.degraded) addReplace([pr.baseIdx], [pr.pushedIdx]);
+  }
+
+  for (const run of residualRuns) {
+    if (run.baseIdxs.length > 0) {
+      addReplace(run.baseIdxs, run.pushedIdxs);
+      continue;
+    }
+    if (run.pushedIdxs.length === 0) continue;
+    const newText = run.pushedIdxs.map((p) => pushedMds[p]).join('\n\n');
+    const anchorIdx = run.afterBaseIdx;
+    const foldInto = anchorIdx >= 0 && covered.has(anchorIdx) ? replaceByLastBlock.get(anchorIdx) : null;
+    if (foldInto) {
+      foldInto.newText = foldInto.newText === '' ? newText : `${foldInto.newText}\n\n${newText}`;
+      continue;
+    }
+    const at = anchorIdx >= 0 ? baseBlocks[anchorIdx].mdEnd : 0;
+    forced.push({ oldStart: at, oldEnd: at, newText, forced: true, blocks: [] });
+  }
+
+  return forced;
+}
+
+/**
+ * Turn one character diff's parts into anchored hunks `{ oldStart, oldEnd,
+ * newText }` in BASELINE coordinates (adjacency-0 clustering), then coalesce
+ * near-adjacent hunks. `baseOffset` rebases the diff of a single block's string
+ * into whole-document coordinates.
+ */
+function hunksFromParts(parts, baseOffset, baselineMd) {
   const raw = [];
-  let oldPos = 0;
+  let oldPos = baseOffset;
   let cur = null;
   for (const part of parts) {
     if (part.added) {
@@ -465,27 +824,51 @@ function computeHunks(baselineMd, pushedMd) {
   return merged;
 }
 
-/** Coarse fallback: diffLines, then diffChars within SMALL changed line clusters (R11). */
-function coarseDiff(baselineMd, pushedMd) {
-  const lineParts = diffLines(baselineMd, pushedMd);
-  const out = [];
-  for (let i = 0; i < lineParts.length; i++) {
-    const p = lineParts[i];
-    if (!p.added && !p.removed) { out.push({ value: p.value }); continue; }
-    if (p.removed && lineParts[i + 1] && lineParts[i + 1].added) {
-      const add = lineParts[i + 1];
-      let sub = null;
-      if (p.value.length <= COARSE_CLUSTER_MAX && add.value.length <= COARSE_CLUSTER_MAX) {
-        sub = diffChars(p.value, add.value, { maxEditLength: MAX_EDIT_LENGTH });
-      }
-      if (sub) { for (const s of sub) out.push(s); }
-      else { out.push({ removed: true, value: p.value }); out.push({ added: true, value: add.value }); }
-      i++;
-    } else {
-      out.push(p);
+/**
+ * Plan a push as hunks in BASELINE coordinates, block-aligned (feature 055).
+ *
+ * The pre-pass decides WHICH baseline block each pushed block corresponds to,
+ * and only then does any character diffing happen — inside a matched pair, on
+ * that pair's two block strings. Blocks that matched nothing (or matched too
+ * weakly to be the same block) come back as forced whole-block hunks tagged for
+ * `planPush` to route straight to structural.
+ *
+ * There is no whole-document character diff at any size, and no second planning
+ * path for large documents: bounds degrade one pair, or one gap, and nothing
+ * else (RBD-055-5/-6).
+ *
+ * @param {string} baselineMd   canonical baseline markdown
+ * @param {string} pushedMd     canonical pushed markdown
+ * @param {Array}  baseBlocks   baseline source-map blocks (extents + node identity)
+ * @param {Array}  pushedBlocks pushed block extents (research R1)
+ */
+function computeHunks(baselineMd, pushedMd, baseBlocks, pushedBlocks) {
+  const baseMds = baseBlocks.map((b) => baselineMd.slice(b.mdStart, b.mdEnd));
+  const pushedMds = pushedBlocks.map((b) => pushedMd.slice(b.mdStart, b.mdEnd));
+  const alignment = alignBlocks(baseMds, pushedMds);
+
+  const hunks = [];
+  for (const pair of alignment.pairs) {
+    const a = baseMds[pair.baseIdx];
+    const b = pushedMds[pair.pushedIdx];
+    if (a === b) continue; // paired but unchanged (a duplicate the LCS left in a gap)
+    // The similarity pass already diffed this exact pair; diffing it a second
+    // time would double the planner's cost for every edited block.
+    const parts = pair.parts || diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH });
+    if (!parts) {
+      // Defensive: the similarity ladder scores a cap-tripping pair 0, so it
+      // never becomes a pair. If one ever did, it degrades to a whole-block
+      // replacement of itself rather than to a document-wide fallback.
+      pair.degraded = true;
+      continue;
     }
+    for (const h of hunksFromParts(parts, baseBlocks[pair.baseIdx].mdStart, baselineMd)) hunks.push(h);
   }
-  return out;
+
+  for (const h of emitForcedHunks(alignment, baseBlocks, baseMds, pushedMds)) hunks.push(h);
+
+  hunks.sort((x, y) => (x.oldStart - y.oldStart) || (x.oldEnd - y.oldEnd));
+  return hunks;
 }
 
 /** True if inserted text would introduce or split block structure. */
@@ -525,6 +908,16 @@ function planPush(hunks, sourceMap, baselineMd) {
   const groups = new Map(); // blockNode -> { block, hunks[] }
   const structural = [];
   for (const h of hunks) {
+    // Forced hunks are the aligner's own whole-block decisions (055) and skip
+    // classification entirely. Re-classifying one would undo it: a wholesale
+    // paragraph rewrite covers a range that is all mapped text, so the
+    // classifier would happily call it a character edit and splice the new
+    // paragraph into the old one's CRDT text node — the exact outcome the
+    // pre-pass decided against.
+    if (h.forced) {
+      structural.push({ ...h });
+      continue;
+    }
     const cls = classifyRange(sourceMap, h.oldStart, h.oldEnd);
     if (cls.kind === 'text' && cls.block) {
       const key = cls.block.blockNode;
@@ -1225,7 +1618,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     // through the FULL staged image policy (F1) so the diff string and every
     // replayed fragment carry only vetted image srcs.
     const resolvedBody = resolveImageRefs(body, imageMap, docGuid);
-    const { markdown: pushedMd, images } = await canonicalizePushedStaged(
+    const { markdown: pushedMd, blocks: pushedBlocks, images } = await canonicalizePushedStaged(
       resolvedBody, { flavor, imageContext: { docId: docGuid, userId } });
 
     /**
@@ -1265,7 +1658,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     // Pin the synthetic clientID BEFORE any op is created (FR-011).
     fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
 
-    const hunks = computeHunks(canonicalMd, pushedMd);
+    const hunks = computeHunks(canonicalMd, pushedMd, sourceMap.blocks, pushedBlocks);
     const plan = planPush(hunks, sourceMap, canonicalMd);
     // Derived from the plan, before it is applied — the report describes the
     // baseline blocks the push would change, and after `applyHunks` runs the
@@ -1415,12 +1808,21 @@ module.exports = {
   syntheticClientId,
   buildBaseline,
   canonicalizePushed,
+  canonicalizePushedWithBlocks,
   canonicalizePushedStaged,
   resolveImageRefs,
   mdToNodes,
   // T007
   computeHunks,
   planPush,
+  // 055 — block-alignment pre-pass
+  blockSimilarity,
+  alignBlocks,
+  emitForcedHunks,
+  SIMILARITY_THRESHOLD,
+  MAX_GAP_DP_CELLS,
+  MAX_EDIT_LENGTH,
+  PAIR_INPUT_MAX,
   // T008
   applyHunks,
   reconcileTextNode,

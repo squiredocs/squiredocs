@@ -192,3 +192,34 @@ covers the leftover ops.
    coarse path. RBD-055-5 resolves this by unifying; if implementation
    falsifies the "one path" mechanism (e.g. a bound forces keeping a
    coarse fallback), the design doc must be amended per Constitution VI.
+
+---
+
+# Implementation outcomes (2026-08-11, feature 055)
+
+**Gap 1 — held.** 054 shipped `buildChangeReport` in
+`server/markdown-sync.js` with exactly the `text | reconcile | structural`
+vocabulary, derived from `plan.textBlocks` / `plan.reconcileBlocks` /
+`plan.structural`. 055 changes which entries appear and nothing else: the
+builder needed no modification, and a test now pins that a forced
+whole-block replace surfaces as `structural`
+(`server/__tests__/markdown-sync.overlap.test.js`). No reconciliation was
+needed.
+
+**Gap 2 — confirmed, and it reached an existing test.** The frequency shift
+is real and visible immediately: a 054 report fixture pushed
+`Alpha original` → `Alpha CHANGED`, which shares only `Alpha ` and scores
+0.44, so under 055 it is an atomic replace rather than a character edit.
+The assertion was kept and the fixture changed to an edit that is one, with
+the reason recorded at the call site. Worth knowing when reading field
+reports: "the push replaced my whole paragraph" will sometimes mean "you
+rewrote more than half of it", which is the ratified rule working.
+
+**Gap 3 — RBD-055-5's one-path mechanism held.** No fallback was kept. The
+coarse path is gone: `COARSE_INPUT_THRESHOLD`, `coarseDiff`, and the
+`diffLines` import are deleted, and `COARSE_CLUSTER_MAX` is renamed
+`PAIR_INPUT_MAX` for its new per-pair meaning. Every surviving bound
+(`PAIR_INPUT_MAX`, `MAX_EDIT_LENGTH`, `MAX_GAP_DP_CELLS`) degrades exactly
+one pair or one gap to whole-block replacement. Size parity is a tested
+invariant, not an aspiration: the same logical edit plans identically at
+~1KB and past 64KB for each op kind. No design amendment is owed.

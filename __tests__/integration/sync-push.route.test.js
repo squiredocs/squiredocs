@@ -1272,4 +1272,92 @@ describe('sync-push route (mode=sync)', () => {
       }
     });
   });
+
+  // =========================================================================
+  // Feature 055 — block alignment, observed on a real receipt.
+  //
+  // The planner-level proofs live in server/__tests__/markdown-sync.alignment
+  // .test.js. These are the same claims seen the way a pusher sees them: what
+  // the receipt says changed, and what the document actually contains
+  // afterwards. Deviation from tasks.md, recorded deliberately: the tasks put
+  // these in the replay suite, which is pure and DB-free by design (plan.md's
+  // testing note) — the end-to-end harness already lives here, next to 054's
+  // blocksChanged tests these assertions read.
+  // =========================================================================
+  describe('block alignment (055, US1/US2)', () => {
+    test('US1: renaming one heading leaves a similarly worded decoy untouched', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Deployment\n\nHow the service is deployed.\n\n'
+        + '# Deployment Notes\n\nNotes about the deployment.');
+      const edited = body.replace('# Deployment\n', '# Deployment Rollout\n');
+
+      const res = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(res.status).toBe(200);
+      // Exactly one block changed, and it is the renamed heading.
+      expect(res.body.blocksChanged).toHaveLength(1);
+      expect(res.body.blocksChanged[0]).toMatchObject({
+        blockType: 'heading',
+        excerpt: '# Deployment',
+        op: expect.stringMatching(/^(text|reconcile)$/),
+      });
+      // The decoy heading and both paragraphs survive byte for byte.
+      const after = await currentBody(docId);
+      expect(after).toContain('# Deployment Notes');
+      expect(after).toContain('How the service is deployed.');
+      expect(after).toContain('Notes about the deployment.');
+      expect(after).toContain('# Deployment Rollout');
+    });
+
+    test('US1 AS3: a concurrent edit to an untouched block survives, unflagged', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Deployment\n\nHow the service is deployed.\n\n'
+        + '# Deployment Notes\n\nNotes about the deployment.');
+
+      // A live collaborator edits the paragraph under the DECOY heading while
+      // the push renames the first heading.
+      const shared = documentService.getSharedDoc(docId);
+      const para = shared.get('default', Y.XmlFragment).toArray()
+        .find((n) => n.nodeName === 'paragraph' && n.get(0).toString().includes('Notes about'));
+      shared.transact(() => para.get(0).insert(para.get(0).length, ' Live addition.'), { userId: ownerId });
+      await drain();
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('# Deployment\n', '# Deployment Rollout\n')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      const after = await currentBody(docId);
+      expect(after).toContain('Notes about the deployment. Live addition.');
+      expect(after).toContain('# Deployment Rollout');
+      // The push never went near that block, so nothing is flagged.
+      expect(res.body.overlaps).toEqual([]);
+    });
+
+    test('US2/SC-006: a wholesale block rewrite replaces atomically, without hybrids', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Runbook\n\nRestart the queue workers.\n\nThen page the on-call.');
+      const versionsBefore = (await pool.query(
+        'SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+
+      const edited = body.replace('Restart the queue workers.', 'Drain connections, then flip the feature flag.');
+      const res = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.blocksChanged).toHaveLength(1);
+      expect(res.body.blocksChanged[0]).toMatchObject({
+        op: 'structural', excerpt: 'Restart the queue workers.',
+      });
+      // The pushed text is present exactly — no interleaving of old and new.
+      const after = await currentBody(docId);
+      expect(after).toContain('Drain connections, then flip the feature flag.');
+      expect(after).not.toContain('Restart');
+      expect(after).toContain('Then page the on-call.');
+      // One version entry, not one per fragment of a spliced edit.
+      const versionsAfter = (await pool.query(
+        'SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      expect(versionsAfter).toBe(versionsBefore + 1);
+    });
+  });
 });
