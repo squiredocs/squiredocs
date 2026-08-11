@@ -1070,7 +1070,7 @@ describe('frontmatter strip/preserve round-trip (FR-023, SC-005)', () => {
 // ---------------------------------------------------------------------------
 describe('sync round-trip invariant (push(export(doc)) is a no-op)', () => {
   const { toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
-  const { canonicalizePushed, computeHunks, planPush } = require('../markdown-sync');
+  const { canonicalizePushed, canonicalizePushedWithBlocks, computeHunks, planPush } = require('../markdown-sync');
 
   const elx = (tag, text, attrs) => {
     const e = new Y.XmlElement(tag);
@@ -1116,10 +1116,11 @@ describe('sync round-trip invariant (push(export(doc)) is a no-op)', () => {
         const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(nodes, { flavor });
 
         // (a) push(export) — empty canonical diff, zero ops, no version entry
-        const pushed = canonicalizePushed(baselineMd, { flavor });
+        const { markdown: pushed, blocks: pushedBlocks } = canonicalizePushedWithBlocks(baselineMd, { flavor });
         expect(pushed).toBe(baselineMd);
-        expect(computeHunks(baselineMd, pushed)).toHaveLength(0);
-        const plan = planPush(computeHunks(baselineMd, pushed), sourceMap, baselineMd);
+        expect(computeHunks(baselineMd, pushed, sourceMap.blocks, pushedBlocks)).toHaveLength(0);
+        const plan = planPush(
+          computeHunks(baselineMd, pushed, sourceMap.blocks, pushedBlocks), sourceMap, baselineMd);
         expect(plan.counts).toEqual({ textHunks: 0, structuralHunks: 0 });
 
         // (c) repeated pull→push cycle (≥3 iterations) stays a no-op (SC-009)

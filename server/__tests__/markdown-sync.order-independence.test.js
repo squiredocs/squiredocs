@@ -10,7 +10,7 @@ const Y = require('yjs');
 const { toMarkdown, toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
 const { extractXml } = require('../yjs-utils');
 const {
-  canonicalizePushed, computeHunks, planPush, applyHunks, syntheticClientId, sha256,
+  canonicalizePushedWithBlocks, computeHunks, planPush, applyHunks, syntheticClientId, sha256,
 } = require('../markdown-sync');
 
 function el(tag, text) {
@@ -32,9 +32,10 @@ function makePushUpdate(baseline, pushedBody) {
   Y.applyUpdate(fork, baseline.update);
   const frag = fork.getXmlFragment('default');
   const { markdown, sourceMap } = toMarkdownWithSourceMap(frag.toArray());
-  const canon = canonicalizePushed(pushedBody);
+  const { markdown: canon, blocks: pushedBlocks } = canonicalizePushedWithBlocks(pushedBody);
   fork.clientID = syntheticClientId('doc', 0, sha256(canon));
-  const plan = planPush(computeHunks(markdown, canon), sourceMap, markdown);
+  const plan = planPush(
+    computeHunks(markdown, canon, sourceMap.blocks, pushedBlocks), sourceMap, markdown);
   fork.transact(() => applyHunks(frag, plan, sourceMap, markdown));
   const u = Y.encodeStateAsUpdate(fork, baseline.sv);
   fork.destroy();

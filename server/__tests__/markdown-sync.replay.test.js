@@ -12,6 +12,7 @@ const {
   classifyRange,
   syntheticClientId,
   canonicalizePushed,
+  canonicalizePushedWithBlocks,
   computeHunks,
   planPush,
   applyHunks,
@@ -26,8 +27,8 @@ function replay(frag, pushedMd, opts = {}) {
   const flavor = opts.flavor || 'squire';
   const nodes = frag.toArray();
   const { markdown: baselineMd, sourceMap } = toMarkdownWithSourceMap(nodes, { flavor });
-  const pushedCanon = canonicalizePushed(pushedMd, { flavor });
-  const hunks = computeHunks(baselineMd, pushedCanon);
+  const { markdown: pushedCanon, blocks: pushedBlocks } = canonicalizePushedWithBlocks(pushedMd, { flavor });
+  const hunks = computeHunks(baselineMd, pushedCanon, sourceMap.blocks, pushedBlocks);
   const plan = planPush(hunks, sourceMap, baselineMd);
   let ops;
   frag.doc.transact(() => { ops = applyHunks(frag, plan, sourceMap, baselineMd, { flavor }); });
@@ -350,8 +351,9 @@ describe('hunk classification & replay (T006/T007/T008, US1)', () => {
       const frag = fork.getXmlFragment('default');
       const nodes = frag.toArray();
       const { markdown, sourceMap } = toMarkdownWithSourceMap(nodes);
-      const canon = canonicalizePushed('Hello brave new world');
-      const plan = planPush(computeHunks(markdown, canon), sourceMap, markdown);
+      const { markdown: canon, blocks: pushedBlocks } = canonicalizePushedWithBlocks('Hello brave new world');
+      const plan = planPush(
+        computeHunks(markdown, canon, sourceMap.blocks, pushedBlocks), sourceMap, markdown);
       fork.transact(() => applyHunks(frag, plan, sourceMap, markdown));
       const u = Buffer.from(Y.encodeStateAsUpdate(fork, baselineSV)).toString('hex');
       fork.destroy();
@@ -412,8 +414,12 @@ describe('no-op detection (T017/T018, US3, FR-009)', () => {
   }
   /** Zero hunks / no plan ops when pushing `pushedMd` at a baseline of `baselineMd`. */
   function isNoOp(baselineMd, pushedBody, flavor = 'squire') {
-    const pushed = canonicalizePushed(pushedBody, { flavor });
-    return pushed === baselineMd && computeHunks(baselineMd, pushed).length === 0;
+    const pushed = canonicalizePushedWithBlocks(pushedBody, { flavor });
+    // The baseline string here is already canonical, so re-canonicalizing it is
+    // how this helper gets the baseline block extents the aligner needs.
+    const base = canonicalizePushedWithBlocks(baselineMd, { flavor });
+    return pushed.markdown === baselineMd
+      && computeHunks(baselineMd, pushed.markdown, base.blocks, pushed.blocks).length === 0;
   }
 
   test('byte-identical re-push is a no-op', () => {
@@ -464,27 +470,47 @@ describe('performance guard (T027, SC-007, research R11)', () => {
     // edit one sentence deep in the document
     const pushed = baselineMd.replace('p500 lorem', 'p500 EDITED');
     const t0 = Date.now();
-    const canon = canonicalizePushed(pushed);
-    const plan = planPush(computeHunks(baselineMd, canon), sourceMap, baselineMd);
+    const canon = canonicalizePushedWithBlocks(pushed);
+    const hunks = computeHunks(baselineMd, canon.markdown, sourceMap.blocks, canon.blocks);
+    const plan = planPush(hunks, sourceMap, baselineMd);
     frag.doc.transact(() => applyHunks(frag, plan, sourceMap, baselineMd));
     const elapsed = Date.now() - t0;
 
     expect(elapsed).toBeLessThan(10000);
     expect(toMarkdownNodes(frag.toArray())).toContain('p500 EDITED');
+
+    // 055/SC-005: the hunks are block-scoped. A whole-document character diff
+    // would leave artifacts — hunks straddling block boundaries, or a hunk
+    // spanning most of the file. Every hunk here fits inside one block, and
+    // only the edited block produced any.
+    const edited = sourceMap.blocks[500];
+    for (const h of hunks) {
+      expect(h.oldStart).toBeGreaterThanOrEqual(edited.mdStart);
+      expect(h.oldEnd).toBeLessThanOrEqual(edited.mdEnd);
+    }
     doc.destroy();
   });
 
-  test('coarse fallback (diffLines→diffChars) handles a huge rewrite without error', () => {
-    // Force the maxEditLength cliff by rewriting a large body wholesale.
-    const bigA = Array.from({ length: 2500 }, (_, i) => `line ${i} original content here`).join('\n');
-    const bigB = Array.from({ length: 2500 }, (_, i) => `line ${i} REPLACED content now`).join('\n');
-    const doc = new Y.Doc();
-    doc.transact(() => doc.getXmlFragment('default').insert(0, [el('paragraph', 'anchor')]));
-    // computeHunks must not throw and must return hunks even past the char-diff cap.
-    const hunks = computeHunks(bigA, bigB);
+  test('a wholesale huge rewrite degrades per block, never to a document-wide diff', () => {
+    // Every block rewritten far past the character-diff cap. The unified path
+    // (055) has no coarse fallback to reach for: each block either pairs and
+    // char-diffs or replaces atomically, and the work stays bounded.
+    const mk = (word) => Array.from({ length: 400 }, (_, i) => `line ${i} ${word} content here`).join('\n\n');
+    const bigA = mk('original');
+    const bigB = 'zzz qqq www\n\n'.repeat(1).concat(mk('REPLACED'));
+    const a = canonicalizePushedWithBlocks(bigA);
+    const b = canonicalizePushedWithBlocks(bigB);
+    const t0 = Date.now();
+    const hunks = computeHunks(a.markdown, b.markdown, a.blocks, b.blocks);
+    expect(Date.now() - t0).toBeLessThan(10000);
     expect(Array.isArray(hunks)).toBe(true);
     expect(hunks.length).toBeGreaterThan(0);
-    doc.destroy();
+    // No hunk spans more than the block it belongs to.
+    for (const h of hunks) {
+      const spans = a.blocks.filter((blk) => h.oldStart < blk.mdEnd && h.oldEnd > blk.mdStart);
+      if (h.forced) expect(spans.length).toBeGreaterThanOrEqual(0);
+      else expect(spans.length).toBeLessThanOrEqual(1);
+    }
   });
 });
 
