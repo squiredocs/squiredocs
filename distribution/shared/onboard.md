@@ -58,6 +58,8 @@ Offer the best candidate you find and let the user confirm or point you at a dif
 
 Sync the chosen file over the byte channel — never retype its content through a tool parameter, even though you may have read it. Call `import_markdown_file` and run the recipe it returns: a single shell command that claims a token, imports the file over REST, and writes a sync receipt back into the file's frontmatter (you only set its `FILE=` line). The doc is born sync-ready, and the receipt is what lets later runs update this same doc instead of creating a duplicate.
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates — which is exactly what this move is. Later on, for a small targeted edit, XPath-targeted `modify` is the preferred tool, especially when the document is being actively edited or a specific node is damaged.
+
 ## Move 4 — Deliver the payoff
 
 Print the new doc's URL — the sync receipt states it (`View it at …/d/<docGuid>`); relay that link exactly, never construct a URL of another form. Say what the editor adds: this is where the human reviews and refines the spec, with every edit — human or agent — attributed and revertible. The editor is the payoff inside the loop, not a front door the user has to visit first. What they got for one command is a durable, shared, attributed home for the spec that was sitting untracked in their repo a minute ago.

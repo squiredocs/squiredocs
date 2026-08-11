@@ -195,7 +195,14 @@ const SERVER_INSTRUCTIONS =
   + 'Model context should only carry content you are creating or '
   + 'transforming. The import_markdown_file tool returns a ready-to-run '
   + 'recipe; or mint a token yourself with create_access_token, then see '
-  + 'get_tool_documentation({ tool: "rest_api" }).';
+  + 'get_tool_documentation({ tool: "rest_api" }).'
+  // Feature 054 (US5/FR-016): the channel rule says which CHANNEL bytes move
+  // over. This says which TOOL to reach for, which is the question agents were
+  // actually getting wrong — whole-file syncing a document someone is editing
+  // to change one sentence.
+  + ' Whole-file sync is for authoring, importing, and bulk updates; for a '
+  + 'small targeted edit — especially to a doc someone is actively editing, '
+  + 'or a damaged node — prefer modify.';
 
 /**
  * Handle initialize method

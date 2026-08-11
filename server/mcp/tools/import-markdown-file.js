@@ -43,6 +43,10 @@ INTENT:
 - update (requires docGuid): the file replaces the document's content wholesale
 - sync (default with docGuid): baseline-anchored push of the file's edits
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates.
+XPath-targeted modify is for small targeted edits, and is the preferred tool
+when the document is being actively edited or a specific node is damaged.
+
 The token this mints is named after YOU, the agent — that name is your public identity, shown as the live presence label people watching the document see while your import runs, and recorded as the author in version history.
 
 Use this whenever the markdown already exists as bytes on disk — even if you have already read the file into context, the file remains the source of truth. No shell? The result's guidance field covers you.`;

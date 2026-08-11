@@ -185,6 +185,11 @@ on disk, another tool's output) should travel this byte channel — never retype
 through MCP tool parameters; model context should only carry content you are
 creating or transforming.
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates.
+XPath-targeted `modify` is for small targeted edits, and is the preferred tool
+when the document is being actively edited or a specific node is damaged. The
+channel rule decides how content travels; this decides which tool to reach for.
+
 - `GET /api/docs/:docId/export?format=markdown` — export a document as markdown.
   Options: `flavor=squire|portable` (default `portable`), `frontmatter=true|false`
   (default off), `format=bundle` for a zip of markdown plus image assets with
@@ -194,7 +199,10 @@ creating or transforming.
 - `PUT /api/docs/:docId/import?mode=append|replace|sync` — import markdown into
   an existing document (default `append`; requires the editor role). `mode=sync`
   replays a frontmattered repo file's edits as CRDT operations anchored at its
-  export-time baseline.
+  export-time baseline, and additionally accepts `strict=true|false` (refuse to
+  merge over unseen changes) and `dryRun=true|false` (compute the plan, apply
+  nothing). Both are sync-only and reject any value other than
+  `true`/`false`/`1`/`0`.
 
 Import routes require `documents:write`, accept `text/markdown` / `text/plain`
 bodies capped at 5 MB, and return an itemized image report plus a `markdown`
@@ -231,6 +239,32 @@ never retype the file through tool parameters — walk this loop instead:
    operations anchored at the file's baseline, merging cleanly with edits
    made in the app. Write each returned receipt back over the file to refresh
    the baseline.
+
+Use this loop for whole-file work: authoring, importing, and bulk updates. For
+a small targeted edit — especially to a document someone is actively editing,
+or to repair one damaged node — prefer `modify` with an XPath target.
+
+Every `mode=sync` response tells you how stale your baseline was
+(`baselineClock`, `currentClock`, `clockGap`, `docChangedSinceBaseline`) and
+which blocks the push changed (`blocksChanged`: block index, type, excerpt, and
+whether it was a text splice, a reconcile against concurrent live edits, or a
+structural insert/delete/replace). Verify a push from the receipt; you do not
+need to re-export and diff.
+
+Two opt-ins make that actionable:
+
+- **`strict=true`** refuses the push with `409 sync_baseline_stale` if the
+  document moved since your baseline. Nothing is applied — no content change,
+  no clock advance, no version entry. Re-export, re-apply your edits on the
+  fresh baseline, and push again. Without `strict`, the staleness fields are
+  advisory and the merge proceeds exactly as it always has.
+- **`dryRun=true`** returns the whole plan and applies nothing: no stored
+  update, no version entry, no clock advance, no live fan-out, and no presence
+  announcement to people watching the document. The response carries `dryRun:
+  true` and deliberately omits `markdown`, so a preview can never be mistaken
+  for a fresh baseline. (One disclosed exception: the staged image pass still
+  runs, so a dry run may rehost an external image — that pass is what produces
+  the exact bytes the plan is computed from.)
 
 ## Start here
 

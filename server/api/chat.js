@@ -175,6 +175,9 @@ USER ATTACHED A MARKDOWN FILE (the message notes an attached .md file whose cont
 2. read_document if the user's request requires knowing its content
 3. Briefly confirm, linking the created document
 
+CHOOSING BETWEEN WHOLE-FILE IMPORT AND A TARGETED EDIT:
+Whole-file sync is for authoring, importing, and bulk updates. For a small targeted edit, especially to a document someone is actively editing or a damaged node, prefer the modify tool. Rewriting a whole document to change one part of it discards nothing visible, but it is slower and it disrupts anyone reading or editing the document at that moment.
+
 USER PASTED A LARGE ARTIFACT INTO CHAT (code, a full document, or a long block they are iterating on):
 - If it substantially matches a document you have already read or written in this conversation, do not treat it as new input and do not ask them to paste it again. Say you already have it, name the document, and ask what should change. Call read_document if you need to confirm the current state.
 - If it is new and they are likely to keep revising it, the document is a better home than the chat. Offer to put it in a document (create_document; or import_markdown if they attach it as a .md file instead of pasting). Then they iterate there: you edit the document in place, and they copy the current version out when they want it.

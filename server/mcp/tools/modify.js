@@ -74,10 +74,12 @@ non-negotiable scripting rules) is too large for MCP tool descriptions —
 call get_tool_documentation({ tool: "modify" }) BEFORE writing your first
 script.
 
-Replacing or syncing content from an EXISTING markdown file? Don't retype it
-in a script — PUT /api/docs/:docId/import (mode=replace / mode=sync) is
-byte-faithful; import_markdown_file returns a ready-to-run recipe, and
-get_tool_documentation({ tool: "rest_api" }) has the full REST reference.
+Replacing or syncing a whole EXISTING markdown file — authoring, importing, a
+bulk update? Don't retype it here: PUT /api/docs/:docId/import (mode=replace /
+mode=sync) is byte-faithful; import_markdown_file returns a ready-to-run recipe
+and get_tool_documentation({ tool: "rest_api" }) the full REST reference. For a
+small targeted edit, especially to a doc someone is actively editing or a
+damaged node, prefer this tool.
 
 SCRIPT CONTRACT: the script must export a default function that receives the
 document root:

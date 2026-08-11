@@ -26,6 +26,8 @@ Content that already exists as bytes outside the model — a file on disk, anoth
 - **Into Squire Docs:** call `import_markdown_file` and run the recipe it returns — one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back. The recipe is self-contained; you only set its `FILE=` line. Do not read the file and paste its content into `create_document({ markdown })`.
 - **Out of Squire Docs:** `GET /api/docs/:docId/export?format=markdown` serializes the persisted doc, with no client connection needed. Pair it with `list_documents`' `updatedSince` for incremental pulls.
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates. XPath-targeted `modify` is for small targeted edits, and is the preferred tool when the document is being actively edited or a specific node is damaged. The byte channel decides how content travels; this decides which tool to reach for. Rewriting a whole document to change one sentence is expensive, and on a doc someone has open right now it is disruptive for no gain.
+
 When you are unsure which tool fits, call `get_tool_documentation` — it carries the full REST reference the tool descriptions are too small to hold.
 
 ## Tokens live in a file, never in the transcript
