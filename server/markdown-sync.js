@@ -507,44 +507,107 @@ const SIMILARITY_THRESHOLD = 0.5;
 // reaching for a whole-document fallback.
 const MAX_GAP_DP_CELLS = 10000;
 
+// Cells alone do not bound a gap's cost: 10000 cells of 16KB blocks is a very
+// different amount of work from 10000 cells of one-line blocks. This is the
+// second half of that bound — the number of FEATURE comparisons a gap's
+// candidate matrix may cost (summed over cells, each cell costs the smaller
+// side's distinct-feature count). Over it the gap degrades to positional
+// pairing, exactly as the cell cap does (RBD-055-6, extended per-gap).
+const MAX_GAP_SCORING_WORK = 8_000_000;
+
 // Similarity scores are sums of floating-point Dice values, so DP totals are
 // compared with a tolerance rather than for exact equality.
 const SIM_EPSILON = 1e-9;
 
+// Similarity features are WORDS, not characters (055 review MEDIUM-3). CJK
+// scripts do not space their words, so each such character is its own token;
+// everything else tokenizes as runs of letters and digits. Markdown syntax is
+// punctuation and therefore contributes no tokens, which is deliberate: `##
+// Alpha` and `### Alpha` are the same block with a changed level, and the
+// classifier — not the aligner — is what decides a level change.
+const TOKEN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{L}\p{N}]+/gu;
+
+// Word features have a resolution of 1/n, so with a handful of words they say
+// almost nothing: a one-word heading renamed from "Title" to "Titles" shares no
+// word at all. At or below this many words on the shorter side, similarity is
+// measured over CHARACTERS instead — which is what 055 shipped, and which the
+// review falsified only for PROSE (many words), never for short blocks.
+const SHORT_BLOCK_TOKENS = 3;
+
+/** Frequency map of a feature list (a multiset). */
+function featureFreq(list) {
+  const m = new Map();
+  for (const x of list) m.set(x, (m.get(x) || 0) + 1);
+  return m;
+}
+
 /**
- * Dice similarity of two block strings with the bounded ladder of research R3,
- * plus the character diff that produced it (so a matched pair never pays for
- * the same diff twice — the hunk builder reuses these parts).
- *
- * Every step is deterministic and symmetric, which is what lets the same push
- * plan the same way twice (FR-011):
- *   1. identical            → 1        (no diff run at all)
- *   2. either side oversized → 0       (bounded work, RBD-055-6)
- *   3. lengths too far apart → 0       (sound: C <= min(|a|,|b|), so the true
- *                                       Dice score could not reach threshold)
- *   4. diff cap tripped      → 0       (cap-exceeded pairs are below threshold)
- *   5. otherwise             → 2C/(|a|+|b|), C = common characters
- *
- * @returns {{ sim: number, parts: Array|null }}
+ * A block's similarity features, computed once and reused across every
+ * candidate cell it appears in. The character features are built lazily — only
+ * a short block ever needs them.
  */
-function blockSimilarityDetail(a, b) {
-  if (a === b) return { sim: 1, parts: null };
-  const la = a.length;
-  const lb = b.length;
-  if (la > PAIR_INPUT_MAX || lb > PAIR_INPUT_MAX) return { sim: 0, parts: null };
-  const total = la + lb;
-  if (total === 0) return { sim: 1, parts: null };
-  if ((2 * Math.min(la, lb)) / total < SIMILARITY_THRESHOLD) return { sim: 0, parts: null };
-  const parts = diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH });
-  if (!parts) return { sim: 0, parts: null };
+function similarityProfile(s) {
+  const tokens = s.toLowerCase().match(TOKEN_RE) || [];
+  return { str: s, len: s.length, freq: featureFreq(tokens), size: tokens.length, chars: null };
+}
+
+function charProfile(p) {
+  if (!p.chars) {
+    const cps = Array.from(p.str);
+    p.chars = { freq: featureFreq(cps), size: cps.length };
+  }
+  return p.chars;
+}
+
+/** The number of feature lookups one candidate cell against this block costs. */
+function profileWorkUnit(p) {
+  return p.size <= SHORT_BLOCK_TOKENS ? Math.min(p.len, 128) : p.freq.size;
+}
+
+/** Dice coefficient of two feature multisets: 2·|A ∩ B| / (|A| + |B|). */
+function multisetDice(fa, na, fb, nb) {
+  const total = na + nb;
+  if (total === 0) return 0;
+  // Sound early exit: the intersection can never exceed the smaller multiset,
+  // so a pair this lopsided cannot reach the threshold however it intersects.
+  if ((2 * Math.min(na, nb)) / total < SIMILARITY_THRESHOLD) return 0;
+  const [small, big] = fa.size <= fb.size ? [fa, fb] : [fb, fa];
   let common = 0;
-  for (const p of parts) if (!p.added && !p.removed) common += p.value.length;
-  return { sim: (2 * common) / total, parts };
+  for (const [k, v] of small) {
+    const w = big.get(k);
+    if (w !== undefined) common += v < w ? v : w;
+  }
+  return (2 * common) / total;
+}
+
+/**
+ * Similarity of two blocks from their profiles, with the bounded ladder of
+ * research R3 (as amended by the 055 review). Every step is deterministic and
+ * symmetric, which is what lets the same push plan the same way twice (FR-011):
+ *   1. identical             → 1
+ *   2. either side oversized → 0  (bounded work, RBD-055-6)
+ *   3. feature counts too far apart → 0  (sound: C ≤ min(|A|,|B|))
+ *   4. few words on either side → character-multiset Dice
+ *   5. otherwise             → word-multiset Dice
+ *
+ * No character diff runs here, on either branch. Scoring a candidate is O(block
+ * length), so a gap's whole N×M matrix costs what ONE character diff used to
+ * (055 review HIGH-2); the real diff runs later, and only for selected pairs.
+ */
+function profileSimilarity(pa, pb) {
+  if (pa.str === pb.str) return 1;
+  if (pa.len > PAIR_INPUT_MAX || pb.len > PAIR_INPUT_MAX) return 0;
+  if (pa.size <= SHORT_BLOCK_TOKENS || pb.size <= SHORT_BLOCK_TOKENS) {
+    const ca = charProfile(pa);
+    const cb = charProfile(pb);
+    return multisetDice(ca.freq, ca.size, cb.freq, cb.size);
+  }
+  return multisetDice(pa.freq, pa.size, pb.freq, pb.size);
 }
 
 /** The Dice similarity of two block strings (research R3). Deterministic, symmetric. */
 function blockSimilarity(a, b) {
-  return blockSimilarityDetail(a, b).sim;
+  return profileSimilarity(similarityProfile(a), similarityProfile(b));
 }
 
 /** [start, start+count) as an array of indices. */
@@ -565,28 +628,41 @@ function indexRun(start, count) {
  * pairing — i-th with i-th, still similarity-gated, still order-preserving —
  * which is deterministic too and costs O(max(N, M)) comparisons.
  */
-function pairGap(baseIdxs, pushedIdxs, baseMds, pushedMds) {
+function pairGap(baseIdxs, pushedIdxs, baseProfile, pushedProfile) {
   const N = baseIdxs.length;
   const M = pushedIdxs.length;
   if (N === 0 || M === 0) return [];
-  const detailOf = (i, j) => blockSimilarityDetail(baseMds[baseIdxs[i]], pushedMds[pushedIdxs[j]]);
-
-  if (N * M > MAX_GAP_DP_CELLS) {
+  const simOf = (i, j) => profileSimilarity(baseProfile(baseIdxs[i]), pushedProfile(pushedIdxs[j]));
+  const positional = () => {
     const pairs = [];
     for (let t = 0; t < Math.min(N, M); t++) {
-      const d = detailOf(t, t);
-      if (d.sim >= SIMILARITY_THRESHOLD) {
-        pairs.push({ baseIdx: baseIdxs[t], pushedIdx: pushedIdxs[t], sim: d.sim, parts: d.parts, degraded: false });
+      const s = simOf(t, t);
+      if (s >= SIMILARITY_THRESHOLD) {
+        pairs.push({ baseIdx: baseIdxs[t], pushedIdx: pushedIdxs[t], sim: s, degraded: false });
       }
     }
     return pairs;
-  }
+  };
 
-  const details = [];
+  if (N * M > MAX_GAP_DP_CELLS) return positional();
+
+  // The second half of the bound: cells are cheap only when the blocks are
+  // small. Cost is decided before any of it is paid, from the profiles alone.
+  let work = 0;
   for (let i = 0; i < N; i++) {
-    const row = [];
-    for (let j = 0; j < M; j++) row.push(detailOf(i, j));
-    details.push(row);
+    const a = profileWorkUnit(baseProfile(baseIdxs[i]));
+    for (let j = 0; j < M; j++) {
+      const b = profileWorkUnit(pushedProfile(pushedIdxs[j]));
+      work += a < b ? a : b;
+    }
+  }
+  if (work > MAX_GAP_SCORING_WORK) return positional();
+
+  const sims = [];
+  for (let i = 0; i < N; i++) {
+    const row = new Array(M);
+    for (let j = 0; j < M; j++) row[j] = simOf(i, j);
+    sims.push(row);
   }
 
   // dp[i][j] = best achievable total similarity over the first i baseline and
@@ -595,7 +671,7 @@ function pairGap(baseIdxs, pushedIdxs, baseMds, pushedMds) {
   for (let i = 0; i <= N; i++) dp.push(new Array(M + 1).fill(0));
   for (let i = 1; i <= N; i++) {
     for (let j = 1; j <= M; j++) {
-      const s = details[i - 1][j - 1].sim;
+      const s = sims[i - 1][j - 1];
       let best = Math.max(dp[i - 1][j], dp[i][j - 1]);
       if (s >= SIMILARITY_THRESHOLD) best = Math.max(best, dp[i - 1][j - 1] + s);
       dp[i][j] = best;
@@ -606,15 +682,9 @@ function pairGap(baseIdxs, pushedIdxs, baseMds, pushedMds) {
   let i = N;
   let j = M;
   while (i > 0 && j > 0) {
-    const s = details[i - 1][j - 1].sim;
+    const s = sims[i - 1][j - 1];
     if (s >= SIMILARITY_THRESHOLD && dp[i - 1][j - 1] + s >= dp[i][j] - SIM_EPSILON) {
-      pairs.push({
-        baseIdx: baseIdxs[i - 1],
-        pushedIdx: pushedIdxs[j - 1],
-        sim: s,
-        parts: details[i - 1][j - 1].parts,
-        degraded: false,
-      });
+      pairs.push({ baseIdx: baseIdxs[i - 1], pushedIdx: pushedIdxs[j - 1], sim: s, degraded: false });
       i -= 1;
       j -= 1;
     } else if (dp[i - 1][j] >= dp[i][j] - SIM_EPSILON) {
@@ -639,6 +709,14 @@ function pairGap(baseIdxs, pushedIdxs, baseMds, pushedMds) {
  * @returns {{ anchors: Array, pairs: Array, residualRuns: Array }}
  */
 function alignBlocks(baseMds, pushedMds) {
+  // One profile per block for the whole alignment, built on first use: a block
+  // appears in as many candidate cells as the other side has blocks, and its
+  // features do not change between them.
+  const baseProfiles = new Array(baseMds.length);
+  const pushedProfiles = new Array(pushedMds.length);
+  const baseProfile = (i) => baseProfiles[i] || (baseProfiles[i] = similarityProfile(baseMds[i]));
+  const pushedProfile = (i) => pushedProfiles[i] || (pushedProfiles[i] = similarityProfile(pushedMds[i]));
+
   const parts = diffArrays(baseMds, pushedMds);
   const anchors = [];
   const gaps = [];
@@ -681,7 +759,7 @@ function alignBlocks(baseMds, pushedMds) {
   const pairs = [];
   const residualRuns = [];
   for (const gap of gaps) {
-    const gapPairs = pairGap(gap.baseIdxs, gap.pushedIdxs, baseMds, pushedMds);
+    const gapPairs = pairGap(gap.baseIdxs, gap.pushedIdxs, baseProfile, pushedProfile);
     pairs.push(...gapPairs);
 
     // Residual runs are the leftovers between pairing landmarks: the blocks
@@ -852,13 +930,15 @@ function computeHunks(baselineMd, pushedMd, baseBlocks, pushedBlocks) {
     const a = baseMds[pair.baseIdx];
     const b = pushedMds[pair.pushedIdx];
     if (a === b) continue; // paired but unchanged (a duplicate the LCS left in a gap)
-    // The similarity pass already diffed this exact pair; diffing it a second
-    // time would double the planner's cost for every edited block.
-    const parts = pair.parts || diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH });
+    // THE character diff of the whole push: one per selected pair, never per
+    // candidate (055 review HIGH-2). Scoring answered "which baseline block is
+    // this?"; only now, for the block that won, is it worth asking "how did it
+    // change?".
+    const parts = diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH });
     if (!parts) {
-      // Defensive: the similarity ladder scores a cap-tripping pair 0, so it
-      // never becomes a pair. If one ever did, it degrades to a whole-block
-      // replacement of itself rather than to a document-wide fallback.
+      // The pair scored similar (same words) but its character edit distance is
+      // past the cap — a shuffle, not an edit. It degrades to a whole-block
+      // replacement of itself, never to a document-wide fallback (RBD-055-6).
       pair.degraded = true;
       continue;
     }
@@ -1862,6 +1942,7 @@ module.exports = {
   emitForcedHunks,
   SIMILARITY_THRESHOLD,
   MAX_GAP_DP_CELLS,
+  MAX_GAP_SCORING_WORK,
   MAX_EDIT_LENGTH,
   PAIR_INPUT_MAX,
   // T008

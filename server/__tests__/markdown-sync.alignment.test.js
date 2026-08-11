@@ -23,6 +23,7 @@ const {
   canonicalizePushedWithBlocks,
   SIMILARITY_THRESHOLD,
   MAX_GAP_DP_CELLS,
+  MAX_GAP_SCORING_WORK,
   PAIR_INPUT_MAX,
 } = require('../markdown-sync');
 
@@ -100,13 +101,28 @@ function replay(blocks, pushedBody) {
 }
 
 /**
- * Two same-length, under-the-input-cap strings whose character diff cannot finish within
- * MAX_EDIT_LENGTH. Built once: a genuine cap trip costs seconds by definition
- * (the diff has to do the work before it can give up), and two tests need one.
+ * Two under-the-input-cap strings that the aligner PAIRS (identical word
+ * multisets, so similarity 1) and whose character diff then cannot finish
+ * within MAX_EDIT_LENGTH — the only way to reach the degraded-pair path now
+ * that scoring is word-based and diff-free (055 review MEDIUM-3).
+ *
+ * Each "word" is one letter repeated, and the two strings order those words in
+ * opposite directions, so the character-level LCS is about one word long while
+ * the word multiset is untouched. Built once: a genuine cap trip costs seconds
+ * by definition (the diff has to do the work before it can give up), and two
+ * tests need one.
  */
 let capPair = null;
 function capTrippingPair() {
-  if (!capPair) capPair = ['a'.repeat(5100), 'b'.repeat(5100)];
+  if (!capPair) {
+    const letters = [];
+    for (let c = 0x61; c <= 0x7a; c++) letters.push(String.fromCharCode(c)); // a–z
+    for (let c = 0x41; c <= 0x5a; c++) letters.push(String.fromCharCode(c)); // A–Z
+    for (let c = 0x3b1; c <= 0x3c9; c++) letters.push(String.fromCharCode(c)); // α–ω
+    for (let c = 0x430; c <= 0x44f; c++) letters.push(String.fromCharCode(c)); // а–я
+    const words = letters.map((ch) => ch.repeat(48));
+    capPair = [words.join(' '), words.slice().reverse().join(' ')];
+  }
   return capPair;
 }
 
@@ -200,7 +216,7 @@ describe('pushed block extents (T004, research R1)', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('blockSimilarity (T005, research R3)', () => {
+describe('blockSimilarity (T005, research R3 as amended by RBD-055-1)', () => {
   test('identical strings score 1; the metric is symmetric and deterministic', () => {
     expect(blockSimilarity('hello world', 'hello world')).toBe(1);
     const a = 'The quick brown fox jumps over the lazy dog';
@@ -209,35 +225,78 @@ describe('blockSimilarity (T005, research R3)', () => {
     expect(blockSimilarity(a, b)).toBe(blockSimilarity(a, b));
   });
 
-  test('exact Dice values on hand-computed pairs', () => {
-    // "abcdef" vs "abcXef": common = a,b,c,e,f = 5 → 2*5/12
-    expect(blockSimilarity('abcdef', 'abcXef')).toBeCloseTo(10 / 12, 10);
-    // "abc" vs "abcdef": common = 3 → 2*3/9
-    expect(blockSimilarity('abc', 'abcdef')).toBeCloseTo(6 / 9, 10);
+  test('exact Dice values on hand-computed pairs (word multisets)', () => {
+    // 8 words each, 7 shared ("cat" → "dog") → 2*7/16
+    expect(blockSimilarity('one two three four five six seven cat', 'one two three four five six seven dog'))
+      .toBeCloseTo(14 / 16, 10);
+    // 3 words vs 6, all 3 shared → 2*3/9
+    expect(blockSimilarity('alpha bravo charlie', 'alpha bravo charlie delta echo foxtrot'))
+      .toBeCloseTo(6 / 9, 10);
+    // Repeats are a MULTISET, not a set: two "one"s meet one "one".
+    expect(blockSimilarity('one one two two', 'one two three four')).toBeCloseTo(4 / 8, 10);
+    // Case and punctuation are not features: markdown syntax alone never
+    // separates two blocks (this is what makes a heading level change a pair).
+    expect(blockSimilarity('Deploy the service now.', 'DEPLOY the service now!')).toBe(1);
+    expect(blockSimilarity('## Alpha beta gamma delta', '### Alpha beta gamma delta')).toBe(1);
   });
 
-  test('an oversized side scores 0 without diffing (ladder step 2)', () => {
-    const big = 'x'.repeat(PAIR_INPUT_MAX + 1);
-    expect(blockSimilarity(big, `${big}!`)).toBe(0);
-    expect(blockSimilarity(`${big}!`, big)).toBe(0);
+  test('short blocks score by CHARACTER, where word features have no resolution', () => {
+    // A one-word heading renamed shares no WORD with itself; below
+    // SHORT_BLOCK_TOKENS words the metric measures characters instead, exactly
+    // as 055 shipped. The review's falsification is about prose, not about
+    // blocks with three words in them.
+    expect(blockSimilarity('## Title', '## Titles')).toBeGreaterThan(SIMILARITY_THRESHOLD);
+    expect(blockSimilarity('abcdefgh', 'aXcdeYgh')).toBeGreaterThan(SIMILARITY_THRESHOLD);
+    expect(blockSimilarity('## Alpha', '### Alpha')).toBeGreaterThan(0.9);
+    // and it still separates two genuinely different short blocks
+    expect(blockSimilarity('# Alpha', '# Bravo')).toBeLessThan(SIMILARITY_THRESHOLD);
+  });
+
+  test('an oversized side scores 0 without scoring it (ladder step 2)', () => {
+    const filler = 'lorem ipsum dolor sit amet ';
+    const big = filler.repeat(Math.ceil((PAIR_INPUT_MAX + 1) / filler.length));
+    expect(big.length).toBeGreaterThan(PAIR_INPUT_MAX);
+    expect(blockSimilarity(big, `${big} extra`)).toBe(0);
+    expect(blockSimilarity(`${big} extra`, big)).toBe(0);
     // one byte under the cap on both sides, and it scores normally again
-    const ok = 'x'.repeat(PAIR_INPUT_MAX);
-    expect(blockSimilarity(ok, ok.slice(0, ok.length - 1))).toBeGreaterThan(0.9);
+    const ok = big.slice(0, PAIR_INPUT_MAX);
+    expect(blockSimilarity(ok, `${ok.slice(0, ok.length - 6)}zzzzz`)).toBeGreaterThan(0.9);
   });
 
-  test('length-bound skip: too different in size to reach the threshold (step 3)', () => {
-    const short = 'abc';
-    const long = 'abc'.repeat(100);
-    // 2*3/(3+300) is far under 0.5, so the ladder answers 0 without a diff.
+  test('feature-count bound: too different in size to reach the threshold (step 3)', () => {
+    const short = 'alpha bravo charlie delta';
+    const long = `${short} ${Array.from({ length: 100 }, (_, i) => `word${i}`).join(' ')}`;
+    // 2*4/(4+104) is far under 0.5, so the ladder answers 0 without intersecting.
     expect(blockSimilarity(short, long)).toBe(0);
   });
 
-  test('a diff-cap trip scores 0 (step 4, RBD-055-6)', () => {
+  test('scoring never runs a character diff (055 review HIGH-2)', () => {
+    // The pair below is the worst case the OLD character-Dice metric had: two
+    // 5KB strings whose diff cannot finish inside MAX_EDIT_LENGTH, which the
+    // metric used to pay for on every candidate cell. Word scoring answers
+    // instantly — and answers 1, because the words are the same words.
     const [a, b] = capTrippingPair();
-    expect(a.length).toBe(b.length); // the length bound cannot short-circuit
-    expect(2 * Math.min(a.length, b.length) / (a.length + b.length)).toBeGreaterThan(SIMILARITY_THRESHOLD);
-    expect(a.length).toBeLessThan(PAIR_INPUT_MAX); // nor can the input cap
-    expect(blockSimilarity(a, b)).toBe(0);
+    expect(a.length).toBeLessThan(PAIR_INPUT_MAX);
+    const t = Date.now();
+    expect(blockSimilarity(a, b)).toBe(1);
+    expect(Date.now() - t).toBeLessThan(250);
+  });
+
+  test('blocks with no words at all are covered by the character path', () => {
+    // A horizontal rule has no word tokens; without the fallback every such
+    // block would score 0 against every other and replace unconditionally.
+    expect(blockSimilarity('---', '---')).toBe(1);
+    expect(blockSimilarity('---', '***')).toBe(0);
+    expect(blockSimilarity('---', 'a real paragraph')).toBe(0);
+  });
+
+  test('CJK text scores by character, not by whole-run token (no space regression)', () => {
+    // Han/Kana/Hangul do not space their words, so a whole sentence would be
+    // ONE token and any edit would score 0. Each such character is its own.
+    const sim = blockSimilarity('今日は良い天気ですね', '今日は悪い天気ですね');
+    expect(sim).toBeGreaterThan(SIMILARITY_THRESHOLD);
+    expect(sim).toBeLessThan(1);
+    expect(blockSimilarity('今日は良い天気ですね', '猫が机の上で眠っている')).toBeLessThan(SIMILARITY_THRESHOLD);
   });
 
   test('metric determinism across repeated calls (FR-011)', () => {
@@ -508,16 +567,21 @@ describe('US1 — edits land only in the blocks that were edited (FR-006, contra
 describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)', () => {
   /**
    * A pair of block strings whose Dice similarity straddles the threshold.
-   * `shared` characters are common to both; each side gets `own` distinct ones.
-   * sim = 2·shared / (2·shared + 2·own).
+   * `shared` WORDS are common to both; each side gets `own` distinct ones.
+   * sim = 2·shared / (2·shared + 2·own). (Re-fixtured for the word-multiset
+   * metric — the old character fixture, 'a'×n + 'b'×n vs 'a'×n + 'c'×n, is one
+   * word per side and now scores 0. Both outcomes below are unchanged.)
    */
+  const SHARED_WORDS = 'alpha bravo charlie delta echo foxtrot golf hotel'.split(' ');
+  const OWN_A = 'zulu yankee xray whiskey victor uniform tango sierra'.split(' ');
+  const OWN_B = 'aardvark badger cheetah dingo emu ferret gopher heron'.split(' ');
   const pairWithSim = (shared, own) => [
-    'a'.repeat(shared) + 'b'.repeat(own),
-    'a'.repeat(shared) + 'c'.repeat(own),
+    [...SHARED_WORDS.slice(0, shared), ...OWN_A.slice(0, own)].join(' '),
+    [...SHARED_WORDS.slice(0, shared), ...OWN_B.slice(0, own)].join(' '),
   ];
 
   test('the threshold is inclusive: exactly 0.5 character-diffs (FR-003)', () => {
-    const [a, b] = pairWithSim(10, 10); // 2*10/40 = 0.5 exactly
+    const [a, b] = pairWithSim(6, 6); // 2*6/24 = 0.5 exactly
     expect(blockSimilarity(a, b)).toBeCloseTo(SIMILARITY_THRESHOLD, 12);
     const { plan, baseBlocks } = replay([el('paragraph', a)], b);
     expect(plan.structural).toEqual([]);
@@ -526,7 +590,7 @@ describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)',
   });
 
   test('just below the threshold replaces atomically, with zero character ops', () => {
-    const [a, b] = pairWithSim(10, 11); // 2*10/42 < 0.5
+    const [a, b] = pairWithSim(6, 7); // 2*6/26 < 0.5
     expect(blockSimilarity(a, b)).toBeLessThan(SIMILARITY_THRESHOLD);
     const { plan, baseBlocks, resultMd } = replay([el('paragraph', a)], b);
     expect(plan.textBlocks).toEqual([]);
@@ -648,7 +712,12 @@ describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)',
     // that takes internally, the OBSERVABLE outcome is fixed: that block alone
     // is replaced as a unit, the neighbour is still character-diffed, and no
     // whole-document fallback appears.
+    //
+    // Since the 055 review this pair is SELECTED first (same words, so it
+    // scores 1) and the cap then trips inside the pair's own diff — which is
+    // the one live route to `pair.degraded`, previously unreachable.
     const [big, bigRewritten] = capTrippingPair();
+    expect(blockSimilarity(big, bigRewritten)).toBe(1);
     const { plan, baseBlocks, resultMd } = replay(
       [el('paragraph', big), el('paragraph', 'A small neighbouring paragraph.')],
       `${bigRewritten}\n\nA small neighbouring paragraph, edited.`
@@ -740,6 +809,158 @@ describe('US3 — the same behaviour at every document size (FR-008, contract I6
     expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
     expect(resultMd).toBe(`${huge} EDITED\n\nA normal neighbouring paragraph, edited.`);
     assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('the metric separates real prose (review MEDIUM-3, RBD-055-1 amended)', () => {
+  /**
+   * RBD-055-1 assumed "a majority-rewritten block replaces atomically". The
+   * review falsified that for natural language under CHARACTER Dice: English
+   * paragraphs share so many characters that unrelated prose scored 0.42–0.69,
+   * so a wholesale rewrite stayed above the 0.5 threshold and replayed as
+   * thousands of interleaved character ops — the garbled hybrid 055 exists to
+   * prevent. These fixtures are the evidence for the word-multiset metric and
+   * they keep it honest: prose that is NOT the same block must score below the
+   * threshold, prose that is the same block edited must score above it.
+   */
+  const PROSE = {
+    deploy: 'The deployment pipeline runs every change through the full test suite before it reaches production. A failed check stops the rollout immediately, and the release engineer on duty is paged with a link to the failing job. Nothing ships on a red build.',
+    deployTypo: 'The deployment pipeline runs every change through the full test suite before it reaches production. A failed check stops the rollout immediately, and the release engineer on call is paged with a link to the failing job. Nothing ships on a red build.',
+    deployEdited: 'The deployment pipeline runs each change through the whole test suite before it reaches staging. A failed check halts the rollout at once, and the engineer on duty gets a page with a link to the broken job. Nothing ships on a red build.',
+    deployRewritten: 'Releases are cut by hand on Tuesday mornings. Whoever owns the change writes a short summary in the channel, waits for two approvals, and then pushes the tag. If something looks wrong afterwards the tag is deleted and the work goes back to the author.',
+    auth: 'Every request must carry a bearer token in the Authorization header. Tokens are scoped to a single workspace and expire after thirty days, at which point the client is expected to refresh them without user interaction.',
+    authEdited: 'Every request has to carry a bearer token in the Authorization header. Tokens are scoped to one workspace and expire after ninety days, after which the client should refresh them silently, without asking the user.',
+    authRewritten: 'Authentication is handled at the edge by the gateway, which strips credentials before anything reaches the service. Internal calls are trusted on the basis of mutual TLS, so no application code ever inspects a header for identity.',
+    cats: 'Domestic cats sleep for most of the day, waking in short bursts around dawn and dusk. Their hunting instinct survives regardless of how well they are fed, which is why a well-loved house cat will still bring home a mouse now and then.',
+    weather: 'The storm arrived earlier than forecast and dropped nearly three inches of rain in under two hours. Storm drains along the main road backed up, and by evening the lower parking lot was impassable to anything without high clearance.',
+    garden: 'Tomatoes want more water than most people give them, but they hate wet feet. Deep watering twice a week beats a daily sprinkle, and a thick layer of mulch keeps the soil from swinging between soaked and bone dry.',
+  };
+
+  const SAME_BLOCK_EDITED = [
+    ['a one-word fix', PROSE.deploy, PROSE.deployTypo],
+    ['a reworded paragraph', PROSE.deploy, PROSE.deployEdited],
+    ['a reworded paragraph (2)', PROSE.auth, PROSE.authEdited],
+  ];
+  const DIFFERENT_BLOCKS = [
+    ['same topic, rewritten from scratch', PROSE.deploy, PROSE.deployRewritten],
+    ['same topic, rewritten from scratch (2)', PROSE.auth, PROSE.authRewritten],
+    ['unrelated prose', PROSE.deploy, PROSE.cats],
+    ['unrelated prose (2)', PROSE.weather, PROSE.garden],
+    ['unrelated prose (3)', PROSE.cats, PROSE.auth],
+    ['unrelated prose (4)', PROSE.garden, PROSE.deploy],
+    ['unrelated prose (5)', PROSE.weather, PROSE.auth],
+  ];
+
+  for (const [name, a, b] of SAME_BLOCK_EDITED) {
+    test(`${name} scores ABOVE the threshold`, () => {
+      expect(blockSimilarity(a, b)).toBeGreaterThan(SIMILARITY_THRESHOLD);
+    });
+  }
+  for (const [name, a, b] of DIFFERENT_BLOCKS) {
+    test(`${name} scores BELOW the threshold`, () => {
+      expect(blockSimilarity(a, b)).toBeLessThan(SIMILARITY_THRESHOLD);
+    });
+  }
+
+  test('the two populations do not overlap — the threshold sits in the gap', () => {
+    const edited = SAME_BLOCK_EDITED.map(([, a, b]) => blockSimilarity(a, b));
+    const different = DIFFERENT_BLOCKS.map(([, a, b]) => blockSimilarity(a, b));
+    expect(Math.min(...edited)).toBeGreaterThan(Math.max(...different) + 0.2);
+    expect(Math.max(...different)).toBeLessThan(SIMILARITY_THRESHOLD);
+    expect(Math.min(...edited)).toBeGreaterThan(SIMILARITY_THRESHOLD);
+  });
+
+  test('a wholesale prose rewrite replaces atomically, with zero character ops', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', PROSE.deploy), el('paragraph', PROSE.auth), el('paragraph', PROSE.cats)],
+      [PROSE.deployRewritten, PROSE.authRewritten, PROSE.cats].join('\n\n')
+    );
+    expect(plan.textBlocks).toEqual([]);
+    expect(plan.reconcileBlocks).toEqual([]);
+    expect(plan.structural.every((h) => h.forced)).toBe(true);
+    expect(resultMd).toBe([PROSE.deployRewritten, PROSE.authRewritten, PROSE.cats].join('\n\n'));
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('a lightly edited prose paragraph still character-diffs', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', PROSE.deploy), el('paragraph', PROSE.cats)],
+      [PROSE.deployTypo, PROSE.cats].join('\n\n')
+    );
+    expect(plan.structural).toEqual([]);
+    expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
+    expect(resultMd).toBe([PROSE.deployTypo, PROSE.cats].join('\n\n'));
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('gap pairing is bounded in WORK, not just in cells (review HIGH-2)', () => {
+  // Deterministic prose with a per-block vocabulary: two different blocks share
+  // no words at all, so what a pairing does is unambiguous.
+  const blockOf = (tag, words) => Array.from({ length: words }, (_, i) => `w${tag}x${i}`).join(' ');
+  /** base[0..n-1] vs a pushed sequence that is base[1..n-1] lightly edited. */
+  const shiftedGap = (n, words) => ({
+    base: Array.from({ length: n }, (_, i) => blockOf(i, words)),
+    pushed: Array.from({ length: n - 1 }, (_, i) => `${blockOf(i + 1, words)} EDITED`),
+  });
+
+  test('under the work budget the DP finds the shifted pairing', () => {
+    const { base, pushed } = shiftedGap(90, 100); // 90*89 cells * ~100 features
+    const al = alignBlocks(base, pushed);
+    expect(al.pairs).toHaveLength(89);
+    al.pairs.forEach((p, i) => {
+      expect(p.baseIdx).toBe(i + 1);
+      expect(p.pushedIdx).toBe(i);
+    });
+  });
+
+  test('over the work budget the SAME gap degrades to positional pairing', () => {
+    // Same shape, same cell count — only the blocks are bigger. Positional
+    // pairing compares block i with block i, which here share nothing, so the
+    // degrade is visible as the absence of the shifted pairing.
+    const { base, pushed } = shiftedGap(90, 1200);
+    expect(base.length * pushed.length).toBeLessThan(MAX_GAP_DP_CELLS);
+    expect(base.length * pushed.length * 1200).toBeGreaterThan(MAX_GAP_SCORING_WORK);
+    const t = Date.now();
+    const al = alignBlocks(base, pushed);
+    expect(Date.now() - t).toBeLessThan(2000);
+    expect(al.pairs).toEqual([]);
+    // Deterministic, and it degrades this gap only — the result is still a
+    // complete, order-preserving alignment (RBD-055-6).
+    expect(alignBlocks(base, pushed).pairs).toEqual([]);
+    expect(al.residualRuns).toHaveLength(1);
+  });
+
+  test('a 20-block wholesale rewrite of 2KB blocks plans in well under a second', () => {
+    // The review measured 43.9s for this shape (99s for 10 x 4KB) because every
+    // one of the 400 candidate cells ran a full character diff. Typical now:
+    // ~10ms. The bound is deliberately generous so CI variance cannot flake it.
+    const words = 'the deployment pipeline runs every change through a full test suite before it reaches production and the engineer on duty is paged with a link to the failing job'.split(' ');
+    const prose = (tag) => {
+      let s = '';
+      let x = tag * 7919 + 13;
+      while (s.length < 2048) {
+        x = (x * 1103515245 + 12345) % 2147483648;
+        s += `${words[x % words.length]}${tag.toString(36)} `;
+      }
+      return s.slice(0, 2048).trim();
+    };
+    const base = Array.from({ length: 20 }, (_, i) => el('paragraph', prose(i + 1)));
+    const pushedBody = Array.from({ length: 20 }, (_, i) => prose(i + 101)).join('\n\n');
+
+    const t = Date.now();
+    const { plan, sourceMap } = planFor(base, pushedBody);
+    const elapsed = Date.now() - t;
+
+    expect(elapsed).toBeLessThan(5000);
+    // And the outcome the speed comes from: whole-block replacement, not a
+    // character-level hybrid of two unrelated paragraphs.
+    expect(plan.textBlocks).toEqual([]);
+    expect(plan.reconcileBlocks).toEqual([]);
+    expect(plan.structural.every((h) => h.forced)).toBe(true);
+    assertNoCrossBlockSplice(plan, sourceMap.blocks);
   });
 });
 
