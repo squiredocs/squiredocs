@@ -966,6 +966,88 @@ describe('sync-push route (mode=sync)', () => {
       expect(await currentBody(docId)).toContain('11. Check the queue depth');
     });
 
+    // ------------------------------------------------------------------
+    // Feature 054, US2 (T030/T031) — the change report on a real receipt.
+    // ------------------------------------------------------------------
+
+    test('AS-4/SC-004: every changed block appears, and no unchanged block does', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Report\n\nAlpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.');
+      const edited = body
+        .replace('Alpha paragraph.', 'Alpha paragraph EDITED.')
+        .replace('Charlie paragraph.', 'Charlie paragraph EDITED.');
+      const res = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.blocksChanged)).toBe(true);
+      const excerpts = res.body.blocksChanged.map((b) => b.excerpt).join(' | ');
+      expect(excerpts).toContain('Alpha paragraph.');
+      expect(excerpts).toContain('Charlie paragraph.');
+      expect(excerpts).not.toContain('Bravo');
+      // The untouched heading is absent too.
+      expect(excerpts).not.toContain('Report');
+      // Every entry carries the full contract shape.
+      for (const b of res.body.blocksChanged) {
+        expect(b).toMatchObject({
+          blockIndex: expect.any(Number),
+          blockType: expect.any(String),
+          excerpt: expect.any(String),
+          op: expect.stringMatching(/^(text|reconcile|structural)$/),
+        });
+        expect(b.excerpt.length).toBeLessThanOrEqual(121); // 120 + ellipsis
+      }
+      // Ordered by block position.
+      const indices = res.body.blocksChanged.map((b) => b.blockIndex);
+      expect([...indices].sort((a, b) => a - b)).toEqual(indices);
+    });
+
+    test('AS-4/FR-010: a noop sync returns blocksChanged: []', async () => {
+      const { docId, clock, body } = await seedDoc('# Report\n\nNothing changes.');
+      const res = await put(docId, fileFor(docId, clock, body));
+      await drain();
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.blocksChanged).toEqual([]);
+    });
+
+    test('FR-011/SC-008: operations aggregates survive alongside blocksChanged', async () => {
+      const { docId, clock, body } = await seedDoc('# Report\n\nAlpha here.\n\nBravo here.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha here.', 'Alpha there.')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      // The hunk counters are unchanged and still present — they count HUNKS
+      // where the report counts BLOCKS, so both are kept (RBD-054-5).
+      expect(res.body.operations).toMatchObject({
+        textHunks: expect.any(Number),
+        structuralHunks: expect.any(Number),
+      });
+      expect(res.body.operations.textHunks).toBeGreaterThanOrEqual(1);
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      // Every pre-054 receipt key is still in place.
+      expect(res.body).toMatchObject({
+        docId, mode: 'sync', noop: false,
+        clock: expect.any(Number),
+        markdown: expect.any(String),
+        overlaps: expect.any(Array),
+        images: expect.any(Object),
+      });
+
+      // RBD-054-7 / SC-008 (analyze-gate M7): the written-back receipt's
+      // frontmatter is UNCHANGED, so every baseline file written before this
+      // feature still validates and every file written now still will.
+      const { squire } = require('../../shared/markdown/frontmatter').parseFrontmatter(res.body.markdown);
+      expect(Object.keys(squire).sort()).toEqual(
+        ['clock', 'docGuid', 'exportedAt', 'flavor', 'lastModifiedBy', 'title'].sort());
+      expect(squire.docGuid).toBe(docId);
+      expect(squire.clock).toBe(res.body.clock);
+      // None of the new receipt fields leaked into the file's frontmatter.
+      for (const leaked of ['blocksChanged', 'clockGap', 'baselineClock', 'dryRun', 'strict']) {
+        expect(squire[leaked]).toBeUndefined();
+      }
+    });
+
     test('RBD-054-1: a baseline AHEAD of the doc is still sync_baseline_invalid', async () => {
       const { docId, clock, body } = await seedDoc('# Notes\n\nAhead of its time.');
       // Both with and without strict — strict governs ONLY the stale case, so
