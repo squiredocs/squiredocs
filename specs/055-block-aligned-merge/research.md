@@ -56,6 +56,15 @@ common case.
 
 ## R3 — Dice similarity computed with bounded `diffChars` + sound pre-filters
 
+> **SUPERSEDED 2026-08-11** by the post-merge review (HIGH-2/MEDIUM-3): the
+> ladder below is right in shape but wrong in its features. Scoring a
+> candidate no longer runs `diffChars` at all — it is Dice over the WORD
+> multiset (characters for blocks of ≤ 3 words), and the real diff runs only
+> for the pairs the DP selects. The "bigram-multiset Dice" alternative was
+> rejected below for fidelity to RBD-055-1's wording; the review falsified
+> that wording's rationale and measured bigrams as no better than characters
+> at separating prose. See amendments A1/A2 in clarifications-needed.md.
+
 **Decision**: `sim(a, b) = 2·C / (|a| + |b|)` where C = total length of the
 unchanged parts of `diffChars(a, b, { maxEditLength: MAX_EDIT_LENGTH })`
 (RBD-055-1). Bounded-work ladder, evaluated in order, each step deterministic:

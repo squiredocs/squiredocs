@@ -189,9 +189,11 @@ plan classification and per-block change report are equivalent.
   pushed blocks MUST be paired deterministically and order-preservingly
   (pairing never reorders blocks), preferring the highest-similarity pairs.
   The similarity measure and threshold are fixed by RBD-055-1/-2 (see
-  Assumptions): character-level Dice similarity over the canonical block
-  markdown, threshold 0.5, computed with bounded work. Pairs at or above the
-  threshold are matched; everything else falls to FR-005.
+  Assumptions): Dice similarity over the canonical block markdown, threshold
+  0.5, computed with bounded work. Pairs at or above the threshold are
+  matched; everything else falls to FR-005. (RBD-055-1 amended 2026-08-11:
+  the features are WORDS for prose blocks and characters for blocks of ≤ 3
+  words — the threshold and everything else here is unchanged.)
 - **FR-004 (Inside a matched pair)**: Character-level diffing runs only
   inside matched pairs, producing hunks confined to that pair's baseline
   block extent. Downstream classification is unchanged in contract: hunks
@@ -299,9 +301,12 @@ Decisions the design amendment leaves open, each recorded as
 RATIFIED-BY-DEFAULT in `clarifications-needed.md` (Sam pre-authorized,
 2026-08-11):
 
-- **RBD-055-1 — Similarity metric and threshold**: character-level Dice
-  similarity `2·C / (|a|+|b|)` over canonical block markdown (C = common
-  characters per a bounded character LCS), threshold **0.5**.
+- **RBD-055-1 — Similarity metric and threshold**: Dice similarity
+  `2·C / (|A|+|B|)` over canonical block markdown, threshold **0.5**.
+  (Amended 2026-08-11, ledger amendment A1: the features are word multisets
+  for prose blocks, character multisets for blocks of ≤ 3 words. The original
+  character-LCS metric scored unrelated English prose 0.41–0.69 and so failed
+  to separate a rewrite from an edit.)
 - **RBD-055-2 — Gap pairing discipline**: deterministic, order-preserving
   pairing inside each LCS gap, preferring highest-similarity pairs; never
   reorders; leftovers become inserts/deletes.

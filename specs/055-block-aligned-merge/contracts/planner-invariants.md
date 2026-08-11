@@ -34,8 +34,18 @@ These are exported for tests (as today) but are not protocol surface.
 - Every non-forced hunk classifies as before; forced hunks arrive in
   `plan.structural` with resolved `blocks` arrays and whole-extent coverage.
 - At most ONE insertion hunk per anchor position (apply-order requirement).
-- No insertion hunk is anchored on a baseline block covered by any forced
-  replace in the same plan (anchor-folding rule, research R6).
+- No insertion hunk is anchored on a baseline block covered by a FORCED
+  replace in the same plan (anchor-folding rule, research R6). That is the
+  whole class the PLANNER can close, and stating it as "any replace" was
+  wrong (055 review HIGH-1): whether a *classifier-derived* structural entry
+  ends up replacing its block — a heading level change, a paragraph → list
+  change, a declined reconciliation — is not decidable at plan time. So the
+  remaining case is closed at apply time instead: `applyHunks` records what
+  each replacement group leaves behind and resolves a missed insertion anchor
+  positionally through it (after the group's last new node; failing that,
+  after the nearest preceding baseline block that still resolves; document
+  start as the floor). An insertion anchor therefore never falls to the end
+  of the document, whatever removed its anchor node.
 - Adjacent forced replaces may merge in `structuralOps` (existing
   `first ≤ prev.last + 1` rule); a matched (character-diffed) block between
   two replaces can never be absorbed — index adjacency makes it impossible.
@@ -71,11 +81,14 @@ shipped. `alignment` = `server/__tests__/markdown-sync.alignment.test.js`,
 | I3 | Round-trip no-op: canonically-equal push → all-exact anchors, zero hunks, zero ops, no version entry (FR-009) | `format-roundtrip` "push(export) is a no-op" corpus (both flavors), replay "no-op detection" describe, *route* "byte-identical re-push is a no-op" / "blocksChanged: []" — all unchanged |
 | I4 | Convergence: push ≡ offline Yjs client for in-pair edits, incl. concurrent disjoint edits and clock-equal (SC-007) | `markdown-sync.convergence.test.js`, assertions unchanged (call-site migration only) |
 | I5 | Threshold boundary: sim just ≥ 0.5 → char-diffed pair; just < 0.5 → atomic replace; metric deterministic (FR-011) | *alignment* "the threshold is inclusive: exactly 0.5…", "just below the threshold…", "metric determinism across repeated calls" |
+| I5b | The metric separates real prose: unrelated/rewritten paragraphs score below the threshold, edited ones above, with a gap between the two populations (RBD-055-1 amendment A1) | *alignment* "the metric separates real prose" describe — per-fixture scores plus "the two populations do not overlap" |
 | I6 | Size parity: identical logical edit in ~1KB and >64KB docs → identical plan classification and report (FR-008/SC-004) | *alignment* US3 describe — one parity test per op kind (text edit, heading rename, wholesale rewrite) |
 | I7 | Bounds degrade one pair/gap only; no whole-document fallback path exists (RBD-055-6) | *alignment* "a cap-tripping pair degrades alone…", "an oversized single block degrades alone…", "over MAX_GAP_DP_CELLS the gap degrades to positional pairing…"; replay "a wholesale huge rewrite degrades per block…" |
 | I8 | Decoy-heading regression: rename of "Deployment" with "Deployment Notes" present lands on the renamed block only (FR-006/SC-001) | *alignment* US1 describe (both the below- and above-threshold rename shapes); *route* "US1: renaming one heading leaves a similarly worded decoy untouched" |
 | I9 | Overlap flags stay advisory and never gate (F4) | *overlap* suite and *route* "overlap detector failure does not gate the push", unchanged |
 | I10 | Duplicate blocks align by sequence position; edits land on the aligned duplicate | *alignment* "duplicate identical blocks align by sequence position", "ambiguous duplicates still align deterministically and in order" |
+| I11 | A boundary insertion lands at its anchor's position whatever replaced the anchor block; the applied result equals the pushed markdown (055 review HIGH-1) | *alignment* "insertion anchors survive the replacement of their anchor block" describe — heading level change, paragraph → list, declined reconciliation, deleted run, first block |
+| I12 | Candidate scoring never runs a character diff, and a gap's cost is bounded in WORK as well as in cells (055 review HIGH-2, RBD-055-6 amendment A2) | *alignment* "scoring never runs a character diff", "gap pairing is bounded in WORK, not just in cells" describe (budget degrade + the 20 × 2KB rewrite perf bound) |
 
 ## 4. Explicitly unchanged surfaces (regression fence)
 

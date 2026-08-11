@@ -63,6 +63,11 @@ max-similarity order-preserving DP when `N·M ≤ MAX_GAP_DP_CELLS`, else
 positional pairing (research R4).
 
 ### SimilarityScore
+
+> **AMENDED 2026-08-11** (review MEDIUM-3, ledger amendment A1): the ladder
+> below no longer runs a diff — "diff cap tripped → 0" is gone from scoring
+> (it now degrades a SELECTED pair instead) and `2C/(|a|+|b|)` is Dice over
+> word multisets, or character multisets for blocks of ≤ 3 words.
 Pure function, not stored: `sim(a, b) ∈ [0, 1]` per research R3's bounded
 ladder (exact-equal → 1; either side > `PAIR_INPUT_MAX` → 0; length upper
 bound < threshold → 0; diff cap tripped → 0; else Dice `2C/(|a|+|b|)`).
