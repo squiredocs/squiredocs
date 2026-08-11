@@ -628,6 +628,21 @@ describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)',
     assertNoCrossBlockSplice(plan, baseBlocks);
   });
 
+  test('a forced replace adjacent to a classifier-derived structural op merges cleanly', () => {
+    // The two kinds of structural entry can end up neighbours, and
+    // `structuralOps` merges adjacent ones into a single fork operation. The
+    // partial-extent hunk (a heading level change) and the whole-extent forced
+    // replace have to reconstruct the merged range together.
+    const { plan, baseBlocks, resultMd } = replay(
+      [heading(2, 'Deployment steps'), el('paragraph', 'Restart the queue workers.')],
+      '### Deployment steps\n\nDrain connections, then flip the flag.'
+    );
+    expect(plan.structural).toHaveLength(2);
+    expect(plan.structural.filter((h) => h.forced)).toHaveLength(1);
+    expect(resultMd).toBe('### Deployment steps\n\nDrain connections, then flip the flag.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
   test('a cap-tripping pair degrades alone; its siblings still character-diff (I7)', () => {
     // The bounded character diff cannot finish on this block. Whatever route
     // that takes internally, the OBSERVABLE outcome is fixed: that block alone

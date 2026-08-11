@@ -59,18 +59,23 @@ These are exported for tests (as today) but are not protocol surface.
 
 ## 3. Pinned behavioral invariants (test-enforced)
 
+Implementation note (2026-08-11): the "Enforced by" column names the tests as
+shipped. `alignment` = `server/__tests__/markdown-sync.alignment.test.js`,
+`overlap` = `server/__tests__/markdown-sync.overlap.test.js`, `route` =
+`__tests__/integration/sync-push.route.test.js`.
+
 | # | Invariant | Enforced by |
 |---|---|---|
-| I1 | No character-level edit spans more than one baseline block; none combines content of two pushed blocks (FR-002) | FR-002 invariant helper across the alignment suite + decoy regression |
-| I2 | Forced ops cover whole blocks only (FR-005); a below-threshold rewrite is ONE structural replace, no char ops | alignment suite (US2 scenarios) |
-| I3 | Round-trip no-op: canonically-equal push → all-exact anchors, zero hunks, zero ops, no version entry (FR-009) | existing no-op + round-trip property suites, unchanged |
-| I4 | Convergence: push ≡ offline Yjs client for in-pair edits, incl. concurrent disjoint edits and clock-equal (SC-007) | existing convergence suite, unchanged assertions (R8 audit: generator stays above threshold) |
-| I5 | Threshold boundary: sim just ≥ 0.5 → char-diffed pair; just < 0.5 → atomic replace; metric deterministic (FR-011) | boundary tests, new |
-| I6 | Size parity: identical logical edit in ~1KB and >64KB docs → identical plan classification and report (FR-008/SC-004) | parity tests, new |
-| I7 | Bounds degrade one pair/gap only; no whole-document fallback path exists (RBD-055-6) | cap-degradation tests, new |
-| I8 | Decoy-heading regression: rename of "Deployment" with "Deployment Notes" present lands on the renamed block only (FR-006/SC-001) | new regression test (unit + through `applySyncPush`) |
-| I9 | Overlap flags stay advisory and never gate (F4) | existing overlap/rejection suites, unchanged |
-| I10 | Duplicate blocks align by sequence position; edits land on the aligned duplicate | alignment suite, new |
+| I1 | No character-level edit spans more than one baseline block; none combines content of two pushed blocks (FR-002) | `assertNoCrossBlockSplice` in *alignment*, asserted in every scenario there (~25 plans) including both decoy regressions |
+| I2 | Forced ops cover whole blocks only (FR-005); a below-threshold rewrite is ONE structural replace, no char ops | *alignment* "just below the threshold replaces atomically, with zero character ops", "AS1: a wholesale rewrite is ONE replace…", plus the forced-op clause of `assertNoCrossBlockSplice` |
+| I3 | Round-trip no-op: canonically-equal push → all-exact anchors, zero hunks, zero ops, no version entry (FR-009) | `format-roundtrip` "push(export) is a no-op" corpus (both flavors), replay "no-op detection" describe, *route* "byte-identical re-push is a no-op" / "blocksChanged: []" — all unchanged |
+| I4 | Convergence: push ≡ offline Yjs client for in-pair edits, incl. concurrent disjoint edits and clock-equal (SC-007) | `markdown-sync.convergence.test.js`, assertions unchanged (call-site migration only) |
+| I5 | Threshold boundary: sim just ≥ 0.5 → char-diffed pair; just < 0.5 → atomic replace; metric deterministic (FR-011) | *alignment* "the threshold is inclusive: exactly 0.5…", "just below the threshold…", "metric determinism across repeated calls" |
+| I6 | Size parity: identical logical edit in ~1KB and >64KB docs → identical plan classification and report (FR-008/SC-004) | *alignment* US3 describe — one parity test per op kind (text edit, heading rename, wholesale rewrite) |
+| I7 | Bounds degrade one pair/gap only; no whole-document fallback path exists (RBD-055-6) | *alignment* "a cap-tripping pair degrades alone…", "an oversized single block degrades alone…", "over MAX_GAP_DP_CELLS the gap degrades to positional pairing…"; replay "a wholesale huge rewrite degrades per block…" |
+| I8 | Decoy-heading regression: rename of "Deployment" with "Deployment Notes" present lands on the renamed block only (FR-006/SC-001) | *alignment* US1 describe (both the below- and above-threshold rename shapes); *route* "US1: renaming one heading leaves a similarly worded decoy untouched" |
+| I9 | Overlap flags stay advisory and never gate (F4) | *overlap* suite and *route* "overlap detector failure does not gate the push", unchanged |
+| I10 | Duplicate blocks align by sequence position; edits land on the aligned duplicate | *alignment* "duplicate identical blocks align by sequence position", "ambiguous duplicates still align deterministically and in order" |
 
 ## 4. Explicitly unchanged surfaces (regression fence)
 
