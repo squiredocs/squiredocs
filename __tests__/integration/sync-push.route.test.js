@@ -772,6 +772,40 @@ describe('sync-push route (mode=sync)', () => {
       expect(res.status).toBe(200);
       expect(presenceDouble.sessions).toHaveLength(0);
     });
+
+    // Feature 054 (T041, RBD-054-3). A preview that parks an avatar on the
+    // document and flashes a selection over blocks it is not going to touch is
+    // not a preview — it is a visible edit that happens to change no bytes.
+    test('054: a dry run opens no session and shows no selection', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      // It DID compute the plan — this is a preview, not a rejection.
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      // ...and announced nothing at all.
+      expect(presenceDouble.sessions).toHaveLength(0);
+      expect(presenceDouble.selections).toHaveLength(0);
+    });
+
+    test('054: the same push WITHOUT dryRun still announces normally', async () => {
+      // The control for the test above: the skip is conditional, not a
+      // regression that quietly disabled sync presence.
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'));
+      await drain();
+
+      expect(res.status).toBe(200);
+      // `toBeGreaterThanOrEqual` matches the neighbouring 037 test: the double
+      // records the session more than once. Zero versus non-zero is the
+      // distinction that matters here.
+      expect(presenceDouble.sessions.length).toBeGreaterThanOrEqual(1);
+      expect(presenceDouble.sessions[0].agentToken.agentName).toBe('Repo Sync');
+      expect(presenceDouble.selections).toHaveLength(1);
+    });
   });
 
   // ==========================================================================
@@ -1046,6 +1080,181 @@ describe('sync-push route (mode=sync)', () => {
       for (const leaked of ['blocksChanged', 'clockGap', 'baselineClock', 'dryRun', 'strict']) {
         expect(squire[leaked]).toBeUndefined();
       }
+    });
+
+    // ------------------------------------------------------------------
+    // Feature 054, US3 (T038-T044) — dry run.
+    //
+    // The whole value is "look before you touch a live document", so most of
+    // these assertions are about what did NOT happen.
+    // ------------------------------------------------------------------
+
+    test('AS-1/FR-007: a dry run returns the full plan and omits markdown', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Preview\n\nAlpha paragraph.\n\nBravo paragraph.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha paragraph.', 'Alpha CHANGED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      expect(res.body.noop).toBe(false);
+      // Guard two: no baseline comes out of a preview.
+      expect('markdown' in res.body).toBe(false);
+      // Everything a real receipt carries, minus the baseline.
+      expect(res.body).toMatchObject({
+        docId, mode: 'sync',
+        clock: expect.any(Number),
+        overlaps: expect.any(Array),
+        blocksChanged: expect.any(Array),
+        operations: expect.any(Object),
+        images: expect.any(Object),
+      });
+      expectStalenessShape(res.body);
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.blocksChanged[0].excerpt).toContain('Alpha paragraph.');
+    });
+
+    test('AS-2/SC-003: the real push produces exactly what the dry run predicted', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Preview\n\nAlpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.');
+      const edited = body
+        .replace('Alpha paragraph.', 'Alpha CHANGED.')
+        .replace('Charlie paragraph.', '- Charlie is a list now');
+
+      const preview = await put(docId, fileFor(docId, clock, edited), { query: '?mode=sync&dryRun=true' });
+      await drain();
+      const real = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(preview.status).toBe(200);
+      expect(real.status).toBe(200);
+      expect(real.body.blocksChanged).toEqual(preview.body.blocksChanged);
+      expect(real.body.operations).toEqual(preview.body.operations);
+      expect(real.body.overlaps).toEqual(preview.body.overlaps);
+      // ...and the prediction was right about the document.
+      const after = await currentBody(docId);
+      expect(after).toContain('Alpha CHANGED.');
+      expect(after).toContain('- Charlie is a list now');
+    });
+
+    test('AS-3/SC-003: a dry run leaves no trace — bytes, clock, rows, history', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nDo not touch this.');
+      const beforeBody = await currentBody(docId);
+      const beforeRows = (await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      const beforeVersions = (await getVersionTimeline(persistence, docId)).versions.length;
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Do not touch this.', 'TOUCHED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      // Byte-identical export, unchanged clock, unchanged row count, no version.
+      expect(await currentBody(docId)).toBe(beforeBody);
+      expect(await maxClock(docId)).toBe(clock);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(beforeRows);
+      expect((await getVersionTimeline(persistence, docId)).versions).toHaveLength(beforeVersions);
+      // The reported clock is the document's current clock, not an advance.
+      expect(res.body.clock).toBe(clock);
+    });
+
+    test('AS-3/RBD-054-3: a dry run applies nothing to the LIVE doc either', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nLive and untouched.');
+      const shared = documentService.getSharedDoc(docId);
+      const before = toMarkdown(shared.get('default', Y.XmlFragment));
+
+      await put(docId, fileFor(docId, clock, body.replace('Live and untouched.', 'FANNED OUT.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      // No live-apply fan-out reached the shared document.
+      expect(toMarkdown(shared.get('default', Y.XmlFragment))).toBe(before);
+      expect(toMarkdown(shared.get('default', Y.XmlFragment))).not.toContain('FANNED OUT');
+    });
+
+    test('AS-4/RBD-054-2: dryRun + strict over a stale baseline is the same 409', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nAlpha line.\n\nBravo line.');
+      await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED.');
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha PUSHED.')),
+        { query: '?mode=sync&dryRun=true&strict=true' });
+      await drain();
+
+      // The dry run predicts the real call, including its refusal.
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('sync_baseline_stale');
+      expectStalenessShape(res.body);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      // Dropping strict gets the plan for a stale baseline, as documented.
+      const advisory = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha PUSHED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+      expect(advisory.status).toBe(200);
+      expect(advisory.body.dryRun).toBe(true);
+      expect(advisory.body.docChangedSinceBaseline).toBe(true);
+      expect(await currentBody(docId)).not.toContain('Alpha PUSHED');
+    });
+
+    test('AS-5/FR-008: dryRun is rejected on append, replace, and the create route', async () => {
+      const { docId } = await seedDoc('# Preview\n\nMode gate.');
+      for (const mode of ['append', 'replace']) {
+        const res = await put(docId, '# Preview\n\nnope', { query: `?mode=${mode}&dryRun=true` });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('dryRun is only supported with mode=sync on PUT /api/docs/:docId/import');
+      }
+      // ...and it did not silently apply the append it was carrying.
+      expect(await currentBody(docId)).not.toContain('nope');
+
+      const created = await request(app)
+        .post('/api/docs/import?dryRun=true')
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('Content-Type', 'text/markdown')
+        .send('# Nope\n\nbody');
+      expect(created.status).toBe(400);
+      expect(created.body.error).toContain('only supported with mode=sync');
+      expect(created.body.docId).toBeUndefined(); // no document was created
+    });
+
+    test('AS-6: a dry run over a noop push is a noop preview with no markdown', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nAlready identical.');
+      const res = await put(docId, fileFor(docId, clock, body), { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.blocksChanged).toEqual([]);
+      // A noop dry run is the case most easily mistaken for a fresh baseline,
+      // so it withholds `markdown` too.
+      expect('markdown' in res.body).toBe(false);
+      expectStalenessShape(res.body);
+    });
+
+    test('a real push still carries no dryRun marker at all (absent, not false)', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nReal push.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Real push.', 'Real push applied.')));
+      await drain();
+      expect(res.status).toBe(200);
+      expect('dryRun' in res.body).toBe(false);
+      expect(res.body.markdown).toContain('Real push applied.');
+    });
+
+    test('RBD-054-9: dryRun=1 is accepted; dryRun=maybe is a 400', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nBoolean parsing.');
+      const ok = await put(docId, fileFor(docId, clock, body.replace('parsing', 'parsing previewed')),
+        { query: '?mode=sync&dryRun=1' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.dryRun).toBe(true);
+      expect(await currentBody(docId)).not.toContain('parsing previewed');
+
+      const bad = await put(docId, fileFor(docId, clock, '# Preview\n\nShould never land.'),
+        { query: '?mode=sync&dryRun=maybe' });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toBe('Unsupported dryRun value: maybe. Accepted values: true, false, 1, 0');
+      expect(await currentBody(docId)).not.toContain('Should never land');
     });
 
     test('RBD-054-1: a baseline AHEAD of the doc is still sync_baseline_invalid', async () => {

@@ -1185,6 +1185,8 @@ async function validateSyncBaseline(persistence, docGuid, { squire, paramClock, 
  * @param {string|null} [opts.agentName] - defaults to SYNC_AGENT_NAME
  * @param {object|null} [opts.onBehalfOf] - provenance metadata (T021)
  * @param {Function} opts.getSharedDoc  - docGuid → live shared Y.Doc
+ * @param {boolean} [opts.dryRun=false] - compute the whole plan, apply nothing
+ *   (feature 054, US3/FR-006). See the early return below for the exact cut.
  * @returns {Promise<object>} receipt (contract sync-push.md)
  */
 async function applySyncPush(persistence, docGuid, opts) {
@@ -1197,6 +1199,9 @@ async function applySyncPush(persistence, docGuid, opts) {
     onBehalfOf = null,
     imageMap = null,
     getSharedDoc,
+    // Feature 054 (US3): preview mode. Everything up to the first durable
+    // write happens exactly as it would on a real push; nothing after it does.
+    dryRun = false,
     // Injectable so suites can pass a double (the undo-service defaultRedisPubSub
     // pattern); production always takes the real module.
     redisPubSub = defaultRedisPubSub,
@@ -1223,20 +1228,39 @@ async function applySyncPush(persistence, docGuid, opts) {
     const { markdown: pushedMd, images } = await canonicalizePushedStaged(
       resolvedBody, { flavor, imageContext: { docId: docGuid, userId } });
 
-    // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
-    if (pushedMd === canonicalMd) {
+    /**
+     * The receipt both no-op short-circuits return. One builder because they
+     * are the same receipt reached two ways, and 054 gave them two things to
+     * agree on: an empty change report, and the dry-run marker.
+     *
+     * `blocksChanged: []` is empty rather than absent (FR-010) — a consumer
+     * should never have to distinguish "nothing changed" from "this receipt
+     * carries no report".
+     *
+     * Under `dryRun` the `markdown` re-export is skipped entirely, not merely
+     * omitted. A dry run is never a baseline (FR-007), and a noop dry run is
+     * the case most likely to be mistaken for one: it reports the document as
+     * already matching, which is exactly when a client would be tempted to
+     * write the receipt back over its file.
+     */
+    const noopReceipt = async () => {
       const currentClock = await readCurrentClock(persistence, docGuid);
-      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
-      return {
+      const receipt = {
         docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
-        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
-        // A noop changed no blocks, so the report is empty rather than absent
-        // (FR-010) — a consumer should never have to distinguish "nothing
-        // changed" from "this receipt does not carry a report".
+        overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
         blocksChanged: [],
         images,
       };
-    }
+      if (dryRun) {
+        receipt.dryRun = true;
+        return receipt;
+      }
+      receipt.markdown = await reExport(persistence, docGuid, currentClock, flavor);
+      return receipt;
+    };
+
+    // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
+    if (pushedMd === canonicalMd) return noopReceipt();
 
     // Pin the synthetic clientID BEFORE any op is created (FR-011).
     fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
@@ -1259,17 +1283,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     // adds nothing the live doc doesn't already carry. Rather than store a
     // duplicate no-op version row, return the no-op receipt (re-export current).
     if (await pushIsAlreadyApplied(persistence, docGuid, pushUpdate, getSharedDoc)) {
-      const currentClock = await readCurrentClock(persistence, docGuid);
-      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
-      return {
-        docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
-        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
-        // A noop changed no blocks, so the report is empty rather than absent
-        // (FR-010) — a consumer should never have to distinguish "nothing
-        // changed" from "this receipt does not carry a report".
-        blocksChanged: [],
-        images,
-      };
+      return noopReceipt();
     }
 
     // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
@@ -1285,6 +1299,49 @@ async function applySyncPush(persistence, docGuid, opts) {
     } catch (err) {
       overlapsUnavailable = true;
       console.error(`[sync] overlap detection failed for ${docGuid}:`, err.message);
+    }
+
+    // ---- DRY RUN: the cut point (feature 054, US3/FR-006, research R2) -----
+    //
+    // Everything above this line is computation — the baseline fork, the image
+    // pass, the diff, the plan, and the overlap snapshot. `storeUpdate` on the
+    // next line is the first durable write. Returning here is therefore what
+    // makes "nothing was applied" true: no stored update, no version entry, no
+    // clock advance, no live fan-out, and no search-index dirty mark, because
+    // none of those lines are reached. The fork is reclaimed by the `finally`
+    // exactly as it is on every other exit.
+    //
+    // Two independent guards against a preview being mistaken for an applied
+    // receipt: the explicit `dryRun: true` marker (absent, not false, on real
+    // receipts, so `'dryRun' in receipt` is reliable), and the omitted
+    // `markdown` — a client that blindly writes `receipt.markdown` back over
+    // its file gets `undefined` rather than a stale baseline.
+    //
+    // Disclosed exception (RBD-054-11): `canonicalizePushedStaged` above ran
+    // the full staged image pass, so a dry run may have rehosted an external
+    // image to S3 or copied a cross-document image. That pass is what produces
+    // the canonical string the plan is diffed against — skipping it would make
+    // the preview predict a different plan than the real call, which is the one
+    // outcome a preview must never do. The effects are storage-side and
+    // reported in `images` exactly as a real push reports them; the document,
+    // its clock, its history, and its viewers are untouched.
+    if (dryRun) {
+      const receipt = {
+        docId: docGuid,
+        mode: 'sync',
+        dryRun: true,
+        noop: false,
+        // The document's CURRENT clock. Nothing advanced it; this is not a
+        // receipt clock, and the absence of `markdown` is what stops it being
+        // read as one.
+        clock: await readCurrentClock(persistence, docGuid),
+        overlaps,
+        blocksChanged,
+        operations,
+        images,
+      };
+      if (overlapsUnavailable) receipt.overlapsUnavailable = true;
+      return receipt;
     }
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE

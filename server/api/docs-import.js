@@ -260,6 +260,8 @@ async function handleSyncPush(persistence, req, res, docId, user, presence = nul
       body, // frontmatter-stripped body — the engine diffs against the doc's body
       baselineClock,
       flavor,
+      dryRun, // 054 (US3): compute the whole plan, apply nothing
+
       userId: user.userId,
       agentName: SYNC_AGENT_NAME,
       onBehalfOf: parseOnBehalfOf(req),
