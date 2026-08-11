@@ -7,6 +7,12 @@
  * reconnected. Y.Doc in / update out; the live doc is never consulted during
  * diff/replay (FR-004). See specs/004-two-way-sync/.
  *
+ * Planning is BLOCK-ALIGNED (feature 055, see the pre-pass section below):
+ * baseline and pushed documents are matched block to block first, and character
+ * diffing happens only inside a matched pair. Blocks that match nothing become
+ * whole-block operations. There is no whole-document character diff and no
+ * separate path for large documents — every bound degrades one pair or one gap.
+ *
  * ===========================================================================
  * T001 — VERIFIED CONSUMED SURFACES FROM FEATURES 001/002/003 (as SHIPPED)
  * ===========================================================================
@@ -83,7 +89,7 @@
 
 const crypto = require('crypto');
 const Y = require('yjs');
-const { diffChars, diffLines, diffArrays } = require('diff');
+const { diffChars, diffArrays } = require('diff');
 const {
   toMarkdown,
   toMarkdownNodes,
@@ -456,22 +462,22 @@ function mdToNodes(md) {
 }
 
 // ===========================================================================
-// T007 — Diff → anchored hunks → classification (research R3)
+// T007 — Alignment → in-pair diff → anchored hunks → classification
+// (research R3; rebuilt as a block-aligned pre-pass by feature 055)
 // ===========================================================================
 
 // Coalesce two same-block text hunks separated by fewer than this many common
 // characters into one (implementation-tunable; not protocol surface).
 const COALESCE_DISTANCE = 3;
 
-// diffChars edit-distance cap; over it we fall back to coarse line hunking (R11).
+// diffChars edit-distance cap for one block pair; over it, that pair alone is
+// replayed as a whole-block replacement.
 const MAX_EDIT_LENGTH = 10000;
-// Above this combined input size we skip the whole-document char diff entirely
-// (its O(N·D) cost is unbounded for large inputs) and go straight to line-level
-// coarse hunking — a small edit still yields a precise char hunk on its line.
-const COARSE_INPUT_THRESHOLD = 64 * 1024;
-// Within coarse mode, a changed line-cluster larger than this on either side is
-// replayed as a whole (structural) rather than char-diffed — bounds the work.
-const COARSE_CLUSTER_MAX = 16 * 1024;
+// A block larger than this on either side of a candidate pair is never
+// character-diffed — it scores 0 similarity and replaces as a unit. This bounds
+// the per-pair work, which is the only bound the planner needs now that there
+// is no whole-document comparison to bound (055/RBD-055-6).
+const PAIR_INPUT_MAX = 16 * 1024;
 
 // ===========================================================================
 // 055 — Block-alignment pre-pass (research R2–R4, R6)
@@ -525,7 +531,7 @@ function blockSimilarityDetail(a, b) {
   if (a === b) return { sim: 1, parts: null };
   const la = a.length;
   const lb = b.length;
-  if (la > COARSE_CLUSTER_MAX || lb > COARSE_CLUSTER_MAX) return { sim: 0, parts: null };
+  if (la > PAIR_INPUT_MAX || lb > PAIR_INPUT_MAX) return { sim: 0, parts: null };
   const total = la + lb;
   if (total === 0) return { sim: 1, parts: null };
   if ((2 * Math.min(la, lb)) / total < SIMILARITY_THRESHOLD) return { sim: 0, parts: null };
@@ -1816,6 +1822,7 @@ module.exports = {
   SIMILARITY_THRESHOLD,
   MAX_GAP_DP_CELLS,
   MAX_EDIT_LENGTH,
+  PAIR_INPUT_MAX,
   // T008
   applyHunks,
   reconcileTextNode,

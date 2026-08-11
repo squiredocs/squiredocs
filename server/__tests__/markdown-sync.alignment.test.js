@@ -23,6 +23,7 @@ const {
   canonicalizePushedWithBlocks,
   SIMILARITY_THRESHOLD,
   MAX_GAP_DP_CELLS,
+  PAIR_INPUT_MAX,
 } = require('../markdown-sync');
 
 // ---- fixtures --------------------------------------------------------------
@@ -99,7 +100,7 @@ function replay(blocks, pushedBody) {
 }
 
 /**
- * Two same-length, sub-16KB strings whose character diff cannot finish within
+ * Two same-length, under-the-input-cap strings whose character diff cannot finish within
  * MAX_EDIT_LENGTH. Built once: a genuine cap trip costs seconds by definition
  * (the diff has to do the work before it can give up), and two tests need one.
  */
@@ -216,11 +217,11 @@ describe('blockSimilarity (T005, research R3)', () => {
   });
 
   test('an oversized side scores 0 without diffing (ladder step 2)', () => {
-    const big = 'x'.repeat(16 * 1024 + 1);
+    const big = 'x'.repeat(PAIR_INPUT_MAX + 1);
     expect(blockSimilarity(big, `${big}!`)).toBe(0);
     expect(blockSimilarity(`${big}!`, big)).toBe(0);
     // one byte under the cap on both sides, and it scores normally again
-    const ok = 'x'.repeat(16 * 1024);
+    const ok = 'x'.repeat(PAIR_INPUT_MAX);
     expect(blockSimilarity(ok, ok.slice(0, ok.length - 1))).toBeGreaterThan(0.9);
   });
 
@@ -235,7 +236,7 @@ describe('blockSimilarity (T005, research R3)', () => {
     const [a, b] = capTrippingPair();
     expect(a.length).toBe(b.length); // the length bound cannot short-circuit
     expect(2 * Math.min(a.length, b.length) / (a.length + b.length)).toBeGreaterThan(SIMILARITY_THRESHOLD);
-    expect(a.length).toBeLessThan(16 * 1024); // nor can the input cap
+    expect(a.length).toBeLessThan(PAIR_INPUT_MAX); // nor can the input cap
     expect(blockSimilarity(a, b)).toBe(0);
   });
 
@@ -642,6 +643,87 @@ describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)',
     expect(plan.structural[0].blocks).toEqual([baseBlocks[0]]);
     expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
     expect(resultMd).toBe(`${bigRewritten}\n\nA small neighbouring paragraph, edited.`);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('US3 — the same behaviour at every document size (FR-008, contract I6)', () => {
+  // Padding blocks are distinct from each other and from the content blocks, so
+  // they anchor exactly and add size without adding ambiguity.
+  const padText = (i) => `Padding block ${i}: ${new Array(20).fill('lorem ipsum dolor sit amet consectetur adipiscing elit').join(' ')}`;
+  const padding = (n) => Array.from({ length: n }, (_, i) => el('paragraph', padText(i)));
+  const paddingMd = (n) => Array.from({ length: n }, (_, i) => padText(i));
+
+  /** The plan for one logical edit, in a small document and in a >64KB one. */
+  function bothSizes(contentBlocks, contentPushed) {
+    const contentMd = contentBlocks.md;
+    const small = planFor(contentBlocks.nodes(), [...contentPushed].join('\n\n'));
+    const pad = padding(70);
+    const padMd = paddingMd(70);
+    const large = planFor([...contentBlocks.nodes(), ...pad], [...contentPushed, ...padMd].join('\n\n'));
+    expect(large.baselineMd.length).toBeGreaterThan(64 * 1024);
+    expect(small.baselineMd.length).toBeLessThan(4 * 1024);
+    expect(small.baselineMd).toBe([...contentMd].join('\n\n'));
+    return { small, large };
+  }
+
+  /** The op kind and rebased shape of every hunk, for comparison across sizes. */
+  function shape(planned) {
+    const { plan } = planned;
+    const kinds = [];
+    for (const tb of plan.textBlocks) {
+      kinds.push({ op: 'text', block: tb.block.blockIndex, hunks: tb.hunks.map((h) => ({
+        offset: h.oldStart - tb.block.mdStart, length: h.oldEnd - h.oldStart, newText: h.newText })) });
+    }
+    for (const rb of plan.reconcileBlocks) kinds.push({ op: 'reconcile', block: rb.block.blockIndex });
+    for (const h of plan.structural) {
+      kinds.push({ op: 'structural', blocks: (h.blocks || []).map((b) => b.blockIndex), newText: h.newText });
+    }
+    return kinds.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  }
+
+  const cases = {
+    'a one-word text edit': {
+      nodes: () => [el('paragraph', 'The service restarts every night at midnight.')],
+      md: ['The service restarts every night at midnight.'],
+      pushed: ['The service restarts every night at noon.'],
+    },
+    'a heading rename': {
+      nodes: () => [heading(2, 'Deployment steps for the service')],
+      md: ['## Deployment steps for the service'],
+      pushed: ['## Deployment steps for the platform'],
+    },
+    'a wholesale rewrite': {
+      nodes: () => [el('paragraph', 'Restart the queue workers.')],
+      md: ['Restart the queue workers.'],
+      pushed: ['Drain connections, then flip the flag.'],
+    },
+  };
+
+  for (const [name, c] of Object.entries(cases)) {
+    test(`${name} plans identically at ~1KB and past 64KB`, () => {
+      const { small, large } = bothSizes({ nodes: c.nodes, md: c.md }, c.pushed);
+      expect(shape(large)).toEqual(shape(small));
+      assertNoCrossBlockSplice(small.plan, small.sourceMap.blocks);
+      assertNoCrossBlockSplice(large.plan, large.sourceMap.blocks);
+    });
+  }
+
+  test('an oversized single block degrades alone; normal blocks still char-diff (AS3)', () => {
+    // One block past the per-pair input cap: the similarity ladder answers 0
+    // for it without diffing, so it replaces atomically while its neighbour is
+    // still edited character by character.
+    const huge = `Oversized block ${'x'.repeat(PAIR_INPUT_MAX + 1024)}`;
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', huge), el('paragraph', 'A normal neighbouring paragraph.')],
+      `${huge} EDITED\n\nA normal neighbouring paragraph, edited.`
+    );
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBe(true);
+    expect(plan.structural[0].blocks).toEqual([baseBlocks[0]]);
+    expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
+    expect(resultMd).toBe(`${huge} EDITED\n\nA normal neighbouring paragraph, edited.`);
     assertNoCrossBlockSplice(plan, baseBlocks);
   });
 });
