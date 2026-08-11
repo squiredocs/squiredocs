@@ -834,9 +834,26 @@ function buffersEqual(a, b) {
   return true;
 }
 
-/** First ~80 chars of a block's text content, whitespace-collapsed, plain. */
+/**
+ * First ~120 chars of a block's text content, whitespace-collapsed, plain,
+ * with a trailing ellipsis when it was cut (feature 054, RBD-054-6 as amended).
+ *
+ * ONE helper for BOTH block lists on a receipt — `overlaps[].excerpt` and
+ * `blocksChanged[].excerpt`. Two block lists in one payload whose excerpts
+ * truncate at different lengths is a needless inconsistency, so the widening
+ * deliberately reaches the overlap flags too (research R6). The ellipsis is
+ * what tells a reader the block continues; without it a truncated excerpt
+ * reads as the block's whole text.
+ *
+ * The cap counts characters BEFORE the marker, so the returned string is at
+ * most 121 characters (120 + '…') and the visible text is never more than the
+ * 120 the contract promises.
+ */
+const EXCERPT_MAX_CHARS = 120;
+
 function blockExcerpt(md) {
-  return md.replace(/\s+/g, ' ').trim().slice(0, 80);
+  const flat = md.replace(/\s+/g, ' ').trim();
+  return flat.length > EXCERPT_MAX_CHARS ? `${flat.slice(0, EXCERPT_MAX_CHARS)}…` : flat;
 }
 
 /** Doc-side changed baseline blocks (array index → 'edited'|'deleted') via block LCS. */
@@ -872,6 +889,116 @@ function pushTouchedBlocks(plan, baseBlocks) {
   return touched;
 }
 
+/** A block's reported type — the same derivation overlap flags use. */
+function blockTypeOf(block) {
+  return block.blockNode instanceof Y.XmlElement ? block.blockNode.nodeName : 'text';
+}
+
+/**
+ * The per-block change report carried by a sync receipt as `blocksChanged`
+ * (feature 054, US2/FR-009, contract sync-receipt-v2.md).
+ *
+ * One entry per baseline block the push would change, plus one per boundary
+ * insertion. It answers the question a pusher previously had to answer by
+ * re-exporting the document and grepping it: WHICH blocks did this touch, and
+ * what did it do to each.
+ *
+ * A sibling of `pushTouchedBlocks` rather than a replacement for it (research
+ * R4). The two look similar and answer different questions. `pushTouchedBlocks`
+ * feeds `overlaps[].pushSide`, which asks "did our push touch a block the
+ * document also changed" — intersection semantics, where a reconcile and a
+ * plain text edit behave identically, which is why it deliberately labels both
+ * `text`. This asks "what did we do to each block", where that distinction is
+ * the entire point. Changing the shared function to emit `reconcile` would have
+ * silently re-labelled a shipped overlap contract, so `pushTouchedBlocks` is
+ * left exactly as it was. The same block can therefore read `op: 'reconcile'`
+ * here and `pushSide: 'text'` in `overlaps` on one receipt — intentional, and
+ * documented in the contract.
+ *
+ * Structural operations come from `structuralOps`, the same function
+ * `applyHunks` consumes, so the report cannot drift from what is applied — it
+ * inherits the coalescing rule (which would otherwise over-report) and the
+ * boundary-insertion anchoring for free.
+ *
+ * @param {object} plan       - the plan from `planPush`
+ * @param {object} sourceMap  - the baseline source map
+ * @param {string} baselineMd - the canonical baseline markdown
+ * @returns {Array<object>} entries, ordered by block position
+ */
+function buildChangeReport(plan, sourceMap, baselineMd) {
+  const blocks = sourceMap.blocks;
+  const idxOf = new Map();
+  blocks.forEach((b, i) => idxOf.set(b, i));
+  const { replacements, insertions } = structuralOps(plan.structural, sourceMap, baselineMd);
+
+  // Blocks a structural group replaces wholesale. `applyHunks` skips in-block
+  // edits that land inside them, so the report must too — otherwise one block
+  // would be reported twice, under two different ops, and only one of them
+  // would describe what actually happened.
+  const replaced = new Set();
+  for (const g of replacements) {
+    for (let i = g.first; i <= g.last; i++) replaced.add(i);
+  }
+
+  // `sortIndex` is the array position (what orders the list); `blockIndex` is
+  // the block's document position (what the receipt reports). They coincide for
+  // a whole-document push and diverge for a partial source map, so keep both.
+  const entries = [];
+  const push = (arrayIdx, op) => {
+    const block = blocks[arrayIdx];
+    if (!block) return;
+    entries.push({
+      sortIndex: arrayIdx,
+      isInsertion: false,
+      entry: {
+        blockIndex: block.blockIndex,
+        blockType: blockTypeOf(block),
+        excerpt: blockExcerpt(baselineMd.slice(block.mdStart, block.mdEnd)),
+        op,
+      },
+    });
+  };
+
+  for (const tb of plan.textBlocks) {
+    const i = idxOf.get(tb.block);
+    if (i !== undefined && !replaced.has(i)) push(i, 'text');
+  }
+  for (const rb of plan.reconcileBlocks) {
+    const i = idxOf.get(rb.block);
+    if (i !== undefined && !replaced.has(i)) push(i, 'reconcile');
+  }
+  for (const g of replacements) {
+    for (let i = g.first; i <= g.last; i++) push(i, 'structural');
+  }
+
+  for (const ins of insertions) {
+    // An inserted block has no baseline index of its own, so it is reported
+    // against its anchor plus an explicit `position` — inventing a post-push
+    // index the baseline source map cannot know would be a guess (research R5).
+    const anchorIdx = ins.afterBlock ? idxOf.get(ins.afterBlock) : undefined;
+    const anchored = anchorIdx !== undefined;
+    const anchor = anchored ? blocks[anchorIdx] : null;
+    entries.push({
+      // A document-head insertion sorts before every block, and reports
+      // `blockIndex: 0` with `position: 'start'` — the position field is what
+      // says "before this block", so the index is not ambiguous.
+      sortIndex: anchored ? anchorIdx : -1,
+      isInsertion: true,
+      entry: {
+        blockIndex: anchor ? anchor.blockIndex : 0,
+        blockType: anchor ? blockTypeOf(anchor) : 'text',
+        excerpt: blockExcerpt(ins.newText),
+        op: 'structural',
+        position: anchored ? 'after' : 'start',
+      },
+    });
+  }
+
+  // Block order, with an insertion following the block it is anchored on.
+  entries.sort((a, b) => (a.sortIndex - b.sortIndex) || (a.isInsertion - b.isInsertion));
+  return entries.map((e) => e.entry);
+}
+
 /**
  * Compute advisory overlap flags: baseline blocks changed on the document side
  * (state-vector fast path + block-level canonical-md LCS vs the current live
@@ -903,7 +1030,7 @@ async function defaultDetectOverlaps(persistence, docGuid, ctx) {
       const b = baseBlocks[i];
       flags.push({
         blockIndex: b.blockIndex,
-        blockType: b.blockNode instanceof Y.XmlElement ? b.blockNode.nodeName : 'text',
+        blockType: blockTypeOf(b),
         excerpt: blockExcerpt(baseMds[i]),
         docSide: ds,
         pushSide: pushSide.get(i),
@@ -1058,6 +1185,8 @@ async function validateSyncBaseline(persistence, docGuid, { squire, paramClock, 
  * @param {string|null} [opts.agentName] - defaults to SYNC_AGENT_NAME
  * @param {object|null} [opts.onBehalfOf] - provenance metadata (T021)
  * @param {Function} opts.getSharedDoc  - docGuid → live shared Y.Doc
+ * @param {boolean} [opts.dryRun=false] - compute the whole plan, apply nothing
+ *   (feature 054, US3/FR-006). See the early return below for the exact cut.
  * @returns {Promise<object>} receipt (contract sync-push.md)
  */
 async function applySyncPush(persistence, docGuid, opts) {
@@ -1070,6 +1199,9 @@ async function applySyncPush(persistence, docGuid, opts) {
     onBehalfOf = null,
     imageMap = null,
     getSharedDoc,
+    // Feature 054 (US3): preview mode. Everything up to the first durable
+    // write happens exactly as it would on a real push; nothing after it does.
+    dryRun = false,
     // Injectable so suites can pass a double (the undo-service defaultRedisPubSub
     // pattern); production always takes the real module.
     redisPubSub = defaultRedisPubSub,
@@ -1096,22 +1228,50 @@ async function applySyncPush(persistence, docGuid, opts) {
     const { markdown: pushedMd, images } = await canonicalizePushedStaged(
       resolvedBody, { flavor, imageContext: { docId: docGuid, userId } });
 
-    // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
-    if (pushedMd === canonicalMd) {
+    /**
+     * The receipt both no-op short-circuits return. One builder because they
+     * are the same receipt reached two ways, and 054 gave them two things to
+     * agree on: an empty change report, and the dry-run marker.
+     *
+     * `blocksChanged: []` is empty rather than absent (FR-010) — a consumer
+     * should never have to distinguish "nothing changed" from "this receipt
+     * carries no report".
+     *
+     * Under `dryRun` the `markdown` re-export is skipped entirely, not merely
+     * omitted. A dry run is never a baseline (FR-007), and a noop dry run is
+     * the case most likely to be mistaken for one: it reports the document as
+     * already matching, which is exactly when a client would be tempted to
+     * write the receipt back over its file.
+     */
+    const noopReceipt = async () => {
       const currentClock = await readCurrentClock(persistence, docGuid);
-      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
-      return {
+      const receipt = {
         docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
-        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+        overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+        blocksChanged: [],
         images,
       };
-    }
+      if (dryRun) {
+        receipt.dryRun = true;
+        return receipt;
+      }
+      receipt.markdown = await reExport(persistence, docGuid, currentClock, flavor);
+      return receipt;
+    };
+
+    // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
+    if (pushedMd === canonicalMd) return noopReceipt();
 
     // Pin the synthetic clientID BEFORE any op is created (FR-011).
     fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
 
     const hunks = computeHunks(canonicalMd, pushedMd);
     const plan = planPush(hunks, sourceMap, canonicalMd);
+    // Derived from the plan, before it is applied — the report describes the
+    // baseline blocks the push would change, and after `applyHunks` runs the
+    // fork's block extents no longer correspond to the baseline offsets the
+    // excerpts are sliced from.
+    const blocksChanged = buildChangeReport(plan, sourceMap, canonicalMd);
     let operations;
     fork.transact(() => {
       operations = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor });
@@ -1123,13 +1283,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     // adds nothing the live doc doesn't already carry. Rather than store a
     // duplicate no-op version row, return the no-op receipt (re-export current).
     if (await pushIsAlreadyApplied(persistence, docGuid, pushUpdate, getSharedDoc)) {
-      const currentClock = await readCurrentClock(persistence, docGuid);
-      const markdown = await reExport(persistence, docGuid, currentClock, flavor);
-      return {
-        docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
-        markdown, overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
-        images,
-      };
+      return noopReceipt();
     }
 
     // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
@@ -1145,6 +1299,49 @@ async function applySyncPush(persistence, docGuid, opts) {
     } catch (err) {
       overlapsUnavailable = true;
       console.error(`[sync] overlap detection failed for ${docGuid}:`, err.message);
+    }
+
+    // ---- DRY RUN: the cut point (feature 054, US3/FR-006, research R2) -----
+    //
+    // Everything above this line is computation — the baseline fork, the image
+    // pass, the diff, the plan, and the overlap snapshot. `storeUpdate` on the
+    // next line is the first durable write. Returning here is therefore what
+    // makes "nothing was applied" true: no stored update, no version entry, no
+    // clock advance, no live fan-out, and no search-index dirty mark, because
+    // none of those lines are reached. The fork is reclaimed by the `finally`
+    // exactly as it is on every other exit.
+    //
+    // Two independent guards against a preview being mistaken for an applied
+    // receipt: the explicit `dryRun: true` marker (absent, not false, on real
+    // receipts, so `'dryRun' in receipt` is reliable), and the omitted
+    // `markdown` — a client that blindly writes `receipt.markdown` back over
+    // its file gets `undefined` rather than a stale baseline.
+    //
+    // Disclosed exception (RBD-054-11): `canonicalizePushedStaged` above ran
+    // the full staged image pass, so a dry run may have rehosted an external
+    // image to S3 or copied a cross-document image. That pass is what produces
+    // the canonical string the plan is diffed against — skipping it would make
+    // the preview predict a different plan than the real call, which is the one
+    // outcome a preview must never do. The effects are storage-side and
+    // reported in `images` exactly as a real push reports them; the document,
+    // its clock, its history, and its viewers are untouched.
+    if (dryRun) {
+      const receipt = {
+        docId: docGuid,
+        mode: 'sync',
+        dryRun: true,
+        noop: false,
+        // The document's CURRENT clock. Nothing advanced it; this is not a
+        // receipt clock, and the absence of `markdown` is what stops it being
+        // read as one.
+        clock: await readCurrentClock(persistence, docGuid),
+        overlaps,
+        blocksChanged,
+        operations,
+        images,
+      };
+      if (overlapsUnavailable) receipt.overlapsUnavailable = true;
+      return receipt;
     }
 
     // Store-then-apply (R8): storeUpdate yields the receipt clock AND is the ONE
@@ -1177,7 +1374,15 @@ async function applySyncPush(persistence, docGuid, opts) {
     const currentClock = await readCurrentClock(persistence, docGuid);
     const markdown = await reExport(persistence, docGuid, currentClock, flavor);
 
-    const receipt = { docId: docGuid, mode: 'sync', noop: false, clock, markdown, overlaps, operations, images };
+    // `operations` stays alongside `blocksChanged` (RBD-054-5): it counts
+    // HUNKS, the report counts BLOCKS, and the two need not agree — several
+    // hunks inside one block yield one entry, and one coalesced structural
+    // group spans several. Removing the aggregate would break every existing
+    // consumer for no gain.
+    const receipt = {
+      docId: docGuid, mode: 'sync', noop: false, clock, markdown,
+      overlaps, blocksChanged, operations, images,
+    };
     if (overlapsUnavailable) receipt.overlapsUnavailable = true;
     return receipt;
   } finally {
@@ -1198,6 +1403,8 @@ module.exports = {
   detectOverlaps: defaultDetectOverlaps,
   docSideChanges,
   pushTouchedBlocks,
+  // 054 (US2)
+  buildChangeReport,
   // T004
   resolveMd,
   classifyRange,

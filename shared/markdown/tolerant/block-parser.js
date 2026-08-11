@@ -439,7 +439,11 @@ function parseList(lines, start, diffMark, depth) {
   }
 
   if (ordered) {
-    return { nodes: [{ type: 'orderedList', attrs: { start: first.start }, content: items }], next: i };
+    // `start` was already preserved here; feature 054 (T050) only adds the
+    // clamp, so both parser modes agree on the domain. `0.` is the one value
+    // the `\d+` marker can produce that is not a legal numbering, and HTML
+    // treats `<ol start="0">` the same way: not a renumbering, an absent value.
+    return { nodes: [{ type: 'orderedList', attrs: { start: Math.max(1, first.start) }, content: items }], next: i };
   }
   // Unordered items are taskItem or listItem per line (FR-005). The schema
   // requires homogeneous containers (taskList: taskItem+, bulletList:

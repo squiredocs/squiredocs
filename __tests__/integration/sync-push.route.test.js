@@ -772,5 +772,504 @@ describe('sync-push route (mode=sync)', () => {
       expect(res.status).toBe(200);
       expect(presenceDouble.sessions).toHaveLength(0);
     });
+
+    // Feature 054 (T041, RBD-054-3). A preview that parks an avatar on the
+    // document and flashes a selection over blocks it is not going to touch is
+    // not a preview — it is a visible edit that happens to change no bytes.
+    test('054: a dry run opens no session and shows no selection', async () => {
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      // It DID compute the plan — this is a preview, not a rejection.
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      // ...and announced nothing at all.
+      expect(presenceDouble.sessions).toHaveLength(0);
+      expect(presenceDouble.selections).toHaveLength(0);
+    });
+
+    test('054: the same push WITHOUT dryRun still announces normally', async () => {
+      // The control for the test above: the skip is conditional, not a
+      // regression that quietly disabled sync presence.
+      const { docId, clock } = await seedDoc('# Notes\n\nAlpha.\n\nBeta.');
+      const res = await put(docId, fileFor(docId, clock, '# Notes\n\nAlpha EDITED.\n\nBeta.'));
+      await drain();
+
+      expect(res.status).toBe(200);
+      // `toBeGreaterThanOrEqual` matches the neighbouring 037 test: the double
+      // records the session more than once. Zero versus non-zero is the
+      // distinction that matters here.
+      expect(presenceDouble.sessions.length).toBeGreaterThanOrEqual(1);
+      expect(presenceDouble.sessions[0].agentToken.agentName).toBe('Repo Sync');
+      expect(presenceDouble.selections).toHaveLength(1);
+    });
+  });
+
+  // ==========================================================================
+  // Feature 054, US1 — the staleness signal and strict mode.
+  //
+  // The trust core: a pusher can always see how far its baseline had drifted,
+  // and can opt into refusing to merge over changes it never saw.
+  // ==========================================================================
+  describe('staleness signal and strict mode (054, US1)', () => {
+    /**
+     * Edit the live document out from under a baseline, the way a collaborator
+     * would between the pusher's export and its push. Returns the new clock.
+     */
+    async function editDocLive(docId, find, replaceWith) {
+      const shared = documentService.getSharedDoc(docId);
+      const para = shared.get('default', Y.XmlFragment).toArray()
+        .find((n) => n.get && n.get(0) && String(n.get(0)).includes(find));
+      shared.transact(() => {
+        const t = para.get(0);
+        const at = String(t).indexOf(find);
+        t.delete(at, find.length);
+        t.insert(at, replaceWith);
+      }, { userId: ownerId });
+      await drain();
+      return maxClock(docId);
+    }
+
+    /** Every one of the four fields, on every sync response (FR-001). */
+    function expectStalenessShape(body) {
+      expect(body).toMatchObject({
+        baselineClock: expect.any(Number),
+        currentClock: expect.any(Number),
+        clockGap: expect.any(Number),
+        docChangedSinceBaseline: expect.any(Boolean),
+      });
+      // RBD-054-1: clamped. A gap must never render negative, anywhere.
+      expect(body.clockGap).toBeGreaterThanOrEqual(0);
+      // The documented invariant: not stale implies no gap.
+      if (body.docChangedSinceBaseline === false) expect(body.clockGap).toBe(0);
+    }
+
+    test('AS-1: an untouched doc reports a zero gap and applies', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nRetries use exponential backoff.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('exponential backoff', 'fixed 5s intervals')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expectStalenessShape(res.body);
+      expect(res.body.baselineClock).toBe(clock);
+      expect(res.body.currentClock).toBe(clock);
+      expect(res.body.clockGap).toBe(0);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+      // Applied, not merely reported on.
+      expect(res.body.noop).toBe(false);
+      expect(await currentBody(docId)).toContain('fixed 5s intervals');
+    });
+
+    test('AS-2/FR-003: a changed doc still merges without strict, and says so', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.\n\nBravo line.');
+      const newClock = await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED BY SOMEONE ELSE.');
+      expect(newClock).toBeGreaterThan(clock);
+
+      // Pushing the OLD baseline: advisory only, so this still applies.
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha line PUSHED.')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expectStalenessShape(res.body);
+      expect(res.body.baselineClock).toBe(clock);
+      expect(res.body.clockGap).toBeGreaterThan(0);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      expect(res.body.noop).toBe(false);
+      // Both edit streams survive — behavior is byte-for-byte what it was.
+      const after = await currentBody(docId);
+      expect(after).toContain('Alpha line PUSHED.');
+      expect(after).toContain('EDITED BY SOMEONE ELSE');
+    });
+
+    test('AS-3/FR-004: strict=true over a changed doc → 409, and nothing was applied', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.\n\nBravo line.');
+      await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED.');
+
+      const beforeBody = await currentBody(docId);
+      const beforeClock = await maxClock(docId);
+      const beforeRows = (await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      const beforeVersions = (await getVersionTimeline(persistence, docId)).versions.length;
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha line PUSHED.')),
+        { query: '?mode=sync&strict=true' });
+      await drain();
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('sync_baseline_stale');
+      expect(res.body.message).toContain('changed since your baseline');
+      expect(res.body.message).toContain('Strict mode refuses to merge');
+      // The remedy names both the way forward and the escape hatch.
+      expect(res.body.guidance).toContain('Re-export');
+      expect(res.body.guidance).toContain('strict=true');
+      expectStalenessShape(res.body);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      expect(res.body.clockGap).toBeGreaterThan(0);
+      // The gap in the prose is the gap in the payload.
+      expect(res.body.message).toContain(String(res.body.clockGap));
+
+      // Untouched: content, clock, update rows, version history.
+      expect(await currentBody(docId)).toBe(beforeBody);
+      expect(await maxClock(docId)).toBe(beforeClock);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(beforeRows);
+      expect((await getVersionTimeline(persistence, docId)).versions).toHaveLength(beforeVersions);
+      expect(await currentBody(docId)).not.toContain('PUSHED');
+    });
+
+    test('AS-4: strict=true over an untouched doc applies normally', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nStrict but current.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('current', 'still current')),
+        { query: '?mode=sync&strict=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(false);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+      expect(await currentBody(docId)).toContain('still current');
+    });
+
+    test('AS-5: a noop sync carries all four staleness fields', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nNothing to change here.');
+      const res = await put(docId, fileFor(docId, clock, body)); // byte-identical push
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expectStalenessShape(res.body);
+      expect(res.body.clockGap).toBe(0);
+      expect(res.body.docChangedSinceBaseline).toBe(false);
+    });
+
+    test('RBD-054-9: strict=1 is accepted; strict=yes is a 400, not a quiet false', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nBoolean parsing.');
+
+      const ok = await put(docId, fileFor(docId, clock, body.replace('parsing', 'parsing works')),
+        { query: '?mode=sync&strict=1' });
+      await drain();
+      expect(ok.status).toBe(200);
+      expect(ok.body.noop).toBe(false);
+
+      const clock2 = await maxClock(docId);
+      const bad = await put(docId, fileFor(docId, clock2, '# Notes\n\nShould never land.'),
+        { query: '?mode=sync&strict=yes' });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toBe('Unsupported strict value: yes. Accepted values: true, false, 1, 0');
+      // Fail closed: the push it carried was not applied.
+      expect(await currentBody(docId)).not.toContain('Should never land');
+    });
+
+    test('FR-008: strict is rejected on append, replace, and the create route', async () => {
+      const { docId } = await seedDoc('# Notes\n\nMode gate.');
+      for (const mode of ['append', 'replace']) {
+        const res = await put(docId, '# Notes\n\nnope', { query: `?mode=${mode}&strict=true` });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('strict is only supported with mode=sync on PUT /api/docs/:docId/import');
+      }
+      const created = await request(app)
+        .post('/api/docs/import?strict=true')
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('Content-Type', 'text/markdown')
+        .send('# Nope\n\nbody');
+      expect(created.status).toBe(400);
+      expect(created.body.error).toContain('only supported with mode=sync');
+    });
+
+    // Feature 054, US4 (T057, SC-005): the defect this feature exists to close,
+    // observed end to end. Before the fix, exporting a list that starts at 11
+    // and pushing the unchanged file straight back registered as an edit to
+    // every item in it.
+    test('AS-2: an unchanged export of a list starting at 11 pushes back as a noop', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Runbook\n\n11. Check the queue depth\n12. Scale the workers\n13. Confirm the backlog drains');
+      // The export itself keeps the numbering.
+      expect(body).toContain('11. Check the queue depth');
+      expect(body).toContain('13. Confirm the backlog drains');
+
+      const res = await put(docId, fileFor(docId, clock, body));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+      // No new update row: a noop push must not accrete version history.
+      expect(await maxClock(docId)).toBe(clock);
+      expect(await currentBody(docId)).toContain('11. Check the queue depth');
+    });
+
+    // ------------------------------------------------------------------
+    // Feature 054, US2 (T030/T031) — the change report on a real receipt.
+    // ------------------------------------------------------------------
+
+    test('AS-4/SC-004: every changed block appears, and no unchanged block does', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Report\n\nAlpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.');
+      const edited = body
+        .replace('Alpha paragraph.', 'Alpha paragraph EDITED.')
+        .replace('Charlie paragraph.', 'Charlie paragraph EDITED.');
+      const res = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.blocksChanged)).toBe(true);
+      const excerpts = res.body.blocksChanged.map((b) => b.excerpt).join(' | ');
+      expect(excerpts).toContain('Alpha paragraph.');
+      expect(excerpts).toContain('Charlie paragraph.');
+      expect(excerpts).not.toContain('Bravo');
+      // The untouched heading is absent too.
+      expect(excerpts).not.toContain('Report');
+      // Every entry carries the full contract shape.
+      for (const b of res.body.blocksChanged) {
+        expect(b).toMatchObject({
+          blockIndex: expect.any(Number),
+          blockType: expect.any(String),
+          excerpt: expect.any(String),
+          op: expect.stringMatching(/^(text|reconcile|structural)$/),
+        });
+        expect(b.excerpt.length).toBeLessThanOrEqual(121); // 120 + ellipsis
+      }
+      // Ordered by block position.
+      const indices = res.body.blocksChanged.map((b) => b.blockIndex);
+      expect([...indices].sort((a, b) => a - b)).toEqual(indices);
+    });
+
+    test('AS-4/FR-010: a noop sync returns blocksChanged: []', async () => {
+      const { docId, clock, body } = await seedDoc('# Report\n\nNothing changes.');
+      const res = await put(docId, fileFor(docId, clock, body));
+      await drain();
+      expect(res.status).toBe(200);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.blocksChanged).toEqual([]);
+    });
+
+    test('FR-011/SC-008: operations aggregates survive alongside blocksChanged', async () => {
+      const { docId, clock, body } = await seedDoc('# Report\n\nAlpha here.\n\nBravo here.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha here.', 'Alpha there.')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      // The hunk counters are unchanged and still present — they count HUNKS
+      // where the report counts BLOCKS, so both are kept (RBD-054-5).
+      expect(res.body.operations).toMatchObject({
+        textHunks: expect.any(Number),
+        structuralHunks: expect.any(Number),
+      });
+      expect(res.body.operations.textHunks).toBeGreaterThanOrEqual(1);
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      // Every pre-054 receipt key is still in place.
+      expect(res.body).toMatchObject({
+        docId, mode: 'sync', noop: false,
+        clock: expect.any(Number),
+        markdown: expect.any(String),
+        overlaps: expect.any(Array),
+        images: expect.any(Object),
+      });
+
+      // RBD-054-7 / SC-008 (analyze-gate M7): the written-back receipt's
+      // frontmatter is UNCHANGED, so every baseline file written before this
+      // feature still validates and every file written now still will.
+      const { squire } = require('../../shared/markdown/frontmatter').parseFrontmatter(res.body.markdown);
+      expect(Object.keys(squire).sort()).toEqual(
+        ['clock', 'docGuid', 'exportedAt', 'flavor', 'lastModifiedBy', 'title'].sort());
+      expect(squire.docGuid).toBe(docId);
+      expect(squire.clock).toBe(res.body.clock);
+      // None of the new receipt fields leaked into the file's frontmatter.
+      for (const leaked of ['blocksChanged', 'clockGap', 'baselineClock', 'dryRun', 'strict']) {
+        expect(squire[leaked]).toBeUndefined();
+      }
+    });
+
+    // ------------------------------------------------------------------
+    // Feature 054, US3 (T038-T044) — dry run.
+    //
+    // The whole value is "look before you touch a live document", so most of
+    // these assertions are about what did NOT happen.
+    // ------------------------------------------------------------------
+
+    test('AS-1/FR-007: a dry run returns the full plan and omits markdown', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Preview\n\nAlpha paragraph.\n\nBravo paragraph.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha paragraph.', 'Alpha CHANGED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      expect(res.body.noop).toBe(false);
+      // Guard two: no baseline comes out of a preview.
+      expect('markdown' in res.body).toBe(false);
+      // Everything a real receipt carries, minus the baseline.
+      expect(res.body).toMatchObject({
+        docId, mode: 'sync',
+        clock: expect.any(Number),
+        overlaps: expect.any(Array),
+        blocksChanged: expect.any(Array),
+        operations: expect.any(Object),
+        images: expect.any(Object),
+      });
+      expectStalenessShape(res.body);
+      expect(res.body.blocksChanged.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.blocksChanged[0].excerpt).toContain('Alpha paragraph.');
+    });
+
+    test('AS-2/SC-003: the real push produces exactly what the dry run predicted', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Preview\n\nAlpha paragraph.\n\nBravo paragraph.\n\nCharlie paragraph.');
+      const edited = body
+        .replace('Alpha paragraph.', 'Alpha CHANGED.')
+        .replace('Charlie paragraph.', '- Charlie is a list now');
+
+      const preview = await put(docId, fileFor(docId, clock, edited), { query: '?mode=sync&dryRun=true' });
+      await drain();
+      const real = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(preview.status).toBe(200);
+      expect(real.status).toBe(200);
+      expect(real.body.blocksChanged).toEqual(preview.body.blocksChanged);
+      expect(real.body.operations).toEqual(preview.body.operations);
+      expect(real.body.overlaps).toEqual(preview.body.overlaps);
+      // ...and the prediction was right about the document.
+      const after = await currentBody(docId);
+      expect(after).toContain('Alpha CHANGED.');
+      expect(after).toContain('- Charlie is a list now');
+    });
+
+    test('AS-3/SC-003: a dry run leaves no trace — bytes, clock, rows, history', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nDo not touch this.');
+      const beforeBody = await currentBody(docId);
+      const beforeRows = (await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      const beforeVersions = (await getVersionTimeline(persistence, docId)).versions.length;
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Do not touch this.', 'TOUCHED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      // Byte-identical export, unchanged clock, unchanged row count, no version.
+      expect(await currentBody(docId)).toBe(beforeBody);
+      expect(await maxClock(docId)).toBe(clock);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(beforeRows);
+      expect((await getVersionTimeline(persistence, docId)).versions).toHaveLength(beforeVersions);
+      // The reported clock is the document's current clock, not an advance.
+      expect(res.body.clock).toBe(clock);
+    });
+
+    test('AS-3/RBD-054-3: a dry run applies nothing to the LIVE doc either', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nLive and untouched.');
+      const shared = documentService.getSharedDoc(docId);
+      const before = toMarkdown(shared.get('default', Y.XmlFragment));
+
+      await put(docId, fileFor(docId, clock, body.replace('Live and untouched.', 'FANNED OUT.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      // No live-apply fan-out reached the shared document.
+      expect(toMarkdown(shared.get('default', Y.XmlFragment))).toBe(before);
+      expect(toMarkdown(shared.get('default', Y.XmlFragment))).not.toContain('FANNED OUT');
+    });
+
+    test('AS-4/RBD-054-2: dryRun + strict over a stale baseline is the same 409', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nAlpha line.\n\nBravo line.');
+      await editDocLive(docId, 'Bravo line.', 'Bravo line EDITED.');
+
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha PUSHED.')),
+        { query: '?mode=sync&dryRun=true&strict=true' });
+      await drain();
+
+      // The dry run predicts the real call, including its refusal.
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('sync_baseline_stale');
+      expectStalenessShape(res.body);
+      expect(res.body.docChangedSinceBaseline).toBe(true);
+      // Dropping strict gets the plan for a stale baseline, as documented.
+      const advisory = await put(docId, fileFor(docId, clock, body.replace('Alpha line.', 'Alpha PUSHED.')),
+        { query: '?mode=sync&dryRun=true' });
+      await drain();
+      expect(advisory.status).toBe(200);
+      expect(advisory.body.dryRun).toBe(true);
+      expect(advisory.body.docChangedSinceBaseline).toBe(true);
+      expect(await currentBody(docId)).not.toContain('Alpha PUSHED');
+    });
+
+    test('AS-5/FR-008: dryRun is rejected on append, replace, and the create route', async () => {
+      const { docId } = await seedDoc('# Preview\n\nMode gate.');
+      for (const mode of ['append', 'replace']) {
+        const res = await put(docId, '# Preview\n\nnope', { query: `?mode=${mode}&dryRun=true` });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('dryRun is only supported with mode=sync on PUT /api/docs/:docId/import');
+      }
+      // ...and it did not silently apply the append it was carrying.
+      expect(await currentBody(docId)).not.toContain('nope');
+
+      const created = await request(app)
+        .post('/api/docs/import?dryRun=true')
+        .set('Authorization', `Bearer ${patDefault}`)
+        .set('Content-Type', 'text/markdown')
+        .send('# Nope\n\nbody');
+      expect(created.status).toBe(400);
+      expect(created.body.error).toContain('only supported with mode=sync');
+      expect(created.body.docId).toBeUndefined(); // no document was created
+    });
+
+    test('AS-6: a dry run over a noop push is a noop preview with no markdown', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nAlready identical.');
+      const res = await put(docId, fileFor(docId, clock, body), { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.dryRun).toBe(true);
+      expect(res.body.noop).toBe(true);
+      expect(res.body.blocksChanged).toEqual([]);
+      // A noop dry run is the case most easily mistaken for a fresh baseline,
+      // so it withholds `markdown` too.
+      expect('markdown' in res.body).toBe(false);
+      expectStalenessShape(res.body);
+    });
+
+    test('a real push still carries no dryRun marker at all (absent, not false)', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nReal push.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Real push.', 'Real push applied.')));
+      await drain();
+      expect(res.status).toBe(200);
+      expect('dryRun' in res.body).toBe(false);
+      expect(res.body.markdown).toContain('Real push applied.');
+    });
+
+    test('RBD-054-9: dryRun=1 is accepted; dryRun=maybe is a 400', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nBoolean parsing.');
+      const ok = await put(docId, fileFor(docId, clock, body.replace('parsing', 'parsing previewed')),
+        { query: '?mode=sync&dryRun=1' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.dryRun).toBe(true);
+      expect(await currentBody(docId)).not.toContain('parsing previewed');
+
+      const bad = await put(docId, fileFor(docId, clock, '# Preview\n\nShould never land.'),
+        { query: '?mode=sync&dryRun=maybe' });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toBe('Unsupported dryRun value: maybe. Accepted values: true, false, 1, 0');
+      expect(await currentBody(docId)).not.toContain('Should never land');
+    });
+
+    test('RBD-054-1: a baseline AHEAD of the doc is still sync_baseline_invalid', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAhead of its time.');
+      // Both with and without strict — strict governs ONLY the stale case, so
+      // the pre-existing rejection must win either way (FR-005).
+      for (const query of ['?mode=sync', '?mode=sync&strict=true']) {
+        const res = await put(docId, fileFor(docId, clock + 100, body.replace('time', 'TIME')), { query });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('sync_baseline_invalid');
+        // No staleness block on a rejection that never got as far as computing
+        // one — and so, in particular, no negative gap.
+        expect(res.body.clockGap).toBeUndefined();
+        expect(res.body.currentClock).toBe(clock);
+      }
+    });
   });
 });

@@ -231,3 +231,82 @@ code. Same no-interaction rule — best default, recorded, overturnable at revie
 - **Rationale**: FR-015's intent is "every surface that teaches the rule actually says the
   split". Naming generated artifacts as write sites would satisfy the letter and fail the
   intent at the next regenerate.
+
+---
+
+# Implementation notes (2026-08-11)
+
+Recorded per T077. All 77 tasks landed. Backend 264 suites / 4,832 tests green (baseline was
+4,770), client 78 suites / 978 green, `npm run build` green.
+
+## RBD-054-11 outcome — the flagged default, as built
+
+**The disclosed exception held, and it is the one item still wanting a human glance.**
+
+`applySyncPush`'s dry-run early return sits between overlap detection and `persistence.storeUpdate`,
+which is the first durable write. Everything FR-006 enumerates is therefore guaranteed absent by
+control flow rather than by suppression flags: no stored update, no version entry, no clock
+advance, no `applyLiveUpdate` fan-out, no `searchIndexer.markDirty`. Presence is skipped on both
+ends — the session is never opened upstream in the route, and neither `observeSyncRange` nor
+`settle` runs.
+
+`canonicalizePushedStaged` still runs before that cut, exactly as RBD-054-11 decided, so a dry run
+over a document containing an external or cross-document image **may rehost bytes to S3 or copy an
+image row**. It is reported in the receipt's `images` field identically to a real push. The
+document, its clock, its history, and its viewers are untouched.
+
+**What a reviewer should decide**: whether "dry run may write image bytes to S3" is acceptable as
+a default, or should become an opt-out. The alternative (`canonicalizePushed`, the non-staged
+sibling) makes the preview structurally unable to predict the real push for any document
+containing images, which is why it was rejected. No test asserts the rehost happens under dry run;
+the route suite covers the no-trace guarantees for the four enumerated effects.
+
+## Deviations from the task list
+
+1. **`server/__tests__/markdown-sync.order-independence.test.js` needed an update that no task
+   named.** Its guard asserted "the ONLY 409 anywhere (engine or route) is the docGuid identity
+   mismatch, never an edit conflict". `sync_baseline_stale` is a second 409 by ratified design, so
+   that test would have failed on US1 regardless of how it was written. Rather than weaken it, the
+   engine half is kept verbatim (the engine still has exactly one 409) and a sibling test pins what
+   the original was really protecting: `sync_baseline_stale` is raised behind a `strict &&` guard
+   and nowhere else, so the default protocol still never refuses a push over an edit conflict.
+
+2. **T034 was followed over research R2 where they disagree.** R2 said the noop short-circuits
+   should retain their `markdown` re-export under `dryRun` ("it is a read"). T034, the contract
+   (`sync-receipt-v2.md`), and data-model §3 all say `markdown` is omitted on a dry run with no
+   noop exception, and T044 asserts it. The contract won: the re-export is skipped entirely, not
+   merely stripped. A noop dry run is the case most likely to be mistaken for a fresh baseline,
+   since it reports the document as already matching.
+
+3. **`export-api.js` and `client/public/agents.md` gained contract documentation, not only the
+   guidance split.** T062/T068 asked for the split; both files also document the `mode=sync`
+   contract this feature changed. They are what an agent reads to learn how to sync, so leaving
+   them describing the pre-054 receipt would have been worse than leaving them untouched
+   (Constitution Principle I).
+
+4. **`modify.description` was rewritten rather than appended to, as planned, and came in under
+   budget.** Measured after the edit: `SERVER_INSTRUCTIONS` 1,404 / 1,536 (132 B free),
+   `modify.description` 1,959 / 2,048 (89 B free — better than the 49 B an appended MICRO variant
+   would have left), `import_markdown_file.description` unchanged at 1,216 / 2,048.
+
+5. **The tolerant parser gained the `< 1` clamp T050 anticipated.** It preserved `start` already
+   but passed `0.` through as `start: 0`, which would have disagreed with the strict parser's new
+   clamped behavior. `Math.max(1, first.start)` closes it; both modes now share one domain.
+
+6. **A shared `orderedListStart` helper was introduced rather than two parallel expressions.**
+   T045/T046 require the two serializer copies to stay byte-identical. One helper called from both
+   is a stronger guarantee of that than two expressions a later editor could change singly.
+
+7. **`buildChangeReport` skips blocks inside a structural replacement.** Not specified, but
+   `applyHunks` does exactly this (its `replacedNodes` set), and without the same rule one block
+   would appear twice under two different ops, only one of which describes what happened.
+
+## Still owed (not implementable in a worktree)
+
+- **T076** — the manual quickstart walk §2–§5 against a live doc in the dev pod, including the
+  browser check that a dry run shows no avatar and no selection (RBD-054-3) and that version
+  history renders `11.` after the cache bump (RBD-054-12). The automated equivalents are green
+  (presence doubles assert zero sessions and zero selections on a dry run; the round-trip corpus
+  and both parser modes cover the numbering), but the browser-visible halves need eyes.
+- **RBD-054-5** — retaining `operations` alongside `blocksChanged` reads the design amendment's
+  "replace" loosely, and was already flagged for a human glance at spec time. Built as retained.

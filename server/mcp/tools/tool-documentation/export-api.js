@@ -29,6 +29,13 @@ already exists as a file. The content moves directly over HTTP, so it never
 enters your context window. Use read_document / create_document / modify
 instead when you need to look at the content yourself or are authoring it.
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates.
+XPath-targeted modify is for small targeted edits, and is the preferred tool
+when the document is being actively edited or a specific node is damaged.
+The channel rule says which channel bytes travel over; this says which tool to
+reach for. Rewriting a whole document to change one sentence in it is expensive
+and, on a document someone is editing right now, needlessly disruptive.
+
 Requires: a shell with curl (or any HTTP client) and an API token (prefixed
 sk_sqd_; older sqd_ tokens are still accepted).
 
@@ -202,7 +209,7 @@ VERIFICATION RECEIPT (both routes, the "markdown" field):
 
 TWO-WAY SYNC (push repo edits back — mode=sync):
 
-  PUT /api/docs/:docId/import?mode=sync[&baselineClock=<int>]
+  PUT /api/docs/:docId/import?mode=sync[&baselineClock=<int>][&strict=<bool>][&dryRun=<bool>]
 
   Pushes an edited repo file back to Squire. Its edits replay as native CRDT
   operations anchored at the file's export-time baseline, exactly as if the
@@ -210,6 +217,11 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
   reconnected — so concurrent live edits merge deterministically (no conflict
   states, no retry, no clobber). Unlike replace, sync preserves the CRDT
   identity, marks, undo history, and attribution of every untouched block.
+
+  Sync is the whole-file channel: use it for authoring, importing, and bulk
+  updates. For a small targeted edit — especially to a document someone is
+  actively editing, or to repair one damaged node — prefer XPath-targeted
+  modify.
 
   1. Pull with frontmatter (the baseline):
        curl ... "…/export?format=markdown&frontmatter=true" > doc.md
@@ -238,18 +250,58 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
       overlaps:[ { blockIndex, blockType, excerpt, docSide, pushSide } ],
                      // advisory: blocks changed on BOTH sides since baseline —
                      // never block/alter the push; review in version history
-      operations:{ textHunks, structuralHunks } }
+      blocksChanged:[ { blockIndex, blockType, excerpt, op, position? } ],
+                     // what this push did to each block it changed:
+                     //   op "text"       in-place character splice
+                     //   op "reconcile"  merged against concurrent live edits
+                     //   op "structural" block inserted, deleted, or replaced
+                     // an inserted block has no baseline index, so it carries
+                     // "position":"after" (anchored on blockIndex) or "start".
+                     // Verify a push from this — no re-export-and-grep needed.
+                     // A block can read op "reconcile" here and pushSide
+                     // "text" in overlaps: the two answer different questions.
+      operations:{ textHunks, structuralHunks },
+                     // retained: counts HUNKS where blocksChanged counts
+                     // BLOCKS; the two need not agree
+      baselineClock, currentClock, clockGap, docChangedSinceBaseline }
+                     // staleness, on EVERY sync response including no-ops:
+                     // how far the document moved since your baseline.
+                     // currentClock is read at validation time, so it is <=
+                     // the receipt's own clock. Clock-based: a document edited
+                     // and reverted to identical bytes still reports true.
 
   200 no-op: a byte-identical / formatting-only / lossy-degradation-only push
   stores nothing, creates no version entry, and returns { noop:true, clock:
-  <current>, markdown:<current re-export> } — so pull→push loops never
-  generate phantom edits.
+  <current>, markdown:<current re-export>, blocksChanged:[] } plus the
+  staleness fields — so pull→push loops never generate phantom edits.
+
+  strict=true (default false): refuse to merge over changes you have not seen.
+  If the document moved since your baseline the push is rejected with 409
+  sync_baseline_stale and NOTHING is applied — no content change, no clock
+  advance, no version entry. Without strict, behavior is exactly as it has
+  always been: the staleness fields are advisory and the merge proceeds.
+
+  dryRun=true (default false): compute the whole plan and apply nothing.
+  Returns 200 with the same receipt shape plus "dryRun":true, and WITHOUT
+  "markdown" — a dry run is never a baseline. No stored update, no version
+  entry, no clock advance, no live fan-out, and no agent presence announcement.
+  One disclosed exception: the staged image pass still runs, so a dry run may
+  rehost an external image or copy a cross-document one (reported in "images"),
+  because that pass produces the exact string the plan is computed from.
+  strict is evaluated identically under dryRun, so dryRun+strict against a
+  stale baseline returns the same 409 the real push would.
+  Both parameters accept true/false/1/0 and are rejected with 400 on any other
+  value; both are sync-only and 400 on mode=append, mode=replace, or create.
 
   Rejections (leave the document untouched, no version entry):
     400 sync_baseline_missing     no squire.clock and no baselineClock param
     400 sync_baseline_invalid     malformed / negative / beyond current clock (+ currentClock)
     410 sync_baseline_unavailable a clock the server can no longer reconstruct
     409 sync_doc_mismatch         frontmatter docGuid ≠ the target (identity, NOT an edit conflict)
+    409 sync_baseline_stale       strict=true only: the document moved since
+                                  your baseline (+ the staleness fields).
+                                  Re-export, re-apply, push again — or drop
+                                  strict to merge with advisory overlaps.
   The server never falls back to whole-document replacement — mode=replace
   remains the explicit opt-in for clobber writes.
 

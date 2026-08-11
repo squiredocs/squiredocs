@@ -329,7 +329,7 @@ First run in a workspace: get connected, sync the first spec, and hand back the 
 
 1. **Connect.** The \`squire-docs\` MCP server uses OAuth — Kiro opens your browser to sign in on the first tool call. Signing in with Google is find-or-create: if you do not have a Squire Docs account yet, that same click creates it and connects Kiro, with no separate signup step. (See MCP Configuration below.)
 2. **Find the spec.** Look for a spec-shaped artifact in this workspace, in order of precedence: \`.kiro/specs/**\`, then \`specs/**\`, then \`PLAN.md\` or \`docs/plan.md\`, then \`CLAUDE.md\`. Offer the best candidate and let the user confirm; if nothing spec-shaped exists, offer to draft a starter spec from the repo's README and structure.
-3. **Sync it byte-faithfully.** Move the chosen file over Squire Docs' REST byte channel — never retype its content through a tool parameter, even after you have read it. Call \`import_markdown_file\` and run the recipe it returns: one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back into the file. You only set its \`FILE=\` line.
+3. **Sync it byte-faithfully.** Move the chosen file over Squire Docs' REST byte channel — never retype its content through a tool parameter, even after you have read it. Call \`import_markdown_file\` and run the recipe it returns: one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back into the file. You only set its \`FILE=\` line. Whole-file sync is for authoring, importing, and bulk updates like this one; for a small targeted edit later, especially to a doc someone is actively editing or a damaged node, prefer \`modify\`.
 4. **Deliver the payoff.** Print the new doc's URL exactly as the sync receipt states it (\`View it at …/d/<docGuid>\`). The editor is where the human reviews and refines the spec, every edit attributed and revertible — the payoff inside the loop, not a front door the user must visit first.
 5. **Teach the loop.** State the standing behavior: read the spec from the doc before each run, write status and design back after. The loop is detailed in \`steering/specs-sync-workflow.md\`.
 
@@ -424,6 +424,8 @@ Content that already exists as bytes outside the model — a file on disk, anoth
 - **Into Squire Docs:** call \`import_markdown_file\` and run the recipe it returns — one shell command that claims a token, imports the file over REST (frontmatter preserved), and writes a sync receipt back. You only set its \`FILE=\` line. Do not read the file and paste its content into a create call.
 - **Out of Squire Docs:** \`GET /api/docs/:docId/export?format=markdown\` serializes the persisted doc, no client connection needed. Pair it with \`list_documents\`' \`updatedSince\` for incremental pulls.
 
+Whole-file byte-channel sync is for authoring, importing, and bulk updates. XPath-targeted \`modify\` is for small targeted edits, and is the preferred tool when the document is being actively edited or a specific node is damaged. The byte channel decides how content travels; this decides which tool to reach for.
+
 When you are unsure which tool fits, call \`get_tool_documentation\` — it carries the full REST reference the tool descriptions are too small to hold.
 
 ## Tokens live in a file, never in the transcript
@@ -497,6 +499,7 @@ alwaysApply: false
 - Read the spec from the doc at run start — it may carry human refinements not yet in the repo file.
 - After implementing, write status and design decisions back: what shipped, what changed, what's open. Every edit is attributed and revertible; the next run starts from an accurate spec.
 - Move file content over Squire Docs' REST byte channel (run the recipe \`import_markdown_file\` returns), never by retyping it — even after you have read the file.
+- Whole-file sync is for authoring, importing, and bulk updates; for a small targeted edit — especially to a doc someone is actively editing, or a damaged node — prefer XPath-targeted \`modify\`.
 - Keep an \`sk_sqd_\` token in \`~/.squire/token\` (a \`0600\` file), reference it as \`$(cat ~/.squire/token)\`, and never paste the raw value into the transcript.
 `;
   // The rule text above is authored inline HERE, not in shared/skill.md — stamp the

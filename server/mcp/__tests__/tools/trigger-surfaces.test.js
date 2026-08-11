@@ -95,6 +95,37 @@ describe('trigger surfaces (SC-005)', () => {
     });
   });
 
+  // Feature 054 (US5/FR-016, SC-007). The channel rule says which CHANNEL bytes
+  // travel over; the split says which TOOL to reach for, which is the question
+  // agents were getting wrong. Both budgeted surfaces are tight, so the split
+  // is exactly the sort of sentence a future byte-trimming edit would drop
+  // first. These pins make that a test failure rather than a quiet regression.
+  describe('the whole-file-vs-targeted-edit split (054)', () => {
+    test('SERVER_INSTRUCTIONS states both halves of the split', () => {
+      expect(SERVER_INSTRUCTIONS).toContain('bulk updates');
+      expect(SERVER_INSTRUCTIONS).toMatch(/actively editing/i);
+      expect(SERVER_INSTRUCTIONS).toMatch(/prefer modify/i);
+    });
+
+    test('modify.description states both halves of the split', () => {
+      expect(modify.description).toContain('bulk update');
+      expect(modify.description).toMatch(/actively editing/i);
+      expect(modify.description).toMatch(/damaged node/i);
+    });
+
+    test('import_markdown_file.description states both halves of the split', () => {
+      expect(importMarkdownFile.description).toContain('bulk updates');
+      expect(importMarkdownFile.description).toMatch(/actively edited/i);
+      expect(importMarkdownFile.description).toMatch(/damaged/i);
+    });
+
+    test('the split did not push any budgeted surface over its cap', () => {
+      expect(bytes(SERVER_INSTRUCTIONS)).toBeLessThanOrEqual(1536);
+      expect(bytes(modify.description)).toBeLessThanOrEqual(2048);
+      expect(bytes(importMarkdownFile.description)).toBeLessThanOrEqual(2048);
+    });
+  });
+
   describe('import_markdown_file', () => {
     test('first line contains "sync" (FR-006 — the tool-list affordance)', () => {
       expect(firstLine(importMarkdownFile.description).toLowerCase()).toContain('sync');

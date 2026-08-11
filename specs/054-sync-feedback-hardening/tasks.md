@@ -89,8 +89,8 @@ engine does not read it before the dry-run cut point.
 
 **Purpose**: Establish the pre-change baseline so regressions are attributable.
 
-- [ ] T001 Capture the pre-change green baseline: run `npx jest --forceExit` from the repo root and record the pass/fail summary in a scratch note (not committed)
-- [ ] T002 [P] Record current pinned byte sizes for the three budgeted surfaces (`SERVER_INSTRUCTIONS` 1,225 B, `modify.description` 1,830 B, `import_markdown_file.description` 1,216 B) by running the measurement script pattern from `specs/054-sync-feedback-hardening/contracts/guidance-split.md`
+- [X] T001 Capture the pre-change green baseline: run `npx jest --forceExit` from the repo root and record the pass/fail summary in a scratch note (not committed)
+- [X] T002 [P] Record current pinned byte sizes for the three budgeted surfaces (`SERVER_INSTRUCTIONS` 1,225 B, `modify.description` 1,830 B, `import_markdown_file.description` 1,216 B) by running the measurement script pattern from `specs/054-sync-feedback-hardening/contracts/guidance-split.md`
 
 **Checkpoint**: Baseline known; every later failure is caused by this feature.
 
@@ -104,10 +104,10 @@ on.
 **⚠️ CRITICAL**: US1, US2, and US3 cannot start until this phase is complete. US4 and US5 are
 independent of it and may start immediately.
 
-- [ ] T003 Extract a reusable boolean query-param parser in `server/api/docs-import.js` from the existing `parseReceiptOptions` convention (`:242-260`): accept `true`/`1` → true, `false`/`0` → false, anything else → an error carrying the message shape `Unsupported <name> value: <v>. Accepted values: true, false, 1, 0`
-- [ ] T004 Refactor `parseReceiptOptions` in `server/api/docs-import.js` to use the T003 helper for `?frontmatter`, confirming no behavior change (message text preserved verbatim)
-- [ ] T005 Raise the cap in `blockExcerpt` (`server/markdown-sync.js:838`) from 80 to 120 characters and append an ellipsis marker when truncation occurs, keeping the whitespace-collapse and single-line behavior (RBD-054-6 as amended)
-- [ ] T006 [P] Update `server/__tests__/markdown-sync.overlap.test.js` for the widened excerpt: assert the 120-char cap and the ellipsis on a long block, and confirm existing overlap assertions still pass
+- [X] T003 Extract a reusable boolean query-param parser in `server/api/docs-import.js` from the existing `parseReceiptOptions` convention (`:242-260`): accept `true`/`1` → true, `false`/`0` → false, anything else → an error carrying the message shape `Unsupported <name> value: <v>. Accepted values: true, false, 1, 0`
+- [X] T004 Refactor `parseReceiptOptions` in `server/api/docs-import.js` to use the T003 helper for `?frontmatter`, confirming no behavior change (message text preserved verbatim)
+- [X] T005 Raise the cap in `blockExcerpt` (`server/markdown-sync.js:838`) from 80 to 120 characters and append an ellipsis marker when truncation occurs, keeping the whitespace-collapse and single-line behavior (RBD-054-6 as amended)
+- [X] T006 [P] Update `server/__tests__/markdown-sync.overlap.test.js` for the widened excerpt: assert the 120-char cap and the ellipsis on a long block, and confirm existing overlap assertions still pass
 
 **Checkpoint**: Boolean params parse consistently; one excerpt shape exists for the whole receipt.
 
@@ -124,24 +124,24 @@ remedy, nothing applied.
 
 ### Implementation
 
-- [ ] T007 [US1] Stop discarding `currentClock` in `handleSyncPush` (`server/api/docs-import.js:116`): destructure it from the `validateSyncBaseline` result alongside `baselineClock` and `flavor` (the value is already returned at `markdown-sync.js:1042`)
-- [ ] T008 [US1] Add a `buildStaleness(baselineClock, currentClock)` helper in `server/api/docs-import.js` returning `{ baselineClock, currentClock, clockGap: Math.max(0, currentClock - baselineClock), docChangedSinceBaseline: currentClock !== baselineClock }` per data-model.md §1
-- [ ] T009 [US1] Parse `?strict` in `handleSyncPush` (`server/api/docs-import.js`) using the T003 helper; on a parse error return 400 with the shared message shape
-- [ ] T010 [US1] Add the `sync_baseline_stale` entry to `REJECTION_MESSAGES` (`server/api/docs-import.js:86-96`) with the message and guidance text from `contracts/sync-receipt-v2.md`
-- [ ] T011 [US1] Implement the strict gate in `handleSyncPush` immediately after baseline validation and **before** the presence session opens (`server/api/docs-import.js:126`): when `strict` and `docChangedSinceBaseline`, return HTTP 409 with `error: 'sync_baseline_stale'`, message, guidance, and the four staleness fields; nothing is applied
-- [ ] T012 [US1] Merge the staleness fields into every successful sync response in `handleSyncPush` (`server/api/docs-import.js:177`) so applied, noop, and idempotent-noop receipts all carry them (FR-001 acceptance scenario 5)
-- [ ] T013 [US1] Reject `?strict` on non-sync modes and on `POST /api/docs/import` in `server/api/docs-import.js` with a 400 naming the supported combination
+- [X] T007 [US1] Stop discarding `currentClock` in `handleSyncPush` (`server/api/docs-import.js:116`): destructure it from the `validateSyncBaseline` result alongside `baselineClock` and `flavor` (the value is already returned at `markdown-sync.js:1042`)
+- [X] T008 [US1] Add a `buildStaleness(baselineClock, currentClock)` helper in `server/api/docs-import.js` returning `{ baselineClock, currentClock, clockGap: Math.max(0, currentClock - baselineClock), docChangedSinceBaseline: currentClock !== baselineClock }` per data-model.md §1
+- [X] T009 [US1] Parse `?strict` in `handleSyncPush` (`server/api/docs-import.js`) using the T003 helper; on a parse error return 400 with the shared message shape
+- [X] T010 [US1] Add the `sync_baseline_stale` entry to `REJECTION_MESSAGES` (`server/api/docs-import.js:86-96`) with the message and guidance text from `contracts/sync-receipt-v2.md`
+- [X] T011 [US1] Implement the strict gate in `handleSyncPush` immediately after baseline validation and **before** the presence session opens (`server/api/docs-import.js:126`): when `strict` and `docChangedSinceBaseline`, return HTTP 409 with `error: 'sync_baseline_stale'`, message, guidance, and the four staleness fields; nothing is applied
+- [X] T012 [US1] Merge the staleness fields into every successful sync response in `handleSyncPush` (`server/api/docs-import.js:177`) so applied, noop, and idempotent-noop receipts all carry them (FR-001 acceptance scenario 5)
+- [X] T013 [US1] Reject `?strict` on non-sync modes and on `POST /api/docs/import` in `server/api/docs-import.js` with a 400 naming the supported combination
 
 ### Tests
 
-- [ ] T014 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: unchanged doc → `clockGap: 0`, `docChangedSinceBaseline: false`, push applies (AS-1)
-- [ ] T015 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: doc changed after export, no `strict` → applies as today with `clockGap > 0` and `docChangedSinceBaseline: true` (AS-2, FR-003)
-- [ ] T016 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=true` against a changed doc → 409 `sync_baseline_stale` with remedy and staleness fields; assert the doc content, clock, and `yjs_updates` row count are unchanged and no version entry was created (AS-3, FR-004)
-- [ ] T017 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=true` against an unchanged doc → applies normally (AS-4)
-- [ ] T018 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: a noop sync still carries all four staleness fields (AS-5)
-- [ ] T019 [P] [US1] In `server/__tests__/markdown-sync.rejection.test.js`: `sync_baseline_missing` and `sync_baseline_invalid` take precedence over staleness evaluation, unchanged by `strict` (FR-005)
-- [ ] T020 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=1` is accepted, `strict=yes` returns 400 with the shared message shape (RBD-054-9)
-- [ ] T021 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: a baseline ahead of the doc is still rejected as `sync_baseline_invalid`, and `clockGap` never renders negative anywhere (RBD-054-1 edge)
+- [X] T014 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: unchanged doc → `clockGap: 0`, `docChangedSinceBaseline: false`, push applies (AS-1)
+- [X] T015 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: doc changed after export, no `strict` → applies as today with `clockGap > 0` and `docChangedSinceBaseline: true` (AS-2, FR-003)
+- [X] T016 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=true` against a changed doc → 409 `sync_baseline_stale` with remedy and staleness fields; assert the doc content, clock, and `yjs_updates` row count are unchanged and no version entry was created (AS-3, FR-004)
+- [X] T017 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=true` against an unchanged doc → applies normally (AS-4)
+- [X] T018 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: a noop sync still carries all four staleness fields (AS-5)
+- [X] T019 [P] [US1] In `server/__tests__/markdown-sync.rejection.test.js`: `sync_baseline_missing` and `sync_baseline_invalid` take precedence over staleness evaluation, unchanged by `strict` (FR-005)
+- [X] T020 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: `strict=1` is accepted, `strict=yes` returns 400 with the shared message shape (RBD-054-9)
+- [X] T021 [P] [US1] In `__tests__/integration/sync-push.route.test.js`: a baseline ahead of the doc is still rejected as `sync_baseline_invalid`, and `clockGap` never renders negative anywhere (RBD-054-1 edge)
 
 **Checkpoint**: US1 is independently shippable — the trust core works with no other story.
 
@@ -157,19 +157,19 @@ type, excerpt, and op kind.
 
 ### Implementation
 
-- [ ] T022 [US2] Add `buildChangeReport(plan, sourceMap, baselineMd)` to `server/markdown-sync.js` near `pushTouchedBlocks` (`:862`): map `plan.textBlocks` → `op: 'text'`, `plan.reconcileBlocks` → `op: 'reconcile'`, and call `structuralOps(plan.structural, sourceMap, baselineMd)` (`:703`) for the rest — each `replacements` group emits one entry per baseline index in `first..last` with `op: 'structural'`, each `insertions` entry emits one entry with `op: 'structural'` plus `position: 'after'` (or `'start'` when `afterBlock` is null). **Do not modify `pushTouchedBlocks`** (research R4)
-- [ ] T023 [US2] In `buildChangeReport`, populate `blockIndex` from `sourceMap.blocks[i].blockIndex`, `blockType` from `blockNode.nodeName` (falling back to `'text'` for a bare text node, matching `markdown-sync.js:906`), and `excerpt` via `blockExcerpt`; sort by `blockIndex` ascending with insertions following their anchor (data-model.md §2)
-- [ ] T024 [US2] Export `buildChangeReport` from `server/markdown-sync.js`'s `module.exports` block (`:1189+`)
-- [ ] T025 [US2] Call `buildChangeReport` in `applySyncPush` (`server/markdown-sync.js`) after `planPush` (`:1114`) and attach `blocksChanged` to the applied receipt (`:1180`), keeping `operations` in place (RBD-054-5)
-- [ ] T026 [US2] Attach `blocksChanged: []` to both noop receipts in `applySyncPush` (`server/markdown-sync.js:1103-1107` and `:1128-1132`) (FR-010)
+- [X] T022 [US2] Add `buildChangeReport(plan, sourceMap, baselineMd)` to `server/markdown-sync.js` near `pushTouchedBlocks` (`:862`): map `plan.textBlocks` → `op: 'text'`, `plan.reconcileBlocks` → `op: 'reconcile'`, and call `structuralOps(plan.structural, sourceMap, baselineMd)` (`:703`) for the rest — each `replacements` group emits one entry per baseline index in `first..last` with `op: 'structural'`, each `insertions` entry emits one entry with `op: 'structural'` plus `position: 'after'` (or `'start'` when `afterBlock` is null). **Do not modify `pushTouchedBlocks`** (research R4)
+- [X] T023 [US2] In `buildChangeReport`, populate `blockIndex` from `sourceMap.blocks[i].blockIndex`, `blockType` from `blockNode.nodeName` (falling back to `'text'` for a bare text node, matching `markdown-sync.js:906`), and `excerpt` via `blockExcerpt`; sort by `blockIndex` ascending with insertions following their anchor (data-model.md §2)
+- [X] T024 [US2] Export `buildChangeReport` from `server/markdown-sync.js`'s `module.exports` block (`:1189+`)
+- [X] T025 [US2] Call `buildChangeReport` in `applySyncPush` (`server/markdown-sync.js`) after `planPush` (`:1114`) and attach `blocksChanged` to the applied receipt (`:1180`), keeping `operations` in place (RBD-054-5)
+- [X] T026 [US2] Attach `blocksChanged: []` to both noop receipts in `applySyncPush` (`server/markdown-sync.js:1103-1107` and `:1128-1132`) (FR-010)
 
 ### Tests
 
-- [ ] T027 [P] [US2] Unit-test `buildChangeReport` in `server/__tests__/markdown-sync.overlap.test.js`: a two-paragraph text edit yields two entries with `op: 'text'`, correct indices, types, and excerpts (AS-1)
-- [ ] T028 [P] [US2] Unit-test `buildChangeReport`: a structural replace, a whole-block delete, and a boundary insertion each yield `op: 'structural'`, with the insertion carrying `position` and its anchor index (AS-2, research R5)
-- [ ] T029 [P] [US2] Unit-test `buildChangeReport`: a block reconciled against concurrent live edits yields `op: 'reconcile'` **while** the same block's `overlaps[].pushSide` remains `'text'` — the deliberate asymmetry (AS-3, research R4)
-- [ ] T030 [P] [US2] In `__tests__/integration/sync-push.route.test.js`: a noop sync returns `blocksChanged: []` and every changed block (and no unchanged block) appears on a real push (AS-4, SC-004)
-- [ ] T031 [P] [US2] In `__tests__/integration/sync-push.route.test.js`: `operations` aggregates are still present alongside `blocksChanged` (FR-011, SC-008)
+- [X] T027 [P] [US2] Unit-test `buildChangeReport` in `server/__tests__/markdown-sync.overlap.test.js`: a two-paragraph text edit yields two entries with `op: 'text'`, correct indices, types, and excerpts (AS-1)
+- [X] T028 [P] [US2] Unit-test `buildChangeReport`: a structural replace, a whole-block delete, and a boundary insertion each yield `op: 'structural'`, with the insertion carrying `position` and its anchor index (AS-2, research R5)
+- [X] T029 [P] [US2] Unit-test `buildChangeReport`: a block reconciled against concurrent live edits yields `op: 'reconcile'` **while** the same block's `overlaps[].pushSide` remains `'text'` — the deliberate asymmetry (AS-3, research R4)
+- [X] T030 [P] [US2] In `__tests__/integration/sync-push.route.test.js`: a noop sync returns `blocksChanged: []` and every changed block (and no unchanged block) appears on a real push (AS-4, SC-004)
+- [X] T031 [P] [US2] In `__tests__/integration/sync-push.route.test.js`: `operations` aggregates are still present alongside `blocksChanged` (FR-011, SC-008)
 
 **Checkpoint**: Verification from the receipt alone.
 
@@ -187,22 +187,22 @@ against staleness and `operations` alone.
 
 ### Implementation
 
-- [ ] T032 [US3] Add a `dryRun` option to `applySyncPush` (`server/markdown-sync.js:1063-1083` opts destructure), defaulting to `false`
-- [ ] T033 [US3] Implement the dry-run early return in `applySyncPush` between the overlaps block (`server/markdown-sync.js:1148`) and `persistence.storeUpdate` (`:1160`): return `{ docId, mode: 'sync', dryRun: true, noop: false, clock: <current clock>, overlaps, blocksChanged, operations, images }` with **no** `markdown` key, so `storeUpdate`, `applyLiveUpdate`, and `searchIndexer.markDirty` are never reached (research R2, data-model.md §3)
-- [ ] T034 [US3] Add the `dryRun: true` marker to both noop receipts in `applySyncPush` when the option is set, and drop their `markdown` re-export in that case (a dry run is never a baseline, FR-007)
-- [ ] T035 [US3] Parse `?dryRun` in `handleSyncPush` (`server/api/docs-import.js`) with the T003 helper and thread it into the `applySyncPush` call (`:130-155`)
-- [ ] T036 [US3] Skip the presence session entirely for dry runs: guard `importPresence.observeSyncRange` (`server/api/docs-import.js:127`) and `importPresence.settle` (`:163-176`), and skip opening the session upstream in the sync route so no avatar, selection, or fan-out occurs (RBD-054-3)
-- [ ] T037 [US3] Reject `dryRun` on `mode=append`, `mode=replace`, and `POST /api/docs/import` in `server/api/docs-import.js` with a 400 naming the supported combination (FR-008, RBD-054-4)
+- [X] T032 [US3] Add a `dryRun` option to `applySyncPush` (`server/markdown-sync.js:1063-1083` opts destructure), defaulting to `false`
+- [X] T033 [US3] Implement the dry-run early return in `applySyncPush` between the overlaps block (`server/markdown-sync.js:1148`) and `persistence.storeUpdate` (`:1160`): return `{ docId, mode: 'sync', dryRun: true, noop: false, clock: <current clock>, overlaps, blocksChanged, operations, images }` with **no** `markdown` key, so `storeUpdate`, `applyLiveUpdate`, and `searchIndexer.markDirty` are never reached (research R2, data-model.md §3)
+- [X] T034 [US3] Add the `dryRun: true` marker to both noop receipts in `applySyncPush` when the option is set, and drop their `markdown` re-export in that case (a dry run is never a baseline, FR-007)
+- [X] T035 [US3] Parse `?dryRun` in `handleSyncPush` (`server/api/docs-import.js`) with the T003 helper and thread it into the `applySyncPush` call (`:130-155`)
+- [X] T036 [US3] Skip the presence session entirely for dry runs: guard `importPresence.observeSyncRange` (`server/api/docs-import.js:127`) and `importPresence.settle` (`:163-176`), and skip opening the session upstream in the sync route so no avatar, selection, or fan-out occurs (RBD-054-3)
+- [X] T037 [US3] Reject `dryRun` on `mode=append`, `mode=replace`, and `POST /api/docs/import` in `server/api/docs-import.js` with a 400 naming the supported combination (FR-008, RBD-054-4)
 
 ### Tests
 
-- [ ] T038 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run returns `dryRun: true`, omits `markdown`, and carries overlaps, `blocksChanged`, staleness fields, and `operations` (AS-1, FR-007)
-- [ ] T039 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: the same push without `dryRun` produces changes matching what the dry run reported (AS-2, SC-003)
-- [ ] T040 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: after a dry run, the document export is byte-identical, the clock is unchanged, and the `yjs_updates` row count is unchanged (AS-3, SC-003)
-- [ ] T041 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run opens no presence session and emits no live-apply fan-out (assert against the presence/live-apply doubles the suite already uses) (AS-3, RBD-054-3)
-- [ ] T042 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: `dryRun=true&strict=true` against a stale baseline returns the same 409 `sync_baseline_stale` a real push would (AS-4, RBD-054-2)
-- [ ] T043 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: `dryRun=true` on `mode=append`, `mode=replace`, and the create route each return 400 (AS-5)
-- [ ] T044 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run over a noop push returns `dryRun: true`, `noop: true`, `blocksChanged: []`, and no `markdown` (AS-6)
+- [X] T038 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run returns `dryRun: true`, omits `markdown`, and carries overlaps, `blocksChanged`, staleness fields, and `operations` (AS-1, FR-007)
+- [X] T039 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: the same push without `dryRun` produces changes matching what the dry run reported (AS-2, SC-003)
+- [X] T040 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: after a dry run, the document export is byte-identical, the clock is unchanged, and the `yjs_updates` row count is unchanged (AS-3, SC-003)
+- [X] T041 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run opens no presence session and emits no live-apply fan-out (assert against the presence/live-apply doubles the suite already uses) (AS-3, RBD-054-3)
+- [X] T042 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: `dryRun=true&strict=true` against a stale baseline returns the same 409 `sync_baseline_stale` a real push would (AS-4, RBD-054-2)
+- [X] T043 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: `dryRun=true` on `mode=append`, `mode=replace`, and the create route each return 400 (AS-5)
+- [X] T044 [P] [US3] In `__tests__/integration/sync-push.route.test.js`: a dry run over a noop push returns `dryRun: true`, `noop: true`, `blocksChanged: []`, and no `markdown` (AS-6)
 
 **Checkpoint**: Agents can look before they touch a live doc.
 
@@ -223,23 +223,23 @@ diff as changed (research R7).
 
 ### Implementation
 
-- [ ] T045 [US4] In `server/mcp/yjs/serialization.js` `toMarkdown` (`:255-262`), seed the ordered-list counter from `node.getAttribute('start')` instead of `let num = 1`, coercing with `Number()` and falling back to 1 when absent, non-finite, or `< 1` (RBD-054-8; the attribute may arrive as number **or** string — mirror the adjacent `checked === true || checked === 'true'` handling)
-- [ ] T046 [US4] Apply the byte-identical change in `server/mcp/yjs/serialization.js` `toMarkdownWithSourceMap` (`:646-653`); the two copies must stay textually parallel or source maps desync (SC-006)
-- [ ] T047 [US4] In `shared/markdown/strict-parser.js:240`, replace `attrs: { start: 1 }` with the first matched item's literal number (extend the `/^(\s*)\d+\. (.*)$/` handling to capture it), clamping values `< 1` to 1
-- [ ] T048 [US4] Update the FROZEN-parser header comment in `shared/markdown/strict-parser.js:12-16` to record this one sanctioned exception with its authority (design amendment 2026-08-11, FR-013) — the freeze otherwise stands
-- [ ] T049 [US4] Bump `CACHE_VERSION` in `server/diff-service.js:35` from `'v10'` to `'v11'` (RBD-054-12, research R9)
-- [ ] T050 [US4] Verify `shared/markdown/tolerant/block-parser.js:442` already emits `attrs: { start: first.start }` and needs **no** change; confirm `< 1` clamping matches the strict parser's new behavior, adding it if absent
+- [X] T045 [US4] In `server/mcp/yjs/serialization.js` `toMarkdown` (`:255-262`), seed the ordered-list counter from `node.getAttribute('start')` instead of `let num = 1`, coercing with `Number()` and falling back to 1 when absent, non-finite, or `< 1` (RBD-054-8; the attribute may arrive as number **or** string — mirror the adjacent `checked === true || checked === 'true'` handling)
+- [X] T046 [US4] Apply the byte-identical change in `server/mcp/yjs/serialization.js` `toMarkdownWithSourceMap` (`:646-653`); the two copies must stay textually parallel or source maps desync (SC-006)
+- [X] T047 [US4] In `shared/markdown/strict-parser.js:240`, replace `attrs: { start: 1 }` with the first matched item's literal number (extend the `/^(\s*)\d+\. (.*)$/` handling to capture it), clamping values `< 1` to 1
+- [X] T048 [US4] Update the FROZEN-parser header comment in `shared/markdown/strict-parser.js:12-16` to record this one sanctioned exception with its authority (design amendment 2026-08-11, FR-013) — the freeze otherwise stands
+- [X] T049 [US4] Bump `CACHE_VERSION` in `server/diff-service.js:35` from `'v10'` to `'v11'` (RBD-054-12, research R9)
+- [X] T050 [US4] Verify `shared/markdown/tolerant/block-parser.js:442` already emits `attrs: { start: first.start }` and needs **no** change; confirm `< 1` clamping matches the strict parser's new behavior, adding it if absent
 
 ### Tests
 
-- [ ] T051 [US4] Add a corpus entry to the sync round-trip invariant in `server/__tests__/format-roundtrip.test.js` (`:1015-1025`) for an ordered list with a non-default start (e.g. `start: 11`), which automatically gains both-flavor coverage (FR-014, Constitution II)
-- [ ] T052 [P] [US4] In `server/__tests__/format-roundtrip.test.js`: a doc whose ordered list starts at 11 exports numbered `11.`, `12.`, `13.` in both parser modes (`describe.each([false, true])`, `:41`) (AS-1, AS-3)
-- [ ] T053 [US4] Update the pinned assertion at `server/__tests__/markdown-tolerant.test.js:203` — the test named "ordered list honors start number; strict fixes start at 1" now asserts that **both** modes preserve `start`; rename it accordingly. **Update, do not delete** (research R8)
-- [ ] T054 [P] [US4] Confirm `server/__tests__/markdown-strict-characterization.test.js` stays green with no fixture regeneration — both ordered-list cases in the 70-case snapshot use `start: 1`, which the new behavior also produces (research R8)
-- [ ] T055 [P] [US4] Extend `server/__tests__/serialization.sourcemap.test.js` with an ordered-list-start case asserting `toMarkdownWithSourceMap(nodes).markdown === toMarkdownNodes(nodes)` (SC-006)
-- [ ] T056 [P] [US4] Update the `CACHE_VERSION` pins to `'v11'` in `server/__tests__/diff-service.test.js:992-993` and `server/__tests__/markdown-strict-characterization.test.js:77`
-- [ ] T057 [P] [US4] In `__tests__/integration/sync-push.route.test.js`: pushing back an unchanged export of a list starting at 11 returns a noop with `blocksChanged: []` (AS-2, SC-005)
-- [ ] T058 [P] [US4] Cover `start` = 0, negative, and non-numeric values collapsing to 1 in `server/__tests__/format-roundtrip.test.js` or the tolerant suite (RBD-054-8)
+- [X] T051 [US4] Add a corpus entry to the sync round-trip invariant in `server/__tests__/format-roundtrip.test.js` (`:1015-1025`) for an ordered list with a non-default start (e.g. `start: 11`), which automatically gains both-flavor coverage (FR-014, Constitution II)
+- [X] T052 [P] [US4] In `server/__tests__/format-roundtrip.test.js`: a doc whose ordered list starts at 11 exports numbered `11.`, `12.`, `13.` in both parser modes (`describe.each([false, true])`, `:41`) (AS-1, AS-3)
+- [X] T053 [US4] Update the pinned assertion at `server/__tests__/markdown-tolerant.test.js:203` — the test named "ordered list honors start number; strict fixes start at 1" now asserts that **both** modes preserve `start`; rename it accordingly. **Update, do not delete** (research R8)
+- [X] T054 [P] [US4] Confirm `server/__tests__/markdown-strict-characterization.test.js` stays green with no fixture regeneration — both ordered-list cases in the 70-case snapshot use `start: 1`, which the new behavior also produces (research R8)
+- [X] T055 [P] [US4] Extend `server/__tests__/serialization.sourcemap.test.js` with an ordered-list-start case asserting `toMarkdownWithSourceMap(nodes).markdown === toMarkdownNodes(nodes)` (SC-006)
+- [X] T056 [P] [US4] Update the `CACHE_VERSION` pins to `'v11'` in `server/__tests__/diff-service.test.js:992-993` and `server/__tests__/markdown-strict-characterization.test.js:77`
+- [X] T057 [P] [US4] In `__tests__/integration/sync-push.route.test.js`: pushing back an unchanged export of a list starting at 11 returns a noop with `blocksChanged: []` (AS-2, SC-005)
+- [X] T058 [P] [US4] Cover `start` = 0, negative, and non-numeric values collapsing to 1 in `server/__tests__/format-roundtrip.test.js` or the tolerant suite (RBD-054-8)
 
 **Checkpoint**: Zero spurious numbering diffs; source maps intact.
 
@@ -259,22 +259,22 @@ diff as changed (research R7).
 from inline text in `distribution/publish.mjs`** — editing the checked-in copies is reverted on
 the next regenerate (RBD-054-13).
 
-- [ ] T059 [US5] Add the COMPACT variant to the CHANNEL RULE in `server/mcp/index.js:188-198`, keeping the literal trigger phrase `to sync/import an existing file` and staying ≤ 1,536 UTF-8 bytes (311 B headroom; FR-016)
-- [ ] T060 [US5] **Rewrite** (do not append to) the sync-redirect paragraph in `server/mcp/tools/modify.js:77-80` to carry the split, keeping `mode=sync` and the `/or syncing/i` match, and staying ≤ 2,048 bytes — **only 218 B of headroom**, so re-measure before running tests
-- [ ] T061 [P] [US5] Add the split to the `import_markdown_file` description's intent list in `server/mcp/tools/import-markdown-file.js:36-50` (832 B headroom), preserving the first-line contract (`sync` + `/existing/`)
-- [ ] T062 [P] [US5] Add the FULL variant to both the channel-rule block (`:18-30`) and the two-way-sync section (`:203-254`) of `server/mcp/tools/tool-documentation/export-api.js`, keeping the literal `THE CHANNEL RULE`
-- [ ] T063 [P] [US5] Add the FULL variant to the byte-channel section of `distribution/shared/skill.md:22-30`, leaving the `/squire:onboard` clause wording untouched (the Cursor generator's drift tripwire at `publish.mjs:539-547` throws if it moves)
-- [ ] T064 [P] [US5] Add the FULL variant to Move 3 in `distribution/shared/onboard.md:57-59`
-- [ ] T065 [US5] Add the split to the **inline** Kiro sources in `distribution/publish.mjs`: steering channel-rule body (`:420-422`) and `POWER.md` channel-rule text (`:332`)
-- [ ] T066 [US5] Add the split to the **inline** Cursor rule source in `distribution/publish.mjs:499` (the comment at `:502` confirms this text is authored here, not in `shared/skill.md`)
-- [ ] T067 [US5] Run `node distribution/publish.mjs` (dry-run by default: regenerates and validates, no network), confirm no drift-guard throw, and stage the regenerated files under `distribution/`
-- [ ] T068 [P] [US5] Add the FULL variant to the channel-rule block in `client/public/agents.md:182-186` and to the `## Sync a repo file` loop (`:212-235`)
-- [ ] T069 [US5] Add channel-rule guidance including the split to `BASE_SYSTEM_PROMPT` in `server/api/chat.js` near the markdown-attachment workflow (`:173-181`) using the **PLAIN** variant — this prompt has **no** channel-rule text today, so this is an addition, and the prompt's own rule at `:197` forbids em dashes (RBD-054-13)
+- [X] T059 [US5] Add the COMPACT variant to the CHANNEL RULE in `server/mcp/index.js:188-198`, keeping the literal trigger phrase `to sync/import an existing file` and staying ≤ 1,536 UTF-8 bytes (311 B headroom; FR-016)
+- [X] T060 [US5] **Rewrite** (do not append to) the sync-redirect paragraph in `server/mcp/tools/modify.js:77-80` to carry the split, keeping `mode=sync` and the `/or syncing/i` match, and staying ≤ 2,048 bytes — **only 218 B of headroom**, so re-measure before running tests
+- [X] T061 [P] [US5] Add the split to the `import_markdown_file` description's intent list in `server/mcp/tools/import-markdown-file.js:36-50` (832 B headroom), preserving the first-line contract (`sync` + `/existing/`)
+- [X] T062 [P] [US5] Add the FULL variant to both the channel-rule block (`:18-30`) and the two-way-sync section (`:203-254`) of `server/mcp/tools/tool-documentation/export-api.js`, keeping the literal `THE CHANNEL RULE`
+- [X] T063 [P] [US5] Add the FULL variant to the byte-channel section of `distribution/shared/skill.md:22-30`, leaving the `/squire:onboard` clause wording untouched (the Cursor generator's drift tripwire at `publish.mjs:539-547` throws if it moves)
+- [X] T064 [P] [US5] Add the FULL variant to Move 3 in `distribution/shared/onboard.md:57-59`
+- [X] T065 [US5] Add the split to the **inline** Kiro sources in `distribution/publish.mjs`: steering channel-rule body (`:420-422`) and `POWER.md` channel-rule text (`:332`)
+- [X] T066 [US5] Add the split to the **inline** Cursor rule source in `distribution/publish.mjs:499` (the comment at `:502` confirms this text is authored here, not in `shared/skill.md`)
+- [X] T067 [US5] Run `node distribution/publish.mjs` (dry-run by default: regenerates and validates, no network), confirm no drift-guard throw, and stage the regenerated files under `distribution/`
+- [X] T068 [P] [US5] Add the FULL variant to the channel-rule block in `client/public/agents.md:182-186` and to the `## Sync a repo file` loop (`:212-235`)
+- [X] T069 [US5] Add channel-rule guidance including the split to `BASE_SYSTEM_PROMPT` in `server/api/chat.js` near the markdown-attachment workflow (`:173-181`) using the **PLAIN** variant — this prompt has **no** channel-rule text today, so this is an addition, and the prompt's own rule at `:197` forbids em dashes (RBD-054-13)
 
 ### Tests
 
-- [ ] T070 [US5] Run `npx jest server/mcp/__tests__/tools/ --forceExit` and confirm all byte budgets, trigger phrases, and first-line contracts pass — specifically `trigger-surfaces.test.js:75-77`, `:88-91`, `:93-95`, `tool-modules.test.js:137,165`, `import-markdown-file.test.js:86-88`, and `get-tool-documentation.test.js:70-81`
-- [ ] T071 [P] [US5] Add an assertion to `server/mcp/__tests__/tools/trigger-surfaces.test.js` pinning the split's presence in `SERVER_INSTRUCTIONS` and `modify.description` (a stable substring such as `bulk updates`), so a future edit cannot silently drop it (SC-007)
+- [X] T070 [US5] Run `npx jest server/mcp/__tests__/tools/ --forceExit` and confirm all byte budgets, trigger phrases, and first-line contracts pass — specifically `trigger-surfaces.test.js:75-77`, `:88-91`, `:93-95`, `tool-modules.test.js:137,165`, `import-markdown-file.test.js:86-88`, and `get-tool-documentation.test.js:70-81`
+- [X] T071 [P] [US5] Add an assertion to `server/mcp/__tests__/tools/trigger-surfaces.test.js` pinning the split's presence in `SERVER_INSTRUCTIONS` and `modify.description` (a stable substring such as `bulk updates`), so a future edit cannot silently drop it (SC-007)
 
 **Checkpoint**: The split is contract at every surface, budgets intact.
 
@@ -282,12 +282,12 @@ the next regenerate (RBD-054-13).
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T072 Update `README.md`'s Two-Way Sync section (`:513-523`) with the staleness fields, `strict`, `dryRun`, and `blocksChanged`, and add the guidance split there and in the MCP tools section (`:694-745`) — Constitution Principle I requires this in the same commit as the behavior change
-- [ ] T073 [P] Update `specs/004-two-way-sync/contracts/sync-push.md` with a pointer to `specs/054-sync-feedback-hardening/contracts/sync-receipt-v2.md` so the base contract does not read as complete on its own
-- [ ] T074 [P] Verify no consumer of the sync receipt broke: grep the repo (`grep -ra`) for `operations.textHunks`, `receipt.markdown`, and `overlaps` readers and confirm each still works against the additive shape (SC-008)
-- [ ] T075 Run the full backend suite `npx jest --forceExit` and compare against the T001 baseline — zero new failures (SC-008)
-- [ ] T076 Walk `specs/054-sync-feedback-hardening/quickstart.md` §2–§5 manually against a live doc in the dev pod, including the browser check that a dry run shows no avatar and no selection (RBD-054-3) and that version-history diffs render `11.` (RBD-054-12)
-- [ ] T077 Record any deviation from the plan's decisions, plus the outcome of the RBD-054-11 flag (dry run's staged image pass), in `specs/054-sync-feedback-hardening/clarifications-needed.md`
+- [X] T072 Update `README.md`'s Two-Way Sync section (`:513-523`) with the staleness fields, `strict`, `dryRun`, and `blocksChanged`, and add the guidance split there and in the MCP tools section (`:694-745`) — Constitution Principle I requires this in the same commit as the behavior change
+- [X] T073 [P] Update `specs/004-two-way-sync/contracts/sync-push.md` with a pointer to `specs/054-sync-feedback-hardening/contracts/sync-receipt-v2.md` so the base contract does not read as complete on its own
+- [X] T074 [P] Verify no consumer of the sync receipt broke: grep the repo (`grep -ra`) for `operations.textHunks`, `receipt.markdown`, and `overlaps` readers and confirm each still works against the additive shape (SC-008)
+- [X] T075 Run the full backend suite `npx jest --forceExit` and compare against the T001 baseline — zero new failures (SC-008)
+- [ ] T076 **OWED — needs a browser, not implementable in a worktree.** Walk `specs/054-sync-feedback-hardening/quickstart.md` §2–§5 manually against a live doc in the dev pod, including the browser check that a dry run shows no avatar and no selection (RBD-054-3) and that version-history diffs render `11.` (RBD-054-12). Automated equivalents are green: the presence doubles assert zero sessions and zero selections on a dry run, and the round-trip corpus covers the numbering in both parser modes and both flavors.
+- [X] T077 Record any deviation from the plan's decisions, plus the outcome of the RBD-054-11 flag (dry run's staged image pass), in `specs/054-sync-feedback-hardening/clarifications-needed.md`
 
 ---
 
