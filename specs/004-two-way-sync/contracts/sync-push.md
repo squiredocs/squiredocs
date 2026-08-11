@@ -4,6 +4,14 @@
 (transport, auth, payload limits, image policy are 002's contract; this document defines only the
 sync mode's semantics). API-first: any third-party client can implement pull/push against this.
 
+> **Amended by feature 054** — see
+> [`specs/054-sync-feedback-hardening/contracts/sync-receipt-v2.md`](../../054-sync-feedback-hardening/contracts/sync-receipt-v2.md).
+> This document is no longer complete on its own. 054 adds, additively: the `?strict` and `?dryRun`
+> query parameters, four staleness fields (`baselineClock`, `currentClock`, `clockGap`,
+> `docChangedSinceBaseline`) on every sync response, the per-block `blocksChanged` report, and the
+> `sync_baseline_stale` 409 (reachable under `strict` only). Nothing below is removed or retyped —
+> every field and rejection here still holds, and `markdown` is omitted only under `dryRun`.
+
 ## Request
 
 ```
