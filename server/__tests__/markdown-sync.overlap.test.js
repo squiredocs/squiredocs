@@ -90,6 +90,32 @@ describe('overlap detection (T013, US2)', () => {
     base.destroy(); cur.destroy();
   });
 
+  // Feature 055 (US2, FR-007): the same two outcomes when the whole-block op
+  // comes from the ALIGNER rather than the classifier. A wholesale rewrite is
+  // now an atomic replace, so a collaborator editing that block loses their
+  // edit with the old node — which is exactly why it must be flagged.
+  test('atomic replace of a rewritten block vs a concurrent edit → pushSide structural', async () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha'), el('paragraph', 'Restart the queue workers.')]));
+    const cur = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha'), el('paragraph', 'Restart the queue workers. Live note.')]));
+    const flags = await overlaps(base, cur, 'Alpha\n\nDrain connections, then flip the flag.');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ docSide: 'edited', pushSide: 'structural' });
+    base.destroy(); cur.destroy();
+  });
+
+  test('a block the push deletes wholesale vs a concurrent edit → pushSide deleted', async () => {
+    const base = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha keeps its place'), el('paragraph', 'Bravo is going away')]));
+    const cur = mkDoc((f) => f.insert(0, [
+      el('paragraph', 'Alpha keeps its place'), el('paragraph', 'Bravo is going away, edited live')]));
+    const flags = await overlaps(base, cur, 'Alpha keeps its place');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]).toMatchObject({ docSide: 'edited', pushSide: 'deleted' });
+    base.destroy(); cur.destroy();
+  });
+
   test('doc-side deleted block that push edits → docSide deleted', async () => {
     const base = mkDoc((f) => f.insert(0, [el('paragraph', 'Alpha'), el('paragraph', 'Bravo')]));
     const cur = mkDoc((f) => f.insert(0, [el('paragraph', 'Alpha')])); // doc deleted Bravo

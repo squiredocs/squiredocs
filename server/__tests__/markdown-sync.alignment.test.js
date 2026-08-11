@@ -503,4 +503,147 @@ describe('US1 — edits land only in the blocks that were edited (FR-006, contra
   });
 });
 
+// ---------------------------------------------------------------------------
+describe('US2 — rewritten blocks replace atomically (FR-005, contract I2/I5)', () => {
+  /**
+   * A pair of block strings whose Dice similarity straddles the threshold.
+   * `shared` characters are common to both; each side gets `own` distinct ones.
+   * sim = 2·shared / (2·shared + 2·own).
+   */
+  const pairWithSim = (shared, own) => [
+    'a'.repeat(shared) + 'b'.repeat(own),
+    'a'.repeat(shared) + 'c'.repeat(own),
+  ];
+
+  test('the threshold is inclusive: exactly 0.5 character-diffs (FR-003)', () => {
+    const [a, b] = pairWithSim(10, 10); // 2*10/40 = 0.5 exactly
+    expect(blockSimilarity(a, b)).toBeCloseTo(SIMILARITY_THRESHOLD, 12);
+    const { plan, baseBlocks } = replay([el('paragraph', a)], b);
+    expect(plan.structural).toEqual([]);
+    expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('just below the threshold replaces atomically, with zero character ops', () => {
+    const [a, b] = pairWithSim(10, 11); // 2*10/42 < 0.5
+    expect(blockSimilarity(a, b)).toBeLessThan(SIMILARITY_THRESHOLD);
+    const { plan, baseBlocks, resultMd } = replay([el('paragraph', a)], b);
+    expect(plan.textBlocks).toEqual([]);
+    expect(plan.reconcileBlocks).toEqual([]);
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBe(true);
+    expect(resultMd).toBe(b);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('AS1: a wholesale rewrite is ONE replace and leaves its neighbours alone', () => {
+    const { plan, baseBlocks, resultMd, keptNodes } = replay(
+      [el('paragraph', 'Restart the queue workers.'),
+        el('paragraph', 'Untouched middle.'),
+        el('paragraph', 'Then page the on-call.')],
+      'Drain connections, then flip the flag.\n\nUntouched middle.\n\nThen page the on-call.'
+    );
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].blocks).toHaveLength(1);
+    expect(keptNodes).toBe(2); // the two neighbours keep their identity
+    expect(resultMd).toContain('Untouched middle.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('AS2/RBD-055-3: a move is a whole-block delete plus a whole-block insert', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', 'Alpha stays put here.'),
+        el('paragraph', 'Bravo is on the move.'),
+        el('paragraph', 'Charlie stays put too.')],
+      'Alpha stays put here.\n\nCharlie stays put too.\n\nBravo is on the move.'
+    );
+    // No character edit morphs one block into another.
+    expect(plan.textBlocks).toEqual([]);
+    expect(plan.reconcileBlocks).toEqual([]);
+    const deletes = plan.structural.filter((h) => h.forced && h.newText === '');
+    const inserts = plan.structural.filter((h) => h.forced && h.blocks.length === 0);
+    expect(deletes.length + inserts.length).toBe(plan.structural.length);
+    expect(resultMd).toBe('Alpha stays put here.\n\nCharlie stays put too.\n\nBravo is on the move.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('RBD-055-7: a block SPLIT keeps the surviving fragment and inserts the rest', () => {
+    const { plan, baseBlocks, resultMd, keptNodes } = replay(
+      [el('paragraph', 'The first sentence carries most of the text. The second is new.')],
+      'The first sentence carries most of the text.\n\nThe second is new.'
+    );
+    expect(keptNodes).toBe(1); // the paired half keeps its node
+    expect(plan.structural.filter((h) => h.blocks.length === 0)).toHaveLength(1);
+    expect(resultMd).toBe('The first sentence carries most of the text.\n\nThe second is new.');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('RBD-055-7: a block MERGE pairs the closer half and deletes the leftover', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', 'The first sentence carries most of the text.'), el('paragraph', 'The second is new.')],
+      'The first sentence carries most of the text. The second is new.'
+    );
+    expect(resultMd).toBe('The first sentence carries most of the text. The second is new.');
+    // One of the two baseline blocks paired; the other was deleted whole.
+    expect(plan.structural.some((h) => h.forced && h.newText === '')).toBe(true);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('RBD-055-4: a heading level change pairs, then the CLASSIFIER declines it', () => {
+    const { plan, baseBlocks, resultMd } = replay([heading(2, 'Deployment steps')], '### Deployment steps');
+    // High similarity, so the aligner paired the blocks — the structural
+    // outcome comes from reconcileBlockPlan refusing a level change, which is
+    // pre-055 behavior the aligner deliberately leaves alone.
+    expect(blockSimilarity('## Deployment steps', '### Deployment steps')).toBeGreaterThan(SIMILARITY_THRESHOLD);
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBeUndefined();
+    expect(resultMd).toBe('### Deployment steps');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('RBD-055-4: a paragraph → list type change also goes structural via the classifier', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', 'Alpha'), el('paragraph', 'Bravo item text here')],
+      'Alpha\n\n- Bravo item text here'
+    );
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBeUndefined();
+    expect(resultMd).toBe('Alpha\n\n- Bravo item text here');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('adjacent replaces merge without swallowing a matched block between them', () => {
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', 'zzzz zzzz zzzz'),
+        el('paragraph', 'Middle block, only lightly edited.'),
+        el('paragraph', 'wwww wwww wwww')],
+      'qqqq qqqq qqqq\n\nMiddle block, only lightly edited!\n\nvvvv vvvv vvvv'
+    );
+    // The middle block character-diffs; the two around it replace atomically.
+    expect(plan.textBlocks).toHaveLength(1);
+    expect(plan.textBlocks[0].block).toBe(baseBlocks[1]);
+    expect(plan.structural.filter((h) => h.forced)).toHaveLength(2);
+    expect(resultMd).toBe('qqqq qqqq qqqq\n\nMiddle block, only lightly edited!\n\nvvvv vvvv vvvv');
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+
+  test('a cap-tripping pair degrades alone; its siblings still character-diff (I7)', () => {
+    // The bounded character diff cannot finish on this block. Whatever route
+    // that takes internally, the OBSERVABLE outcome is fixed: that block alone
+    // is replaced as a unit, the neighbour is still character-diffed, and no
+    // whole-document fallback appears.
+    const [big, bigRewritten] = capTrippingPair();
+    const { plan, baseBlocks, resultMd } = replay(
+      [el('paragraph', big), el('paragraph', 'A small neighbouring paragraph.')],
+      `${bigRewritten}\n\nA small neighbouring paragraph, edited.`
+    );
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBe(true);
+    expect(plan.structural[0].blocks).toEqual([baseBlocks[0]]);
+    expect(plan.textBlocks.length + plan.reconcileBlocks.length).toBe(1);
+    expect(resultMd).toBe(`${bigRewritten}\n\nA small neighbouring paragraph, edited.`);
+    assertNoCrossBlockSplice(plan, baseBlocks);
+  });
+});
+
 module.exports = { assertNoCrossBlockSplice };
