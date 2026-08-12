@@ -363,7 +363,19 @@ function createBindState(deps) {
       // load proven to have reached the tail captured before the fetch. Setting
       // the trust flag first would leave a window in which a peeking consumer
       // finds a trusted doc that claims nothing.
-      ydoc._verifiedClock = expectedTailClock ?? -1;
+      //
+      // MAX-PRESERVING, not a plain assignment. `expectedTailClock` was captured
+      // BEFORE the load, so it is already behind by the time we get here, and
+      // this doc is live throughout: fan-out lands in it, and anything that
+      // reconciles it (a post-subscribe pass, a read-path repair) can prove a
+      // HIGHER clock while the load is still running. Overwriting with the older
+      // tail would walk `_verifiedClock` backwards, and the whole invariant it
+      // carries is that it never does (verified-clock.js: monotone
+      // non-decreasing for the life of the instance, never advanced on trust).
+      // Taking the max keeps both halves true — the load's own proof is applied,
+      // and no one else's stronger proof is thrown away.
+      const provenBeforeBind = typeof ydoc._verifiedClock === 'number' ? ydoc._verifiedClock : -1;
+      ydoc._verifiedClock = Math.max(provenBeforeBind, expectedTailClock ?? -1);
       ydoc._bindComplete = true;
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);

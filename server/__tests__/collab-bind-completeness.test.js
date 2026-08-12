@@ -21,6 +21,7 @@ const {
   BIND_REFUSAL_REASONS,
 } = require('../bind-failure');
 const { createBindState } = require('../collab-bind-state');
+const { ORIGIN_REDIS } = require('../origin');
 const { docs } = require('y-websocket/bin/utils');
 const telemetryMetrics = require('../telemetry/metrics');
 
@@ -149,6 +150,111 @@ describe('057 US3 — bind completeness', () => {
     expect(ydoc._bindFailed).toBeUndefined();
     expect(refusalSpy).not.toHaveBeenCalled();
     expect(ydoc.getXmlFragment('default').toString()).toContain('para-3');
+  });
+
+  // ── The verified clock is MONOTONE, including across the bind itself ──────
+  // `expectedTailClock` is captured BEFORE the load, so by the time the binder
+  // assigns it, it is already old. The doc is live throughout — fan-out lands in
+  // it, and reconciliation can reach it mid-bind (read-document's `fireRepair`
+  // calls `reconcileDoc` on the registry doc with no bind guard at all). A plain
+  // assignment would overwrite a HIGHER, genuinely proven clock with the older
+  // pre-load tail, walking `_verifiedClock` backwards and breaking the one
+  // invariant every consumer reads it under (verified-clock.js: monotone
+  // non-decreasing for the life of the instance).
+  describe('monotone verified clock across bind completion', () => {
+    /** A doc holding `label`, plus the update bytes that put it there. */
+    function contentAndBytes(label) {
+      const source = new Y.Doc();
+      const before = Y.encodeStateVector(source);
+      source.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, label);
+        el.insert(0, [t]);
+        source.getXmlFragment('default').push([el]);
+      });
+      return { source, bytes: Y.encodeStateAsUpdate(source, before) };
+    }
+
+    test('a REAL reconcile landing mid-bind is not undone by bind completion', async () => {
+      const { reconcileDoc } = require('../collab-reconcile');
+      const ydoc = wsDoc();
+      const { source, bytes } = contentAndBytes('committed-while-binding');
+
+      // Row 20 is newer than anything the binder's pre-load probe saw. The doc
+      // already holds its content (fan-out delivered it), so the reconcile
+      // PROVES clock 20 without applying anything.
+      const reconcilePersistence = {
+        getUpdatesInRange: jest.fn().mockResolvedValue([{ clock: 20, update_data: bytes }]),
+      };
+
+      const persistence = {
+        getClockRange: jest.fn().mockResolvedValue({ minClock: 0, maxClock: 12 }),
+        getYDoc: jest.fn(async () => {
+          // Mid-bind, exactly where the race lives: the load is in flight and
+          // fan-out is already delivering into the doc (ORIGIN_REDIS — applied,
+          // not persisted, because the publishing pod already wrote the row).
+          Y.applyUpdate(ydoc, bytes, ORIGIN_REDIS);
+          await reconcileDoc('race-doc', ydoc, { persistence: reconcilePersistence });
+          expect(ydoc._verifiedClock).toBe(20);
+          return { ydoc: persistedDoc(2), gapped: false };
+        }),
+      };
+
+      await createBindState(deps(persistence))('s/race-doc', ydoc);
+
+      expect(ydoc._bindComplete).toBe(true);
+      expect(ydoc._verifiedClock).toBe(20); // NOT 12 — the proof survives
+      source.destroy();
+    });
+
+    test('a pre-load tail BELOW an already-proven clock never lowers it', async () => {
+      const ydoc = wsDoc();
+      const persistence = {
+        getClockRange: jest.fn().mockResolvedValue({ minClock: 0, maxClock: 3 }),
+        getYDoc: jest.fn(async () => {
+          ydoc._verifiedClock = 41;
+          return { ydoc: persistedDoc(1), gapped: false };
+        }),
+      };
+
+      await createBindState(deps(persistence))('s/lower-tail-doc', ydoc);
+
+      expect(ydoc._verifiedClock).toBe(41);
+    });
+
+    test('a zero-row bind does not lower a clock something else already proved', async () => {
+      // The `?? -1` branch: with no rows the binder claims -1, which must not
+      // erase a clock proven while the (empty) load was running.
+      const ydoc = wsDoc();
+      const persistence = {
+        getClockRange: jest.fn().mockResolvedValue({ minClock: null, maxClock: null }),
+        getYDoc: jest.fn(async () => {
+          ydoc._verifiedClock = 6;
+          return { ydoc: new Y.Doc(), gapped: false };
+        }),
+      };
+
+      await createBindState(deps(persistence))('s/empty-race-doc', ydoc);
+
+      expect(ydoc._bindComplete).toBe(true);
+      expect(ydoc._verifiedClock).toBe(6);
+    });
+
+    test('the tail still WINS when it is ahead — the bind is not a no-op', async () => {
+      const ydoc = wsDoc();
+      const persistence = {
+        getClockRange: jest.fn().mockResolvedValue({ minClock: 0, maxClock: 15 }),
+        getYDoc: jest.fn(async () => {
+          ydoc._verifiedClock = 2;
+          return { ydoc: persistedDoc(1), gapped: false };
+        }),
+      };
+
+      await createBindState(deps(persistence))('s/ahead-doc', ydoc);
+
+      expect(ydoc._verifiedClock).toBe(15);
+    });
   });
 
   test('the trust flag is never set over a half-applied load — order matters', async () => {
