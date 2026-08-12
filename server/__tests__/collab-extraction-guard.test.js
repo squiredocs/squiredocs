@@ -214,11 +214,21 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
   test('G9c: index.js reconciles a document once its subscription is established', () => {
     // The subscribe call is deliberately not awaited, which is the blind window
     // this chain closes.
-    expect(indexCode).toMatch(/collabReconcile\.reconcileDoc\(/);
+    expect(indexCode).toMatch(/collabReconcile\.reconcileIfBound\(/);
     const subscribeAt = indexCode.indexOf('redisPubSub.subscribeToDocument(');
-    const reconcileAt = indexCode.indexOf('collabReconcile.reconcileDoc(');
+    const reconcileAt = indexCode.indexOf('collabReconcile.reconcileIfBound(');
     expect(subscribeAt).toBeGreaterThan(-1);
     expect(reconcileAt).toBeGreaterThan(subscribeAt);
+  });
+
+  test('G9c2: the post-subscribe trigger goes through the mid-bind guard', () => {
+    // SUBSCRIBE acks in milliseconds; the bind's load takes tens to hundreds. So
+    // this trigger fires MID-BIND on a doc's first load, and the unguarded
+    // `reconcileDoc` would fetch the whole log with bytes beside the bind's own
+    // load and then race the binder for `_verifiedClock`. Pinned because the
+    // difference between the two calls is one word and the cost of losing it is
+    // invisible in behaviour tests of either module.
+    expect(indexCode).not.toMatch(/collabReconcile\.reconcileDoc\(/);
   });
 
   test('G9d: the drain stops the reconcile timer', () => {

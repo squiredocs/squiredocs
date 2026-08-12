@@ -186,6 +186,46 @@ async function reconcileDoc(docGuid, ydoc, deps = {}) {
 }
 
 /**
+ * Reconcile a document, but ONLY once its bind has completed.
+ *
+ * WHY MID-BIND IS SKIPPED RATHER THAN HANDLED
+ * -------------------------------------------
+ * A doc mid-bind has no verified clock, so `reconcileDoc` would take the
+ * head-of-history branch and fetch the ENTIRE log with bytes — concurrently with
+ * the bind's own full load of the same rows. That is double cost on the first
+ * load of every document, on the connection path, for no benefit: there is no
+ * blind window to close mid-bind, because fan-out is already flowing into the
+ * doc (the subscriber's `onUpdate` applies straight into it) and the binder is
+ * about to prove the tail itself.
+ *
+ * It is also actively harmful. The racing pass advances `_verifiedClock` to the
+ * log's current tail, and the binder then assigns the tail it captured BEFORE
+ * its fetch — an older clock. Without the max-preserving assignment in
+ * collab-bind-state.js that would walk the clock BACKWARDS, breaking the
+ * monotone invariant every other consumer reads it under (verified-clock.js).
+ * Not racing it in the first place is the cheaper half of that fix.
+ *
+ * `_bindFailed` docs fall through to `reconcileDoc`, which refuses them for its
+ * own reason (a refused bind is on its way out, not merely unfinished).
+ *
+ * Call sites: the post-subscribe trigger (server/index.js) and the readiness
+ * gate's stage-1 nudge (server/mcp/agent-presence.js) — both of which can fire
+ * while a bind is still in flight.
+ */
+async function reconcileIfBound(docGuid, ydoc, deps = {}) {
+  if (!ydoc) return reconcileDoc(docGuid, ydoc, deps);
+  if (ydoc._bindComplete !== true) {
+    return {
+      status: 'skipped-mid-bind',
+      applied: 0,
+      repaired: false,
+      verifiedClock: typeof ydoc._verifiedClock === 'number' ? ydoc._verifiedClock : undefined,
+    };
+  }
+  return reconcileDoc(docGuid, ydoc, deps);
+}
+
+/**
  * The documents this pod is responsible for keeping current.
  *
  * Only fully-bound documents qualify. A doc mid-bind has no verified clock yet
@@ -309,6 +349,7 @@ function reconcileAllBoundDocs({ docs, persistence } = {}) {
 
 module.exports = {
   reconcileDoc,
+  reconcileIfBound,
   runReconcileTick,
   reconcileAllBoundDocs,
   startPeriodicCheck,

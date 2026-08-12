@@ -2182,7 +2182,15 @@ wss.on('connection', (ws, req) => {
             }
           },
         })
-          .then(() => collabReconcile.reconcileDoc(docId, doc, {
+          // `reconcileIfBound`, not `reconcileDoc`: SUBSCRIBE acks in
+          // milliseconds while the bind's load takes tens to hundreds, so on a
+          // doc's first load this fires MID-BIND. There is no blind window to
+          // close at that point — the subscriber's onUpdate above is already
+          // applying fan-out into this doc — and reconciling a doc with no
+          // verified clock would fetch the whole log with bytes alongside the
+          // bind's own load, then race the binder for the clock. See the
+          // rationale on reconcileIfBound in collab-reconcile.js.
+          .then(() => collabReconcile.reconcileIfBound(docId, doc, {
             persistence: persistenceProvider,
             docs,
           }))

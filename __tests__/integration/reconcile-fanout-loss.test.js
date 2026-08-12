@@ -24,6 +24,7 @@ const { ORIGIN_REDIS, parseOrigin } = require('../../server/origin');
 const telemetryMetrics = require('../../server/telemetry/metrics');
 const {
   reconcileDoc,
+  reconcileIfBound,
   runReconcileTick,
   reconcileAllBoundDocs,
 } = require('../../server/collab-reconcile');
@@ -321,5 +322,58 @@ describe('057 US2 — reconciliation after lost fan-out', () => {
     midBind.ydoc._bindComplete = true;
     expect((await runReconcileTick({ docs: midBind.docs, persistence })).repaired).toBe(1);
     expect(text(midBind.ydoc)).toContain('during-bind');
+  });
+
+  // ── The POST-SUBSCRIBE trigger, same rule ────────────────────────────────
+  // The tick is not the only path that reaches a doc. server/index.js chains a
+  // pass onto subscribeToDocument, and THAT one resolves on the Redis SUBSCRIBE
+  // ack — milliseconds — while the bind's DB load runs for tens to hundreds. So
+  // unlike the tick, it fires mid-bind on the FIRST load of every document
+  // whenever Redis is enabled, which is the common case rather than a corner.
+
+  test('the post-subscribe pass is skipped mid-bind, and fetches nothing', async () => {
+    const docGuid = newDocGuid();
+    const writer = makePod(docGuid);
+    const midBind = makePod(docGuid);
+    delete midBind.ydoc._bindComplete;
+    delete midBind.ydoc._verifiedClock; // mid-bind: nothing proven yet
+
+    await editAndCommit(writer, 'committed-during-bind');
+
+    // Any query at all is the defect: with no verified clock, reconcileDoc takes
+    // the head-of-history branch and pulls the ENTIRE log with bytes — beside
+    // the bind's own load of the same rows.
+    const fetchSpy = jest.spyOn(persistence, 'getUpdatesInRange');
+    try {
+      const out = await reconcileIfBound(docGuid, midBind.ydoc, { persistence, docs: midBind.docs });
+
+      expect(out.status).toBe('skipped-mid-bind');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(midBind.ydoc._verifiedClock).toBeUndefined();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+    // Once the bind completes, the same call reconciles normally — the guard
+    // defers the work, it does not drop it.
+    midBind.ydoc._bindComplete = true;
+    midBind.ydoc._verifiedClock = -1;
+    const after = await reconcileIfBound(docGuid, midBind.ydoc, { persistence, docs: midBind.docs });
+    expect(after.repaired).toBe(true);
+    expect(text(midBind.ydoc)).toContain('committed-during-bind');
+  });
+
+  test('a refused bind is still refused through the post-subscribe guard', async () => {
+    const docGuid = newDocGuid();
+    const writer = makePod(docGuid);
+    const refused = makePod(docGuid);
+    refused.ydoc._bindFailed = true;
+
+    await editAndCommit(writer, 'after-refusal');
+
+    const out = await reconcileIfBound(docGuid, refused.ydoc, { persistence, docs: refused.docs });
+
+    expect(out.status).toBe('skipped-bind-failed');
+    expect(text(refused.ydoc)).not.toContain('after-refusal');
   });
 });
