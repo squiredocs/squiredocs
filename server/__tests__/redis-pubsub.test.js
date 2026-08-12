@@ -461,6 +461,92 @@ describe('redis-pubsub', () => {
     });
   });
 
+  // ── Feature 057 (FR-005) ──────────────────────────────────────────────────
+  // ioredis resubscribes automatically after a reconnect, but nothing replays
+  // what was published while the socket was down — those messages are simply
+  // gone, and the pod cannot tell. The reconnect edge is the one moment it can
+  // know it has a blind window, which is what this hook is for.
+  describe('onSubscriberReady (feature 057)', () => {
+    test('fires on the FIRST connect, not only on reconnects', async () => {
+      const seen = jest.fn();
+      redisPubSub.onSubscriberReady(seen);
+
+      await redisPubSub.init();
+      await tick(50);
+
+      expect(seen).toHaveBeenCalledTimes(1);
+    });
+
+    test('fires AGAIN on every re-establishment', async () => {
+      const seen = jest.fn();
+      redisPubSub.onSubscriberReady(seen);
+      await redisPubSub.init();
+      await tick(50);
+      expect(seen).toHaveBeenCalledTimes(1);
+
+      // ioredis emits 'ready' once more after each successful reconnect.
+      const subscriber = MockRedis.instances[0];
+      subscriber.emit('ready');
+      subscriber.emit('ready');
+      await tick(50);
+
+      expect(seen).toHaveBeenCalledTimes(3);
+    });
+
+    test('a handler registered AFTER the connection is up still runs once', async () => {
+      await redisPubSub.init();
+      await tick(50);
+
+      const late = jest.fn();
+      redisPubSub.onSubscriberReady(late);
+      await tick(50);
+
+      // The 'ready' edge already passed; waiting for a reconnect that may never
+      // come would leave the blind window unhealed.
+      expect(late).toHaveBeenCalledTimes(1);
+    });
+
+    test('every registered handler runs, and one throwing does not stop the others', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const first = jest.fn(() => { throw new Error('handler exploded'); });
+        const second = jest.fn();
+        const rejecting = jest.fn(() => Promise.reject(new Error('async boom')));
+        const fourth = jest.fn();
+        [first, second, rejecting, fourth].forEach((h) => redisPubSub.onSubscriberReady(h));
+
+        await redisPubSub.init();
+        await tick(50);
+
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(rejecting).toHaveBeenCalledTimes(1);
+        expect(fourth).toHaveBeenCalledTimes(1);
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    test('a non-function registration is ignored rather than breaking init', async () => {
+      expect(() => redisPubSub.onSubscriberReady(undefined)).not.toThrow();
+      expect(() => redisPubSub.onSubscriberReady('nope')).not.toThrow();
+      await expect(redisPubSub.init()).resolves.toBeUndefined();
+    });
+
+    test('the listener is attached exactly once however many handlers register', async () => {
+      const a = jest.fn();
+      const b = jest.fn();
+      redisPubSub.onSubscriberReady(a);
+      redisPubSub.onSubscriberReady(b);
+      await redisPubSub.init();
+      await tick(50);
+
+      expect(MockRedis.instances[0].listenerCount('ready')).toBe(1);
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('cross-instance communication', () => {
     const OTHER_SERVER_ID = '00000000-0000-0000-0000-000000000000';
 

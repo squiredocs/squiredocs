@@ -111,6 +111,10 @@ const {
 // place a live edit's user_id / agent_name / via_sync are written. It lives in
 // its own module so tests can drive the real thing instead of mirroring it.
 const { createBindState, extractDocGuid } = require('./collab-bind-state');
+// Feature 057 (US2): cross-replica reconciliation. A pod's memory diverging
+// from the durable log used to be permanent — fan-out delivery was effectively
+// a correctness precondition. This is what makes it merely an optimisation.
+const collabReconcile = require('./collab-reconcile');
 const wsSimulator = require('./websocket-simulator');
 const DiffService = require('./diff-service');
 const searchIndexer = require('./search-indexer');
@@ -1734,6 +1738,23 @@ const server = app.listen(PORT, async () => {
   // nothing: `peekSharedDoc` answers null when the document is not loaded here.
   resupplyResolution.init({ peekSharedDoc: documentService.peekSharedDoc });
 
+  // Feature 057 (FR-005/FR-013): bound documents reconcile against Postgres on
+  // a cheap periodic check. Started BEFORE — and independently of — Redis,
+  // deliberately: fan-out delivery is an optimisation, and with Redis disabled
+  // or down this timer is the entire convergence mechanism. Its steady-state
+  // cost is one batched newest-clock query per period, whatever the number of
+  // bound documents.
+  collabReconcile.startPeriodicCheck({ docs, persistence: persistenceProvider });
+
+  // ...and once more the moment the subscriber becomes usable. A reconnect
+  // restores the channel subscriptions but replays nothing published while the
+  // socket was down, so that window is invisible divergence until something
+  // checks. Registered before init() so the first connect counts too.
+  redisPubSub.onSubscriberReady(() => collabReconcile.reconcileAllBoundDocs({
+    docs,
+    persistence: persistenceProvider,
+  }));
+
   // Initialize Redis pub/sub for cross-instance synchronization
   // Await to ensure Redis is ready before accepting WebSocket connections
   try {
@@ -2121,7 +2142,15 @@ wss.on('connection', (ws, req) => {
         doc._redisSyncInitialized = true;
         console.log(`[RedisPubSub] Setting up sync for doc ${docId}`);
 
-        // Subscribe to Redis channels for this document
+        // Subscribe to Redis channels for this document.
+        //
+        // Feature 057 (FR-005): this call is deliberately NOT awaited, which
+        // leaves a window between the bind load and the first delivered message
+        // in which another pod's edits reach nobody here. Reconciling once the
+        // subscription is actually established closes it. Chained rather than
+        // awaited so the connection path keeps its current timing, and
+        // error-swallowed because a failed repair is retried by the periodic
+        // check anyway.
         redisPubSub.subscribeToDocument(docId, {
           // Handle awareness updates from other server instances
           onAwareness: (buffer, owners) => {
@@ -2152,7 +2181,14 @@ wss.on('connection', (ws, req) => {
               console.error(`[RedisPubSub] Error applying doc update for ${docId}:`, err.message);
             }
           },
-        });
+        })
+          .then(() => collabReconcile.reconcileDoc(docId, doc, {
+            persistence: persistenceProvider,
+            docs,
+          }))
+          .catch((err) => {
+            console.warn(`[reconcile] post-subscribe pass failed for ${docId}:`, err?.message || err);
+          });
 
         // Publish local awareness changes to Redis for other instances
         const redisAwarenessHandler = ({ added, updated, removed }, origin) => {
@@ -2295,8 +2331,14 @@ const runShutdown = createShutdown({
   closeRedis,
   telemetry,
   server,
-  // Feature 034: stop the auth-event retention timer on drain.
-  stopBackgroundJobs: authEvents.stopPurgeJob,
+  // Stop the recurring background timers on drain. Both are unref'd, so neither
+  // holds the process open by itself; stopping them explicitly keeps the drain
+  // honest about what is still running. (034: auth-event retention.
+  // 057: the reconcile consistency check.)
+  stopBackgroundJobs: () => {
+    authEvents.stopPurgeJob();
+    collabReconcile.stopPeriodicCheck();
+  },
   deadlineMs: Number(process.env.SHUTDOWN_DEADLINE_MS ?? 20000),
 });
 process.on('SIGTERM', () => runShutdown('SIGTERM'));

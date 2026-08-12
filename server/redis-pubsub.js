@@ -40,6 +40,12 @@ const documentSubscriptions = new Map();
 const presenceClaimHandlers = [];
 let presenceClaimSubscribed = false;
 
+// Subscriber-ready handlers (feature 057, FR-005). Registered like the
+// presence-claim handlers above — possibly before init() — and invoked every
+// time the subscriber connection becomes usable, first connect included.
+const subscriberReadyHandlers = [];
+let subscriberReadyWired = false;
+
 // Track initialization state
 let initialized = false;
 
@@ -239,6 +245,11 @@ async function init() {
     console.error('');
     return;
   }
+
+  // Feature 057 (FR-005): attach BEFORE the ready-wait below, so the very first
+  // connect fires the hook too — the bind-to-subscribe window is a blind window
+  // exactly like a reconnect.
+  wireSubscriberReady();
 
   // Handle incoming messages from Redis
   // Use messageBuffer to receive raw binary data without string conversion corruption
@@ -506,6 +517,60 @@ function subscribeToPresenceClaims(handler) {
 }
 
 /**
+ * Run `cb` whenever the subscriber connection becomes usable — on first
+ * connect AND on every re-establishment (feature 057, FR-005).
+ *
+ * WHY THIS EXISTS: ioredis resubscribes to its channels automatically after a
+ * reconnect, but nothing REPLAYS what was published while the socket was down.
+ * Those messages are simply gone. From the pod's point of view the document is
+ * still bound and still apparently in sync, so the divergence is permanent and
+ * invisible — the reconnect is the one moment the pod can know it has a blind
+ * window, and this is how it finds out.
+ *
+ * `ready` is the right event rather than `connect`: ioredis emits it once the
+ * connection is authenticated and commands will be accepted, and it emits it
+ * again after each successful reconnect, which is exactly the "usable again"
+ * edge. Handlers are invoked on a later tick and their failures are contained,
+ * because this fires on the pub/sub client's own event path.
+ *
+ * Safe to call before init(); handlers are recorded and wired when the
+ * subscriber client is created.
+ *
+ * @param {Function} cb - invoked with no arguments
+ */
+function onSubscriberReady(cb) {
+  if (typeof cb !== 'function') return;
+  subscriberReadyHandlers.push(cb);
+  wireSubscriberReady();
+  // Registered after the connection was already up: the 'ready' edge has
+  // passed, so run once now rather than waiting for a reconnect that may never
+  // come (same posture as subscribeToPresenceClaims issuing a late SUBSCRIBE).
+  if (subscriberClient && subscriberClient.status === 'ready') {
+    setImmediate(() => runSubscriberReadyHandler(cb));
+  }
+}
+
+/** Invoke one handler with every failure contained. */
+function runSubscriberReadyHandler(handler) {
+  try {
+    Promise.resolve(handler()).catch((err) => {
+      console.error('[RedisPubSub] subscriber-ready handler failed:', err?.message || err);
+    });
+  } catch (err) {
+    console.error('[RedisPubSub] subscriber-ready handler threw:', err?.message || err);
+  }
+}
+
+/** Attach the 'ready' listener to the subscriber client, exactly once. */
+function wireSubscriberReady() {
+  if (subscriberReadyWired || !subscriberClient || typeof subscriberClient.on !== 'function') return;
+  subscriberReadyWired = true;
+  subscriberClient.on('ready', () => {
+    for (const handler of subscriberReadyHandlers) runSubscriberReadyHandler(handler);
+  });
+}
+
+/**
  * Publish a presence-claim takeover nudge (feature 015). Fire-and-forget:
  * errors are logged, never thrown — delivery is best-effort (the heartbeat
  * ownership check backstops a lost nudge).
@@ -563,6 +628,11 @@ async function cleanup() {
     presenceClaimSubscribed = false;
   }
 
+  // The subscriber-ready listener belongs to the client being discarded, so a
+  // re-init must attach a fresh one. Handlers themselves stay registered, like
+  // the presence-claim handlers above.
+  subscriberReadyWired = false;
+
   // Close clients
   if (subscriberClient) {
     await subscriberClient.quit().catch(() => {});
@@ -596,6 +666,7 @@ module.exports = {
   publishUpdate,
   subscribeToPresenceClaims,
   publishPresenceClaimTakeover,
+  onSubscriberReady,
   getSubscriptionCount,
   isSubscribed,
   cleanup,
@@ -619,6 +690,10 @@ module.exports = {
     }
     presenceClaimHandlers.length = 0;
     presenceClaimSubscribed = false;
+
+    // Drop subscriber-ready state (feature 057) for test isolation.
+    subscriberReadyHandlers.length = 0;
+    subscriberReadyWired = false;
 
     // Close existing clients to avoid zombie connections
     if (subscriberClient) {

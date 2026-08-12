@@ -13,8 +13,11 @@ const { ORIGIN_DB_LOAD, parseOrigin, shouldPublishToRedis } = require('../origin
 const telemetryMetrics = require('../telemetry/metrics');
 const {
   reconcileDoc,
+  runReconcileTick,
   boundDocs,
   readIntervalMs,
+  startPeriodicCheck,
+  stopPeriodicCheck,
   DEFAULT_INTERVAL_MS,
 } = require('../collab-reconcile');
 
@@ -319,6 +322,286 @@ describe('057 reconcileDoc', () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+/**
+ * The periodic check. Its COST is as much the contract as its effect: a
+ * consistency mechanism that scales with the number of bound documents would be
+ * paid for on every pod, every period, forever — so SC-005 fixes the
+ * steady-state price at one batched query and nothing else.
+ */
+describe('057 runReconcileTick', () => {
+  let pool;
+  let persistence;
+  const docGuids = [];
+
+  const newDocGuid = () => {
+    const guid = `20572000-${String(docGuids.length).padStart(4, '0')}-4000-8000-${Date.now()
+      .toString(16)
+      .padStart(12, '0')
+      .slice(-12)}`;
+    docGuids.push(guid);
+    return guid;
+  };
+
+  function buildUpdateChain(count) {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    const updates = [];
+    for (let i = 0; i < count; i++) {
+      const sv = Y.encodeStateVector(doc);
+      doc.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, `para-${i}`);
+        el.insert(0, [t]);
+        frag.push([el]);
+      });
+      updates.push(Y.encodeStateAsUpdate(doc, sv));
+    }
+    return updates;
+  }
+
+  const insertRow = (docGuid, clock, update) =>
+    pool.query('INSERT INTO yjs_updates (doc_guid, clock, update_data) VALUES ($1, $2, $3)',
+      [docGuid, clock, Buffer.from(update)]);
+
+  /** A bound registry doc holding updates [0..n) with an honest verified clock. */
+  function boundDoc(updates, n) {
+    const doc = new Y.Doc();
+    for (let i = 0; i < n; i++) Y.applyUpdate(doc, updates[i]);
+    doc._verifiedClock = n - 1;
+    doc._bindComplete = true;
+    return doc;
+  }
+
+  beforeAll(() => {
+    pool = createPool();
+    persistence = createPersistence();
+  });
+
+  afterAll(async () => {
+    await cleanupDocRows(pool, docGuids);
+    await pool.end();
+    await persistence.destroy?.();
+  });
+
+  test('SC-005: a no-divergence tick issues ONE batched query and ZERO row fetches', async () => {
+    const docs = new Map();
+    for (let d = 0; d < 5; d++) {
+      const docGuid = newDocGuid();
+      const updates = buildUpdateChain(4);
+      for (let i = 0; i < 4; i++) await insertRow(docGuid, i, updates[i]);
+      docs.set(`s/${docGuid}`, boundDoc(updates, 4)); // fully current
+    }
+
+    const batchSpy = jest.spyOn(persistence, 'getNewestClocks');
+    const rowSpy = jest.spyOn(persistence, 'getUpdatesInRange');
+    try {
+      const summary = await runReconcileTick({ docs, persistence });
+
+      expect(summary.checked).toBe(5);
+      expect(summary.behind).toBe(0);
+      expect(batchSpy).toHaveBeenCalledTimes(1);   // one query for all five docs
+      expect(rowSpy).not.toHaveBeenCalled();       // and no per-document fetch
+    } finally {
+      batchSpy.mockRestore();
+      rowSpy.mockRestore();
+    }
+  });
+
+  test('only the documents actually behind pay for a row fetch', async () => {
+    const docs = new Map();
+    const currentGuid = newDocGuid();
+    const behindGuid = newDocGuid();
+    for (const guid of [currentGuid, behindGuid]) {
+      const updates = buildUpdateChain(4);
+      for (let i = 0; i < 4; i++) await insertRow(guid, i, updates[i]);
+      docs.set(`s/${guid}`, boundDoc(updates, guid === currentGuid ? 4 : 2));
+    }
+
+    const rowSpy = jest.spyOn(persistence, 'getUpdatesInRange');
+    try {
+      const summary = await runReconcileTick({ docs, persistence });
+
+      expect(summary.checked).toBe(2);
+      expect(summary.behind).toBe(1);
+      expect(rowSpy).toHaveBeenCalledTimes(1);
+      expect(rowSpy.mock.calls[0][0]).toBe(behindGuid);
+    } finally {
+      rowSpy.mockRestore();
+    }
+  });
+
+  test('an empty registry does no work at all', async () => {
+    const batchSpy = jest.spyOn(persistence, 'getNewestClocks');
+    try {
+      expect(await runReconcileTick({ docs: new Map(), persistence }))
+        .toEqual({ checked: 0, behind: 0, repaired: 0 });
+      expect(batchSpy).not.toHaveBeenCalled();
+    } finally {
+      batchSpy.mockRestore();
+    }
+  });
+
+  test('documents with no durable rows are skipped, not reconciled toward nothing', async () => {
+    const docs = new Map();
+    const emptyGuid = newDocGuid();
+    const doc = new Y.Doc();
+    doc._bindComplete = true;
+    doc._verifiedClock = -1;
+    docs.set(`s/${emptyGuid}`, doc);
+
+    const rowSpy = jest.spyOn(persistence, 'getUpdatesInRange');
+    try {
+      const summary = await runReconcileTick({ docs, persistence });
+      expect(summary.checked).toBe(1);
+      expect(summary.behind).toBe(0);
+      expect(rowSpy).not.toHaveBeenCalled();
+    } finally {
+      rowSpy.mockRestore();
+    }
+  });
+
+  test('a failing batch probe degrades to a no-op instead of throwing', async () => {
+    const docGuid = newDocGuid();
+    const updates = buildUpdateChain(3);
+    for (let i = 0; i < 3; i++) await insertRow(docGuid, i, updates[i]);
+    const docs = new Map([[`s/${docGuid}`, boundDoc(updates, 1)]]);
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const batchSpy = jest.spyOn(persistence, 'getNewestClocks')
+      .mockRejectedValue(new Error('database unavailable'));
+    try {
+      await expect(runReconcileTick({ docs, persistence })).resolves.toMatchObject({ repaired: 0 });
+    } finally {
+      batchSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('one document failing does not abandon the rest of the tick', async () => {
+    const docs = new Map();
+    const guids = [];
+    for (let d = 0; d < 3; d++) {
+      const docGuid = newDocGuid();
+      guids.push(docGuid);
+      const updates = buildUpdateChain(3);
+      for (let i = 0; i < 3; i++) await insertRow(docGuid, i, updates[i]);
+      docs.set(`s/${docGuid}`, boundDoc(updates, 1)); // all behind
+    }
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const realFetch = persistence.getUpdatesInRange.bind(persistence);
+    jest.spyOn(persistence, 'getUpdatesInRange').mockImplementation((guid, ...rest) => {
+      if (guid === guids[0]) return Promise.reject(new Error('transient'));
+      return realFetch(guid, ...rest);
+    });
+    try {
+      const summary = await runReconcileTick({ docs, persistence });
+      expect(summary.behind).toBe(3);
+      expect(summary.repaired).toBe(2); // the other two still healed
+    } finally {
+      jest.restoreAllMocks();
+      warnSpy.mockRestore();
+    }
+  });
+
+  test('no persistence is a no-op', async () => {
+    expect(await runReconcileTick({})).toEqual({ checked: 0, behind: 0, repaired: 0 });
+  });
+
+  describe('periodic lifecycle', () => {
+    afterEach(() => {
+      stopPeriodicCheck();
+      delete process.env.COLLAB_RECONCILE_INTERVAL_MS;
+      jest.useRealTimers();
+    });
+
+    test('start ticks at the configured interval and stop clears it', async () => {
+      jest.useFakeTimers();
+      process.env.COLLAB_RECONCILE_INTERVAL_MS = '5000';
+
+      let ticks = 0;
+      const countingPersistence = {
+        getNewestClocks: async () => { ticks += 1; return new Map(); },
+      };
+      const docs = new Map([['s/probe', Object.assign(new Y.Doc(), { _bindComplete: true })]]);
+      // The tick body is async, so the pass lands a microtask after the timer.
+      const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+
+      const handle = startPeriodicCheck({ docs, persistence: countingPersistence });
+      expect(handle).toBeTruthy();
+      expect(jest.getTimerCount()).toBe(1);
+
+      jest.advanceTimersByTime(4999);
+      await settle();
+      expect(ticks).toBe(0);           // not before the period elapses
+      jest.advanceTimersByTime(1);
+      await settle();
+      expect(ticks).toBe(1);
+
+      stopPeriodicCheck();
+      expect(jest.getTimerCount()).toBe(0);
+      jest.advanceTimersByTime(50000);
+      await settle();
+      expect(ticks).toBe(1);           // stopped means stopped
+    });
+
+    test('starting twice does not stack timers', () => {
+      jest.useFakeTimers();
+      const first = startPeriodicCheck({ docs: new Map(), persistence });
+      const second = startPeriodicCheck({ docs: new Map(), persistence });
+      expect(second).toBe(first);
+      expect(jest.getTimerCount()).toBe(1);
+    });
+
+    test('stop is idempotent and safe when never started', () => {
+      expect(() => stopPeriodicCheck()).not.toThrow();
+      expect(() => stopPeriodicCheck()).not.toThrow();
+    });
+
+    test('without persistence nothing is scheduled', () => {
+      jest.useFakeTimers();
+      expect(startPeriodicCheck({ docs: new Map() })).toBeNull();
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test('the timer is unref\'d so it never holds a drain open', () => {
+      jest.useRealTimers();
+      const handle = startPeriodicCheck({ docs: new Map(), persistence });
+      // An unref'd timer reports itself as not keeping the loop alive.
+      expect(typeof handle.hasRef === 'function' ? handle.hasRef() : false).toBe(false);
+    });
+
+    test('a slow pass skips the next tick rather than stacking passes', async () => {
+      jest.useFakeTimers();
+      process.env.COLLAB_RECONCILE_INTERVAL_MS = '1000';
+
+      let inFlight = 0;
+      let maxConcurrent = 0;
+      let release;
+      const gate = new Promise((r) => { release = r; });
+      const slowPersistence = {
+        getNewestClocks: async () => {
+          inFlight += 1;
+          maxConcurrent = Math.max(maxConcurrent, inFlight);
+          await gate;
+          inFlight -= 1;
+          return new Map();
+        },
+      };
+      const docs = new Map([['s/x', Object.assign(new Y.Doc(), { _bindComplete: true })]]);
+
+      startPeriodicCheck({ docs, persistence: slowPersistence });
+      jest.advanceTimersByTime(5000); // five periods while one pass is stuck
+      await Promise.resolve();
+
+      expect(maxConcurrent).toBe(1);
+      release();
+      await Promise.resolve();
+    });
   });
 });
 
