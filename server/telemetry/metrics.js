@@ -59,6 +59,24 @@ function getInstruments() {
       description:
         'Authorship resolutions attempted for sync-relayed rows (feature 045), by outcome: resolved to an author, or honestly refused. The ratio is how the attribution promise is observed rather than asserted.',
     }),
+    // ── The 057 live-consistency counters ──────────────────────────────────
+    // The design amendment's fifth bullet: the ways a pod's memory can disagree
+    // with the durable log must be MEASURABLE, not inferable from pod logs.
+    // Like the block above, these should sit near zero; unlike it, two of them
+    // measure a condition that used to be entirely invisible because the code
+    // did not know it was in it.
+    readGappedServes: meter.createCounter('collab.read.gapped_serves', {
+      description:
+        'Log-rebuild reads served from an incomplete row set after the retry budget (feature 057), by gap reason. Recorded at the shared choke point, so it covers EVERY reader — history, diffs, exports, MCP read, bindState — not just the one that noticed.',
+    }),
+    readStaleServes: meter.createCounter('collab.read.stale_serves', {
+      description:
+        'read_document responses carrying the staleness indicator (feature 057): the served copy was behind the durable log at serve time. A rising rate means fan-out is being missed and reconciliation is doing the healing.',
+    }),
+    reconcileRepairs: meter.createCounter('collab.reconcile.repairs', {
+      description:
+        'Reconcile passes that applied at least one durable row the live document did not already have (feature 057). Genuine repairs only — a pass that merely confirms what fan-out already delivered is not counted.',
+    }),
   };
   return instruments;
 }
@@ -157,12 +175,74 @@ function recordCollabRenderSkip(nodeType, errorName, count = 1) {
  * Deliberately unlabelled by document: the useful question is "is this
  * happening at all, and is it rising", and a docGuid label would be unbounded
  * cardinality on the one metric most likely to fire in a storm.
+ *
+ * `reason` (feature 057, FR-004) separates the two refusal classes, which have
+ * different meanings and different remedies. `load-error` is the 041
+ * database-health canary: the read THREW, and a storm of it is the shape of an
+ * outage. `incomplete-load` is a read that SUCCEEDED and came back torn or
+ * short of the committed tail — usually a lost race that costs one retry, but
+ * a sustained rate means the log itself is damaged. Two values, so cardinality
+ * is bounded; defaults to `load-error` so existing 041 call sites are unchanged.
+ *
+ * @param {'load-error'|'incomplete-load'} [reason]
  */
-function recordBindRefusal() {
+function recordBindRefusal(reason = 'load-error') {
   try {
-    getInstruments().bindRefusals.add(1);
+    getInstruments().bindRefusals.add(1, {
+      'refusal.reason': reason === 'incomplete-load' ? 'incomplete-load' : 'load-error',
+    });
   } catch {
     /* swallow — a metrics fault must never add a failure mode to the refusal path */
+  }
+}
+
+/**
+ * Count one log-rebuild read served from an incomplete row set (feature 057).
+ *
+ * Recorded at the ONE choke point every log-rebuild reader funnels through
+ * (`_fetchRowsWithGapRetry`), beside the warn line that has been the only
+ * evidence until now. Putting it there rather than in `read_document` is the
+ * point: history, diffs, exports, undo and bindState all serve from the same
+ * fetcher, and each of them serving a torn read is the same defect.
+ *
+ * @param {'gap'|'short-tail'|'gap+short-tail'} reason - which incompleteness
+ */
+function recordGappedServe(reason) {
+  try {
+    const known = reason === 'gap' || reason === 'short-tail' || reason === 'gap+short-tail';
+    getInstruments().readGappedServes.add(1, { 'gap.reason': known ? reason : 'unknown' });
+  } catch {
+    /* swallow — never turn a served read into a failed one */
+  }
+}
+
+/**
+ * Count one `read_document` response that carried the staleness indicator
+ * (feature 057, FR-002): the served copy was provably behind the durable log.
+ */
+function recordStaleServe() {
+  try {
+    getInstruments().readStaleServes.add(1);
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * Count one reconcile pass that applied a row the document did not already have
+ * (feature 057, FR-008).
+ *
+ * GENUINE REPAIRS ONLY. A pass that fetches rows and finds the document already
+ * holds them — the normal outcome when fan-out worked and this is just
+ * bookkeeping catching up — is not a repair and must not be counted, or the
+ * metric measures reconciler activity instead of the divergence it exists to
+ * expose.
+ */
+function recordReconcileRepair() {
+  try {
+    getInstruments().reconcileRepairs.add(1);
+  } catch {
+    /* swallow */
   }
 }
 
@@ -269,6 +349,9 @@ module.exports = {
   recordEditCapabilityDegraded,
   recordAwarenessBlocked,
   recordResupplyResolution,
+  recordGappedServe,
+  recordStaleServe,
+  recordReconcileRepair,
   init,
   // Exposed for tests
   statusClass,

@@ -4,6 +4,10 @@ const { retryWithBackoff } = require('./retry');
 // Display-only cache invalidation on document deletion (045 review, LOW-4). The
 // resolver imports nothing from here, so this direction closes no cycle.
 const resupplyResolution = require('./resupply-resolution');
+// Gapped-serve counter (feature 057, FR-010). The metrics module creates its
+// instruments lazily off the global meter, so importing it here is inert before
+// telemetry.start() and closes no cycle.
+const telemetryMetrics = require('./telemetry/metrics');
 
 /**
  * Fixed int4 namespace for the per-document clock-acquisition advisory lock
@@ -498,6 +502,12 @@ class PostgresPersistence {
       console.warn(
         `[Postgres] ${label}: served with clock gap (reason=${reason}, retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock}${tailDetail})`
       );
+      // Feature 057 (FR-010): counted as well as logged, at the one point every
+      // log-rebuild reader funnels through. The warn line above has been the
+      // only evidence a torn read was ever served, which makes the rate
+      // recoverable only by grepping pod logs across replicas. The label is the
+      // same bounded reason string, and no document identity enters it.
+      telemetryMetrics.recordGappedServe(reason);
     }
 
     return { rows: result.rows, gapped: incomplete, retries };

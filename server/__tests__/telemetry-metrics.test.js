@@ -198,3 +198,101 @@ describe('awareness block counter counts frames, not cumulative totals', () => {
     expect(dp.value).toBeGreaterThan(FRAMES * 0.9);
   });
 });
+
+// ── The 057 live-consistency counters ─────────────────────────────────────────
+// The design amendment's telemetry bullet: each way a pod's memory can disagree
+// with the durable log gets a counter, so the defect classes are measurable
+// after deploy instead of inferable from pod logs.
+describe('057 live-consistency counters', () => {
+  /** Counter values are cumulative across this file, so assert on deltas. */
+  async function counterValue(name, predicate = () => true) {
+    const counter = capture.findMetric(await capture.getMetrics(), name);
+    if (!counter) return 0;
+    return counter.dataPoints
+      .filter((d) => predicate(d.attributes))
+      .reduce((sum, d) => sum + d.value, 0);
+  }
+
+  test('gapped serves count per incompleteness reason', async () => {
+    const before = await counterValue('collab.read.gapped_serves');
+
+    metrics.recordGappedServe('gap');
+    metrics.recordGappedServe('gap');
+    metrics.recordGappedServe('short-tail');
+    metrics.recordGappedServe('gap+short-tail');
+
+    const collected = await capture.getMetrics();
+    const counter = capture.findMetric(collected, 'collab.read.gapped_serves');
+    expect(counter).toBeDefined();
+    const byReason = (r) => counter.dataPoints.find((d) => d.attributes['gap.reason'] === r);
+    expect(byReason('gap').value).toBe(2);
+    expect(byReason('short-tail').value).toBe(1);
+    expect(byReason('gap+short-tail').value).toBe(1);
+    expect(await counterValue('collab.read.gapped_serves')).toBe(before + 4);
+  });
+
+  test('an unrecognised gap reason is labelled, never dropped or passed through raw', async () => {
+    metrics.recordGappedServe('something-new');
+
+    const counter = capture.findMetric(await capture.getMetrics(), 'collab.read.gapped_serves');
+    expect(counter.dataPoints.find((d) => d.attributes['gap.reason'] === 'unknown').value).toBe(1);
+    // Bounded cardinality: the raw string never becomes a label value.
+    expect(counter.dataPoints.some((d) => d.attributes['gap.reason'] === 'something-new')).toBe(false);
+  });
+
+  test('stale serves count', async () => {
+    const before = await counterValue('collab.read.stale_serves');
+    metrics.recordStaleServe();
+    metrics.recordStaleServe();
+    expect(await counterValue('collab.read.stale_serves')).toBe(before + 2);
+  });
+
+  test('reconcile repairs count', async () => {
+    const before = await counterValue('collab.reconcile.repairs');
+    metrics.recordReconcileRepair();
+    expect(await counterValue('collab.reconcile.repairs')).toBe(before + 1);
+  });
+
+  test('bind refusals carry a reason, and the default is the unchanged 041 behavior', async () => {
+    const loadErrorBefore = await counterValue(
+      'collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'
+    );
+    const incompleteBefore = await counterValue(
+      'collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'
+    );
+
+    metrics.recordBindRefusal();                    // 041 call shape — unchanged
+    metrics.recordBindRefusal('load-error');
+    metrics.recordBindRefusal('incomplete-load');
+
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'))
+      .toBe(loadErrorBefore + 2);
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'))
+      .toBe(incompleteBefore + 1);
+  });
+
+  test('an unknown refusal reason falls back to load-error rather than inventing a label', async () => {
+    const before = await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error');
+    metrics.recordBindRefusal('who-knows');
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'))
+      .toBe(before + 1);
+  });
+
+  test('the new recorders swallow their own faults (metrics never break the measured path)', () => {
+    // Force every instrument lookup to throw, exactly as a broken meter would.
+    metrics._resetForTest();
+    const telemetry = require('../telemetry');
+    const spy = jest.spyOn(telemetry, 'getMeter').mockImplementation(() => {
+      throw new Error('meter exploded');
+    });
+    try {
+      expect(() => metrics.recordGappedServe('gap')).not.toThrow();
+      expect(() => metrics.recordStaleServe()).not.toThrow();
+      expect(() => metrics.recordReconcileRepair()).not.toThrow();
+      expect(() => metrics.recordBindRefusal('incomplete-load')).not.toThrow();
+    } finally {
+      spy.mockRestore();
+      metrics._resetForTest();
+    }
+  });
+});
