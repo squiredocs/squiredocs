@@ -92,24 +92,40 @@ describe('collab-bind-state: the bind-completion flag (046, NEW-2a)', () => {
     logPerf: () => {},
   });
 
+  /**
+   * A persistence double for the CURRENT bindState contract.
+   *
+   * Feature 057 (FR-003) changed it deliberately: the binder captures the
+   * committed tail before the fetch and calls `getYDoc` with `withGap: true`,
+   * so the load reports whether it was complete instead of only handing back a
+   * document. A double that returns a bare Y.Doc is now describing a provider
+   * that does not exist — hence this shim rather than a looser production path,
+   * which would let a genuinely torn load through unnoticed.
+   */
+  const loader = (produceDoc, { maxClock = null } = {}) => ({
+    getClockRange: async () => ({ minClock: maxClock === null ? null : 0, maxClock }),
+    getYDoc: async () => ({ ydoc: await produceDoc(), gapped: false }),
+  });
+
   test('is set once the persisted state has been applied', async () => {
     const persisted = new Y.Doc();
     persisted.getXmlFragment('default').insert(0, [new Y.XmlElement('paragraph')]);
 
-    const bindState = createBindState(deps({ getYDoc: async () => persisted }));
+    const bindState = createBindState(deps(loader(async () => persisted, { maxClock: 3 })));
     const ydoc = new Y.Doc();
     expect(ydoc._bindComplete).toBeUndefined();
 
     await bindState('s/doc-1', ydoc);
     expect(ydoc._bindComplete).toBe(true);
+    expect(ydoc._verifiedClock).toBe(3); // set first, over a verified-complete load
   });
 
   test('is NOT set while the load is still in flight', async () => {
     let releaseLoad;
     const gate = new Promise((resolve) => { releaseLoad = resolve; });
-    const bindState = createBindState(deps({
-      getYDoc: async () => { await gate; return new Y.Doc(); },
-    }));
+    const bindState = createBindState(deps(
+      loader(async () => { await gate; return new Y.Doc(); })
+    ));
 
     const ydoc = new Y.Doc();
     const binding = bindState('s/doc-2', ydoc);

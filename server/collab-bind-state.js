@@ -20,7 +20,7 @@ const { docs } = require('y-websocket/bin/utils');
 const { ORIGIN_DB_LOAD, parseOrigin } = require('./origin');
 const { viaSyncFromOrigin } = require('./ws-edit-gate');
 const { classifyByXml, extractXml, classificationDisabled } = require('./update-classifier');
-const { refuseBind } = require('./bind-failure');
+const { refuseBind, BIND_REFUSAL_REASONS } = require('./bind-failure');
 const { retryWithBackoff } = require('./retry');
 const telemetryMetrics = require('./telemetry/metrics');
 
@@ -272,9 +272,60 @@ function createBindState(deps) {
       // in multi-instance deployments
       console.log(`[bindState] Loading from PostgreSQL for ${docGuid}`);
       const loadStart = Date.now();
-      const persistedYdoc = await persistenceProvider.getYDoc(docGuid);
+
+      // Feature 057 (FR-003): capture the tail the log has ALREADY committed,
+      // BEFORE the fetch. Judging the load against a target taken from the load
+      // itself is circular and always says "complete" — which is exactly why a
+      // truncated read used to be indistinguishable from a successful one.
+      //
+      // A failure here costs the tail check but must not cost the bind: losing
+      // an extra check is not grounds to refuse service to a document whose load
+      // is in fact fine, and a probe failing because the database is down will
+      // be followed by a load failure that refuses through the 041 path anyway.
+      let expectedTailClock = null;
+      try {
+        const range = await persistenceProvider.getClockRange(docGuid);
+        expectedTailClock = range?.maxClock ?? null;
+      } catch (rangeErr) {
+        console.warn(
+          `[bindState] could not read the clock range for ${docGuid}; binding with gap detection only:`,
+          rangeErr?.message || rangeErr
+        );
+      }
+
+      // `withGap` opts into the 021/039 choke point's completeness reporting,
+      // and `expectedTailClock` extends it from "no interior holes" to "and it
+      // reached what was committed". A null tail means zero rows — a genuinely
+      // new document — so there is nothing to fall short of.
+      const load = await persistenceProvider.getYDoc(docGuid, { withGap: true, expectedTailClock });
+      const persistedYdoc = load.ydoc;
       console.log(`[bindState] PostgreSQL loaded ${docGuid} in ${Date.now() - loadStart}ms`);
       logPerf('DB_LOAD', { docGuid, duration: Date.now() - loadStart });
+
+      if (load.gapped) {
+        // Feature 057 (FR-004): the load SUCCEEDED and is wrong. Binding it
+        // would set the trust flag over a document known to be missing content,
+        // and because nothing ever reloads a bound doc, that lie would stand for
+        // the life of the pod — every restore, undo and import derived from it.
+        // Refuse through the same 041 path: evict, close 1013, let the client
+        // retry into a fresh doc whose load can win the race the retry budget
+        // just lost.
+        const incompleteError = new Error(
+          `document load incomplete (expectedTailClock=${expectedTailClock})`
+        );
+        refuseBind({
+          docName,
+          docGuid,
+          ydoc,
+          error: incompleteError,
+          docs,
+          notify: notifyException,
+          reason: BIND_REFUSAL_REASONS.INCOMPLETE_LOAD,
+        });
+        logPerf('BIND_STATE_REFUSED', { docGuid, totalDuration: Date.now() - startTime, reason: 'incomplete-load' });
+        telemetryMetrics.recordBindRefusal(BIND_REFUSAL_REASONS.INCOMPLETE_LOAD);
+        return;
+      }
 
       // Apply persisted state to the in-memory document
       // Use ORIGIN_DB_LOAD so the update listener knows to skip persisting this
@@ -307,6 +358,12 @@ function createBindState(deps) {
       // binder. Every one of those is a doc no caller should derive durable
       // state from, so "unset ⇒ do not trust the live copy" is the right
       // reading in all three cases.
+      //
+      // Feature 057: the verified clock is set FIRST, and only here — over a
+      // load proven to have reached the tail captured before the fetch. Setting
+      // the trust flag first would leave a window in which a peeking consumer
+      // finds a trusted doc that claims nothing.
+      ydoc._verifiedClock = expectedTailClock ?? -1;
       ydoc._bindComplete = true;
 
       console.log(`[bindState] COMPLETE for ${docGuid} in ${Date.now() - startTime}ms`);
@@ -319,12 +376,15 @@ function createBindState(deps) {
       // doc over that serves a blank document for one that has content (and
       // invites a client with local state to re-supply the whole thing as its
       // own new edits). Refuse instead; clients retry. See server/bind-failure.js.
-      refuseBind({ docName, docGuid, ydoc, error, docs, notify: notifyException });
+      refuseBind({
+        docName, docGuid, ydoc, error, docs, notify: notifyException,
+        reason: BIND_REFUSAL_REASONS.LOAD_ERROR,
+      });
       logPerf('BIND_STATE_REFUSED', { docGuid, totalDuration: Date.now() - startTime });
       // Counted as well as logged: this is a database-health canary, and a
       // storm of it is the shape of an outage. logPerf is a console line, so
       // without this the rate is only recoverable by grepping pod logs.
-      telemetryMetrics.recordBindRefusal();
+      telemetryMetrics.recordBindRefusal(BIND_REFUSAL_REASONS.LOAD_ERROR);
     }
   };
 }

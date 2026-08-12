@@ -87,7 +87,13 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     expect(docs.has('s/doc-1')).toBe(false);
     expect(connA.close).toHaveBeenCalledWith(BIND_FAILED_CLOSE_CODE, expect.any(String));
     expect(connB.close).toHaveBeenCalledWith(BIND_FAILED_CLOSE_CODE, expect.any(String));
-    expect(result).toEqual({ paged: true, evicted: true, closedConnections: 2, destroyed: true });
+    // `reason` is additive (feature 057, FR-004): refusals are now typed so the
+    // 041 database-health canary is distinguishable from a load that succeeded
+    // and came back torn. `load-error` is the default, so this path is the 041
+    // behavior under its new name.
+    expect(result).toEqual({
+      paged: true, evicted: true, closedConnections: 2, destroyed: true, reason: 'load-error',
+    });
 
     // Destroyed, not just evicted: closeConn's own destroy branch is
     // unreachable after conns.clear(), and an undestroyed WSSharedDoc is
@@ -305,7 +311,23 @@ describe('041 FR-010: bind refusal on document load failure', () => {
     });
 
     test('the catch refuses the bind with the notifier and the y-websocket docs map', () => {
-      expect(bindStateSource).toMatch(/refuseBind\(\{\s*docName,\s*docGuid,\s*ydoc,\s*error,\s*docs,\s*notify: notifyException\s*\}\)/);
+      // Repointed by feature 057 (FR-004), the way 043 repointed 041's pins when
+      // the code moved: the call now carries an explicit `reason`, because a
+      // second refusal site exists above it for loads that SUCCEEDED and came
+      // back incomplete. The pinned fact is unchanged — the catch still refuses
+      // through the notifier and the y-websocket registry.
+      expect(bindStateSource).toMatch(
+        /refuseBind\(\{\s*docName,\s*docGuid,\s*ydoc,\s*error,\s*docs,\s*notify: notifyException,\s*reason: BIND_REFUSAL_REASONS\.LOAD_ERROR,\s*\}\)/
+      );
+    });
+
+    test('an incomplete load refuses through the SAME path, with its own reason (057 FR-004)', () => {
+      expect(bindStateSource).toMatch(/reason: BIND_REFUSAL_REASONS\.INCOMPLETE_LOAD/);
+      // Fail closed: the trust flag must never be reachable from that branch.
+      const refusalAt = bindStateSource.indexOf('BIND_REFUSAL_REASONS.INCOMPLETE_LOAD');
+      const trustAt = bindStateSource.indexOf('ydoc._bindComplete = true');
+      expect(refusalAt).toBeGreaterThan(-1);
+      expect(trustAt).toBeGreaterThan(refusalAt);
     });
 
     test('the update listener drops updates on a doc whose bind failed', () => {

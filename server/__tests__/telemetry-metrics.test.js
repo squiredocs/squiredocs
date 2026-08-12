@@ -198,3 +198,238 @@ describe('awareness block counter counts frames, not cumulative totals', () => {
     expect(dp.value).toBeGreaterThan(FRAMES * 0.9);
   });
 });
+
+// ── The 057 live-consistency counters ─────────────────────────────────────────
+// The design amendment's telemetry bullet: each way a pod's memory can disagree
+// with the durable log gets a counter, so the defect classes are measurable
+// after deploy instead of inferable from pod logs.
+describe('057 live-consistency counters', () => {
+  /** Counter values are cumulative across this file, so assert on deltas. */
+  async function counterValue(name, predicate = () => true) {
+    const counter = capture.findMetric(await capture.getMetrics(), name);
+    if (!counter) return 0;
+    return counter.dataPoints
+      .filter((d) => predicate(d.attributes))
+      .reduce((sum, d) => sum + d.value, 0);
+  }
+
+  test('gapped serves count per incompleteness reason', async () => {
+    const before = await counterValue('collab.read.gapped_serves');
+
+    metrics.recordGappedServe('gap');
+    metrics.recordGappedServe('gap');
+    metrics.recordGappedServe('short-tail');
+    metrics.recordGappedServe('gap+short-tail');
+
+    const collected = await capture.getMetrics();
+    const counter = capture.findMetric(collected, 'collab.read.gapped_serves');
+    expect(counter).toBeDefined();
+    const byReason = (r) => counter.dataPoints.find((d) => d.attributes['gap.reason'] === r);
+    expect(byReason('gap').value).toBe(2);
+    expect(byReason('short-tail').value).toBe(1);
+    expect(byReason('gap+short-tail').value).toBe(1);
+    expect(await counterValue('collab.read.gapped_serves')).toBe(before + 4);
+  });
+
+  test('an unrecognised gap reason is labelled, never dropped or passed through raw', async () => {
+    metrics.recordGappedServe('something-new');
+
+    const counter = capture.findMetric(await capture.getMetrics(), 'collab.read.gapped_serves');
+    expect(counter.dataPoints.find((d) => d.attributes['gap.reason'] === 'unknown').value).toBe(1);
+    // Bounded cardinality: the raw string never becomes a label value.
+    expect(counter.dataPoints.some((d) => d.attributes['gap.reason'] === 'something-new')).toBe(false);
+  });
+
+  test('stale serves count', async () => {
+    const before = await counterValue('collab.read.stale_serves');
+    metrics.recordStaleServe();
+    metrics.recordStaleServe();
+    expect(await counterValue('collab.read.stale_serves')).toBe(before + 2);
+  });
+
+  test('reconcile repairs count', async () => {
+    const before = await counterValue('collab.reconcile.repairs');
+    metrics.recordReconcileRepair();
+    expect(await counterValue('collab.reconcile.repairs')).toBe(before + 1);
+  });
+
+  test('bind refusals carry a reason, and the default is the unchanged 041 behavior', async () => {
+    const loadErrorBefore = await counterValue(
+      'collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'
+    );
+    const incompleteBefore = await counterValue(
+      'collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'
+    );
+
+    metrics.recordBindRefusal();                    // 041 call shape — unchanged
+    metrics.recordBindRefusal('load-error');
+    metrics.recordBindRefusal('incomplete-load');
+
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'))
+      .toBe(loadErrorBefore + 2);
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'))
+      .toBe(incompleteBefore + 1);
+  });
+
+  test('an unknown refusal reason falls back to load-error rather than inventing a label', async () => {
+    const before = await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error');
+    metrics.recordBindRefusal('who-knows');
+    expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'load-error'))
+      .toBe(before + 1);
+  });
+
+  // ── SC-006: each counter increments under ITS OWN fault, through the real
+  // code path rather than a direct recorder call. A recorder that works but is
+  // never reached measures nothing, and that is not visible from the tests
+  // above. Scenario depth lives in the feature suites; what is consolidated
+  // here is the one link each counter depends on — production code reaching
+  // production telemetry.
+  describe('SC-006: every defect class actually reaches its counter', () => {
+    const Y = require('yjs');
+
+    async function counterValue(name, predicate = () => true) {
+      const counter = capture.findMetric(await capture.getMetrics(), name);
+      if (!counter) return 0;
+      return counter.dataPoints
+        .filter((d) => predicate(d.attributes))
+        .reduce((sum, d) => sum + d.value, 0);
+    }
+
+    test('a torn read at the shared choke point counts a gapped serve', async () => {
+      const { PostgresPersistence } = require('../postgres-persistence');
+      const persistence = new PostgresPersistence({ connectionString: 'postgresql://unused/none' });
+      // Rows {0, 2}: an interior hole that outlives the retry budget.
+      const client = { query: async () => ({ rows: [{ clock: 0 }, { clock: 2 }] }) };
+      process.env.COLLAB_READ_GAP_RETRIES = '0';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const before = await counterValue('collab.read.gapped_serves', (a) => a['gap.reason'] === 'gap');
+        const out = await persistence._fetchRowsWithGapRetry(client, 'SELECT', [], 'probe');
+        expect(out.gapped).toBe(true);
+        expect(await counterValue('collab.read.gapped_serves', (a) => a['gap.reason'] === 'gap'))
+          .toBe(before + 1);
+      } finally {
+        delete process.env.COLLAB_READ_GAP_RETRIES;
+        warnSpy.mockRestore();
+      }
+    });
+
+    test('an incomplete bind load counts a refusal labelled incomplete-load', async () => {
+      const { createBindState } = require('../collab-bind-state');
+      const { resetPageThrottle } = require('../bind-failure');
+      resetPageThrottle();
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const before = await counterValue(
+          'collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'
+        );
+        const ydoc = new Y.Doc();
+        ydoc.conns = new Map();
+        await createBindState({
+          persistenceProvider: {
+            getClockRange: async () => ({ minClock: 0, maxClock: 9 }),
+            getYDoc: async () => ({ ydoc: new Y.Doc(), gapped: true }),
+          },
+          pendingWrites: new Set(),
+          notifyException: () => {},
+          searchIndexer: { markDirty: () => {} },
+          collabGuardrail: { evaluateUpdate: () => Promise.resolve() },
+          logPerf: () => {},
+        })('s/sc006-bind', ydoc);
+
+        expect(ydoc._bindComplete).toBeUndefined();
+        expect(await counterValue('collab.bind.refusals', (a) => a['refusal.reason'] === 'incomplete-load'))
+          .toBe(before + 1);
+      } finally {
+        errSpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    });
+
+    test('a reconcile pass that applies a missing row counts a repair', async () => {
+      const { reconcileDoc } = require('../collab-reconcile');
+
+      // One incremental update the live doc has never seen.
+      const author = new Y.Doc();
+      const sv = Y.encodeStateVector(author);
+      author.transact(() => {
+        const el = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText();
+        t.insert(0, 'missing-content');
+        el.insert(0, [t]);
+        author.getXmlFragment('default').push([el]);
+      });
+      const missingRow = { clock: 0, updateData: Y.encodeStateAsUpdate(author, sv) };
+
+      const before = await counterValue('collab.reconcile.repairs');
+      const live = new Y.Doc();
+      const out = await reconcileDoc('sc006-reconcile', live, {
+        persistence: { getUpdatesInRange: async () => [missingRow] },
+      });
+
+      expect(out.repaired).toBe(true);
+      expect(live.getXmlFragment('default').toString()).toContain('missing-content');
+      expect(await counterValue('collab.reconcile.repairs')).toBe(before + 1);
+    });
+
+    test('a read served from a behind copy counts a stale serve', async () => {
+      const readDocument = require('../mcp/tools/read-document');
+      const agentPresence = require('../mcp/agent-presence');
+      const documentService = require('../document-service');
+
+      // A three-row log; the served copy holds only the first.
+      const author = new Y.Doc();
+      const rows = [];
+      for (let i = 0; i < 3; i++) {
+        const sv = Y.encodeStateVector(author);
+        author.transact(() => {
+          const el = new Y.XmlElement('paragraph');
+          const t = new Y.XmlText();
+          t.insert(0, `row-${i}`);
+          el.insert(0, [t]);
+          author.getXmlFragment('default').push([el]);
+        });
+        rows.push({ clock: i, updateData: Y.encodeStateAsUpdate(author, sv), createdAt: new Date(), viaSync: null });
+      }
+      const served = new Y.Doc();
+      Y.applyUpdate(served, rows[0].updateData);
+
+      readDocument.init({
+        getRecentUpdatesWithUsers: async () => rows,
+        getUpdatesInRange: async () => rows,
+      });
+      jest.spyOn(agentPresence, 'getOrCreateSession')
+        .mockResolvedValue({ provider: { doc: served }, sessionId: 'sc006' });
+      jest.spyOn(agentPresence, 'queueHighlightSequence').mockImplementation(() => {});
+      jest.spyOn(documentService, 'peekSharedDoc').mockReturnValue(null);
+
+      const before = await counterValue('collab.read.stale_serves');
+      const result = await readDocument.handler(
+        { docGuid: 'sc006-read', format: 'markdown' }, { userId: 'u', baseUrl: '' }
+      );
+
+      expect(result.clock).toBe(0);      // honest: only row 0 is integrated
+      expect(result.stale).toBe(true);
+      expect(await counterValue('collab.read.stale_serves')).toBe(before + 1);
+    });
+  });
+
+  test('the new recorders swallow their own faults (metrics never break the measured path)', () => {
+    // Force every instrument lookup to throw, exactly as a broken meter would.
+    metrics._resetForTest();
+    const telemetry = require('../telemetry');
+    const spy = jest.spyOn(telemetry, 'getMeter').mockImplementation(() => {
+      throw new Error('meter exploded');
+    });
+    try {
+      expect(() => metrics.recordGappedServe('gap')).not.toThrow();
+      expect(() => metrics.recordStaleServe()).not.toThrow();
+      expect(() => metrics.recordReconcileRepair()).not.toThrow();
+      expect(() => metrics.recordBindRefusal('incomplete-load')).not.toThrow();
+    } finally {
+      spy.mockRestore();
+      metrics._resetForTest();
+    }
+  });
+});

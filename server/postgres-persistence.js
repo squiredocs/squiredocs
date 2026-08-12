@@ -4,6 +4,10 @@ const { retryWithBackoff } = require('./retry');
 // Display-only cache invalidation on document deletion (045 review, LOW-4). The
 // resolver imports nothing from here, so this direction closes no cycle.
 const resupplyResolution = require('./resupply-resolution');
+// Gapped-serve counter (feature 057, FR-010). The metrics module creates its
+// instruments lazily off the global meter, so importing it here is inert before
+// telemetry.start() and closes no cycle.
+const telemetryMetrics = require('./telemetry/metrics');
 
 /**
  * Fixed int4 namespace for the per-document clock-acquisition advisory lock
@@ -498,6 +502,12 @@ class PostgresPersistence {
       console.warn(
         `[Postgres] ${label}: served with clock gap (reason=${reason}, retries=${retries}, rows=${result.rows.length}, firstGapAfterClock=${firstGapAfterClock}${tailDetail})`
       );
+      // Feature 057 (FR-010): counted as well as logged, at the one point every
+      // log-rebuild reader funnels through. The warn line above has been the
+      // only evidence a torn read was ever served, which makes the rate
+      // recoverable only by grepping pod logs across replicas. The label is the
+      // same bounded reason string, and no document identity enters it.
+      telemetryMetrics.recordGappedServe(reason);
     }
 
     return { rows: result.rows, gapped: incomplete, retries };
@@ -518,9 +528,24 @@ class PostgresPersistence {
    *   so a stored-artifact caller (restore — 023 FR-009/D-2) can fail closed on a
    *   torn read instead of persisting content derived from a gapped log. Default
    *   keeps the bare-Y.Doc shape every serving-only reader relies on.
+   * @param {number} [opts.expectedTailClock] - the clock this read MUST reach to
+   *   count as complete. Same opt-in option `getYDocAtClock` already carries
+   *   (:1017) and the same semantics: without it `gapped` only ever means
+   *   "interior gap", so a read that stopped SHORT of the tail — rows committed
+   *   but not yet visible to this snapshot — looks complete. Feature 057 (FR-003)
+   *   needs the distinction at bind time: the binder captures the tail BEFORE the
+   *   fetch and refuses a load that did not reach it, rather than memoizing a
+   *   truncated document as the trusted live copy.
+   *
+   *   ⚠️ NEVER DERIVE THIS FROM THE ROWS THIS CALL RETURNED — that is circular
+   *   and always "complete". It must come from an independent observation of the
+   *   log taken BEFORE the fetch (`getClockRange`). Serving-only readers that
+   *   have no such observation must omit it: with the option absent every
+   *   existing call site is byte-identical to pre-057, including retry counts
+   *   and log output (039 G2).
    * @returns {Promise<Y.Doc|{ydoc: Y.Doc, gapped: boolean}>} The reconstructed Yjs document
    */
-  async getYDoc(docGuid, { withGap = false } = {}) {
+  async getYDoc(docGuid, { withGap = false, expectedTailClock } = {}) {
     await this._init();
 
     const client = await this.pool.connect();
@@ -530,7 +555,8 @@ class PostgresPersistence {
         client,
         'SELECT clock, update_data FROM yjs_updates WHERE doc_guid = $1 ORDER BY clock ASC',
         [docGuid],
-        `getYDoc ${docGuid}`
+        `getYDoc ${docGuid}`,
+        { expectedTailClock }
       );
       const queryTime = Date.now() - queryStart;
 
@@ -866,6 +892,44 @@ class PostgresPersistence {
       minClock: row.min_clock ?? null,
       maxClock: row.max_clock ?? null,
     };
+  }
+
+  /**
+   * Newest durable clock for MANY documents in one query (feature 057, FR-006).
+   *
+   * The reconciler's periodic check asks one question of every document this pod
+   * has bound — "has the log moved past what I have verified?" — and the answer
+   * for the overwhelming majority is "no". Asking it per document would make the
+   * steady-state cost of consistency scale with the number of bound documents,
+   * which is exactly the cost profile SC-005 forbids: one batched query per pod
+   * per period, and a row fetch ONLY for the documents actually behind.
+   *
+   * A guid with no rows is ABSENT from the result rather than present with null.
+   * "No durable rows" and "newest clock is X" are different facts and the caller
+   * (reconcile) must not confuse them — an absent guid is nothing to reconcile
+   * toward, not a document at clock 0.
+   *
+   * @param {string[]} docGuids - document GUIDs
+   * @returns {Promise<Map<string, number>>} guid → MAX(clock); empty input
+   *   returns an empty Map WITHOUT querying (mirrors `getUpdatePayloads`).
+   */
+  async getNewestClocks(docGuids) {
+    const out = new Map();
+    if (!Array.isArray(docGuids) || docGuids.length === 0) return out;
+    await this._init();
+    const result = await this.pool.query(
+      `SELECT doc_guid, MAX(clock)::int AS max_clock
+         FROM yjs_updates
+        WHERE doc_guid = ANY($1::uuid[])
+        GROUP BY doc_guid`,
+      [docGuids]
+    );
+    for (const row of result.rows) {
+      if (row.max_clock !== null && row.max_clock !== undefined) {
+        out.set(row.doc_guid, row.max_clock);
+      }
+    }
+    return out;
   }
 
   // ── Resupply-resolution readers (feature 045) ─────────────────────────────

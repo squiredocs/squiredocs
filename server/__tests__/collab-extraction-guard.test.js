@@ -187,4 +187,49 @@ describe('043 extraction guard: server/index.js uses the extracted units (X-GUAR
     // feature 044 exists to prevent.
     expect(indexCode).not.toMatch(/REMOTE_PRINCIPAL/);
   });
+
+  // ── Feature 057: the reconciler is WIRED, not merely present ──────────────
+  // collab-reconcile.js can be perfectly tested and still never run. Each of
+  // these four connections is a distinct convergence trigger, and losing any one
+  // silently widens the window in which a pod's memory disagrees with the log —
+  // the exact failure mode that used to be permanent. Behaviour tests cannot see
+  // an absent call site, so they are pinned here.
+
+  test('G9a: index.js starts the periodic consistency check, independently of Redis', () => {
+    expect(indexSrc).toMatch(/require\(['"]\.\/collab-reconcile['"]\)/);
+    expect(indexCode).toMatch(/collabReconcile\.startPeriodicCheck\(/);
+    // FR-013: the tick is the whole convergence mechanism when Redis is down,
+    // so it must not sit behind an isEnabled()/init() gate.
+    const startAt = indexCode.indexOf('collabReconcile.startPeriodicCheck(');
+    const redisInitAt = indexCode.indexOf('await redisPubSub.init()');
+    expect(startAt).toBeGreaterThan(-1);
+    expect(redisInitAt).toBeGreaterThan(startAt);
+  });
+
+  test('G9b: index.js reconciles every bound doc when the subscriber becomes ready', () => {
+    expect(indexCode).toMatch(/redisPubSub\.onSubscriberReady\(/);
+    expect(indexCode).toMatch(/collabReconcile\.reconcileAllBoundDocs\(/);
+  });
+
+  test('G9c: index.js reconciles a document once its subscription is established', () => {
+    // The subscribe call is deliberately not awaited, which is the blind window
+    // this chain closes.
+    expect(indexCode).toMatch(/collabReconcile\.reconcileDoc\(/);
+    const subscribeAt = indexCode.indexOf('redisPubSub.subscribeToDocument(');
+    const reconcileAt = indexCode.indexOf('collabReconcile.reconcileDoc(');
+    expect(subscribeAt).toBeGreaterThan(-1);
+    expect(reconcileAt).toBeGreaterThan(subscribeAt);
+  });
+
+  test('G9d: the drain stops the reconcile timer', () => {
+    expect(indexCode).toMatch(/collabReconcile\.stopPeriodicCheck\(\)/);
+    expect(indexCode).toMatch(/stopBackgroundJobs:/);
+  });
+
+  test('G9e: index.js keeps no reconciliation logic of its own', () => {
+    // A second copy of the apply-the-missing-rows loop beside the module is how
+    // the invariants (apply-only, ORIGIN_DB_LOAD, never re-persist) drift apart.
+    expect(indexCode).not.toMatch(/getNewestClocks/);
+    expect(indexCode).not.toMatch(/_verifiedClock/);
+  });
 });

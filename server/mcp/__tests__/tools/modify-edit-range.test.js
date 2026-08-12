@@ -45,9 +45,15 @@ describe('modify editRange recording', () => {
           persistence.storeUpdate(g, update, parsed.userId, parsed.agentName)
             .catch((e) => console.error('[test bindState] persist failed:', e.message));
         });
+        const { maxClock } = await persistence.getClockRange(g);
         Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(await persistence.getYDoc(g)), ORIGIN_DB_LOAD);
-        // Mirrors the real createBindState's completion mark, which the 048
-        // bind-readiness gate in updateDocument waits on.
+        // Mirrors the real createBindState's completion marks, which the 048
+        // bind-readiness gate in updateDocument and the 057 agent-presence
+        // readiness gate both wait on. `_verifiedClock` says how far this copy
+        // has PROVEN integration; without it the readiness gate cannot tell a
+        // loaded document from a still-loading one and waits out its full
+        // timeout on every session.
+        ydoc._verifiedClock = maxClock ?? -1;
         ydoc._bindComplete = true;
       },
       writeState: async () => {},

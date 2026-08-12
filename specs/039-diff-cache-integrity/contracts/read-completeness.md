@@ -95,6 +95,20 @@ const { rows, gapped } = await this.persistence.getUpdateRowsUpTo(
 timeline) do **not** opt in. They are serving-only readers that self-heal on the next read; only
 the diff path freezes an answer for an hour.
 
+> **Superseded in part (2026-08-11 design amendment; feature 057, FR-012).**
+> The "self-heal on the next read" premise holds only for readers that go back to
+> the log. It does not hold for a **memoized** reader: `bindState` loads a
+> document once into an in-memory copy that is never reloaded, so a torn load is
+> not re-read on the next request — it is *frozen* for the life of the pod, which
+> is a longer horizon than the hour this contract was written to protect.
+>
+> Feature 057 therefore opts `getYDoc` in at the bind call site (`withGap` +
+> `expectedTailClock`), refuses the bind on an incomplete load, and adds a
+> `collab.read.gapped_serves` counter at the shared choke point so gapped serves
+> are visible for *every* reader listed above rather than inferable from pod logs.
+> The rest of this contract stands unchanged: the readers above still do not opt
+> in on their own, and the diff cache-write gate is untouched.
+
 ---
 
 ## Test obligations
