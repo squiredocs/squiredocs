@@ -117,7 +117,7 @@ Supersedes bare hunk counts **as the verification signal** (FR-009). `operations
 | `blockIndex` | **Baseline** document position. For an insertion, the anchor block it lands after |
 | `blockType` | Node name (`paragraph`, `heading`, `orderedList`, …), or `text` for a bare text node — same derivation as `overlaps[].blockType` |
 | `excerpt` | Whitespace-collapsed single line, ≤ 120 chars, ellipsis on truncation |
-| `op` | `text` (in-place character splice) \| `reconcile` (block merged against concurrent live edits) \| `structural` (block inserted, deleted, or replaced as a unit) |
+| `op` | `text` (in-place character splice) \| `reconcile` (whole-block in-place re-render of inline formatting in a single-text block — chosen by edit shape, unrelated to concurrency) \| `structural` (block inserted, deleted, or replaced as a unit) |
 | `position` | **Insertions only**: `after` (anchored on `blockIndex`) or `start` (document head) |
 
 - Ordered by `blockIndex` ascending; an insertion follows its anchor.

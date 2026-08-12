@@ -253,7 +253,10 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
       blocksChanged:[ { blockIndex, blockType, excerpt, op, position? } ],
                      // what this push did to each block it changed:
                      //   op "text"       in-place character splice
-                     //   op "reconcile"  merged against concurrent live edits
+                     //   op "reconcile"  whole-block in-place re-render of
+                     //                   inline formatting (bold/link edits in
+                     //                   a single-text block) — chosen by edit
+                     //                   SHAPE, unrelated to concurrency
                      //   op "structural" block inserted, deleted, or replaced
                      // an inserted block has no baseline index, so it carries
                      // "position":"after" (anchored on blockIndex) or "start".
