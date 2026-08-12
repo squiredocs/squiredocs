@@ -160,7 +160,11 @@ async function reconcileDoc(docGuid, ydoc, deps = {}) {
       }, ORIGIN_DB_LOAD);
     }
 
-    advanceVerifiedClock(ydoc, rows, { from });
+    // Pass the anchor ONLY when something is already verified. With nothing
+    // verified the fetch started at the bottom of the log, so the run must
+    // anchor on the log's own first row — a history that legitimately begins
+    // above clock 0 would otherwise never verify at all.
+    advanceVerifiedClock(ydoc, rows, verified === undefined ? {} : { from });
 
     const repaired = missing.length > 0;
     if (repaired) telemetryMetrics.recordReconcileRepair();
