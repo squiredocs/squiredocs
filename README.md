@@ -284,6 +284,7 @@ for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
 - `GUARDRAIL_SUPPRESSION_MS`: Guardrail alert suppression window per (doc, user) pair in ms (default: `300000`); suppressed matches are counted and carried on the next alert
 - `COLLAB_READ_GAP_RETRIES`: Max full re-fetches when `getYDoc` detects a clock gap in the update log (default: `2`; feature 021)
 - `COLLAB_READ_GAP_RETRY_DELAYS_MS`: Comma-separated waits between gap-read retries in ms (default: `100,300`)
+- `COLLAB_RECONCILE_INTERVAL_MS`: How often each pod checks its bound documents against the update log and applies anything it is missing (default: `30000`; feature 057). A pod learns about other pods' edits through Redis fan-out, which is best-effort — this check is what makes a dropped message a delay rather than permanent divergence, and it runs whether or not Redis is available. Steady-state cost is one batched query per pod per interval regardless of how many documents are open; only documents the log has actually moved past fetch any rows. An invalid value falls back to the default
 - `RL_COLLAB_SKIP_PER_MIN`: Per-user rate limit for the render-skip beacon `POST /api/collab/render-skip-report` (default: `30`)
 - `RL_MCP_PER_MIN`: Per-user rate limit for MCP tool calls — both `POST /mcp` with method `tools/call` and `POST /mcp/tools/call`, which share one budget (default: `120`). Keyed on the token's owning user, so additional tokens buy no additional budget. The handshake (`initialize`, `tools/list`, `ping`) and agent registration/auth are not charged. Over budget returns 429 with `Retry-After` plus guidance telling the agent to batch edits rather than retry immediately
 - `CREATE_DOCUMENT_NUDGE_BYTES` / `CREATE_DOCUMENT_REFUSAL_BYTES`: Teaching thresholds for retyped markdown in the `create_document` MCP tool, in UTF-8 bytes (defaults: `2048` / `10240`). At/above the nudge the success result appends a byte-channel pointer; at/above the refusal the call is soft-refused unless `allowRetyped: true`. Read per call (no restart needed); any invalid pair (non-integer, ≤ 0, refusal ≤ nudge) falls back to BOTH defaults
@@ -419,10 +420,22 @@ stale view. Three defenses (design ground truth:
   rows (a read racing a mid-commit row), retries the full fetch briefly
   (≤2 retries, ~100/300 ms), then serves as-is with a
   `served with clock gap` log line; gap-free reads are unchanged.
+- **Live-document consistency** — a pod keeps documents in memory and hears
+  about other pods' edits over Redis fan-out, which is best-effort. Each pod
+  therefore re-checks its bound documents against the update log every
+  `COLLAB_RECONCILE_INTERVAL_MS` (and on subscriber reconnect, after each
+  document's subscription is established, and whenever a read is served from a
+  copy known to be behind) and applies whatever it is missing. Repairs only
+  ever *apply* durable updates — nothing is rebuilt, re-saved or re-broadcast.
+  A bind whose load comes back incomplete is refused rather than kept, and
+  `read_document` labels its `clock` with what the served content provably
+  integrated, adding `newestClock` / `stale` / `stalenessNote` when the stored
+  document is ahead.
 
 Env knobs (all optional): `GUARDRAIL_FRESHNESS_SECONDS` (default `10`),
 `GUARDRAIL_SUPPRESSION_MS` (default `300000`), `COLLAB_READ_GAP_RETRIES`
 (default `2`), `COLLAB_READ_GAP_RETRY_DELAYS_MS` (default `100,300`),
+`COLLAB_RECONCILE_INTERVAL_MS` (default `30000`),
 `RL_COLLAB_SKIP_PER_MIN` (skip-beacon rate limit, default `30`).
 
 ## Usage

@@ -59,6 +59,13 @@ RETURNS: content, blockCount, characterCount, matchCount (with xpath), and —
 for current reads — clock, lastModifiedAt/By, recentAuthors. With versionId
 the content is historical and the result carries version metadata instead.
 
+CLOCK MEANS "INTEGRATED", NOT "LATEST". The clock field is the highest clock
+whose changes are provably present in the content you just received, so it
+never overstates what you read. If the stored document is ahead, the result
+also carries newestClock, stale: true and stalenessNote; a repair runs in the
+background, so reading again shortly returns the newer content. Absent
+staleness fields mean the content is current.
+
 AUTHORSHIP IS NOT ALWAYS KNOWABLE. Content that reached the server through
 another client's reconnect is attributed to its real author when that can be
 proven from the document's own history; when it cannot, the author entry is

@@ -111,8 +111,8 @@
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] FR-012: annotate `specs/039-diff-cache-integrity/contracts/read-completeness.md` § Non-consumers (:90-96) with a short supersession note pointing at the 2026-08-11 amendment and feature 057 (annotation only; the rest of the 039 contract stands)
-- [ ] T023 [P] Docs sweep (Constitution I): document `COLLAB_RECONCILE_INTERVAL_MS` and the additive `read_document` staleness fields wherever the response shape or collab consistency is described — `README.md`, `docs/dev.md` (env knobs section), and `server/mcp/tools/tool-documentation/` if read_document's response is specified there; touch nothing that doesn't describe changed behavior
+- [X] T022 [P] FR-012: annotate `specs/039-diff-cache-integrity/contracts/read-completeness.md` § Non-consumers (:90-96) with a short supersession note pointing at the 2026-08-11 amendment and feature 057 (annotation only; the rest of the 039 contract stands)
+- [X] T023 [P] Docs sweep (Constitution I): document `COLLAB_RECONCILE_INTERVAL_MS` and the additive `read_document` staleness fields wherever the response shape or collab consistency is described — `README.md`, `docs/dev.md` (env knobs section), and `server/mcp/tools/tool-documentation/` if read_document's response is specified there; touch nothing that doesn't describe changed behavior
 - [ ] T024 Full verification: entire backend + integration suites green (SC-007 — diffs only where the contract deliberately changed: torn labels, unconditional trust flag, first-event readiness); run the quickstart.md validation set end-to-end; confirm zero edits to `server/markdown-sync.js`, `server/origin.js`, `server/mcp/tools/modify.js` (`git diff --stat`)
 
 ---
