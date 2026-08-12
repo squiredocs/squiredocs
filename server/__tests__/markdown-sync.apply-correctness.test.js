@@ -44,6 +44,7 @@ const Y = require('yjs');
 const { toMarkdownNodes, toMarkdownWithSourceMap } = require('../mcp/yjs/serialization');
 const {
   canonicalizePushedWithBlocks,
+  classifyRange,
   computeHunks,
   planPush,
   applyHunks,
@@ -221,5 +222,230 @@ describe('056 harness self-check', () => {
     const d = linkPara('Check the ', 'runbook', RB, ' before deploying.');
     expect(toMarkdownNodes(d.frag.toArray())).toBe(`Check the [runbook](${RB}) before deploying.`);
     d.doc.destroy();
+  });
+});
+
+// ===========================================================================
+// User Story 1 — edits next to formatting apply exactly as written
+// ===========================================================================
+
+const BASE_LINK = `Check the [runbook](${RB}) before deploying.`;
+const BASE_BOLD = 'Check the **runbook** before deploying.';
+
+/**
+ * repro1 — link and bold shapes (L1–L7, B1–B5). This family already converged
+ * on the pre-fix engine (T001 baseline: 0 failures) and is the CONTROL: it
+ * pins that recording marks at plan time leaves ordinary editing alone, in
+ * particular the left-preference branch typing depends on (FR-003, RBD-056-5).
+ */
+const REPRO1_SCENARIOS = [
+  ['L1 word swap before link', linkedParagraph, BASE_LINK.replace('Check', 'Consult')],
+  ['L2 edit link display text', linkedParagraph, BASE_LINK.replace('runbook', 'playbook')],
+  ['L3 append char to link text (adjacent to "](")', linkedParagraph, BASE_LINK.replace('runbook]', 'runbooks]')],
+  ['L4 edit immediately after closing paren', linkedParagraph, BASE_LINK.replace(' before', ' prior to')],
+  ['L5 multi-edit before+after link', linkedParagraph, BASE_LINK.replace('Check', 'Consult').replace('deploying', 'shipping')],
+  ['L6 multi-edit incl link text', linkedParagraph, BASE_LINK.replace('Check', 'Consult').replace('runbook]', 'playbook]')],
+  ['L7 edit text right before "["', linkedParagraph, BASE_LINK.replace('the [', 'that [')],
+  ['B1 word swap before bold', boldParagraph, BASE_BOLD.replace('Check', 'Consult')],
+  ['B2 edit bold text', boldParagraph, BASE_BOLD.replace('runbook', 'playbook')],
+  ['B3 append char to bold text', boldParagraph, BASE_BOLD.replace('runbook*', 'runbooks*')],
+  ['B4 edit after bold', boldParagraph, BASE_BOLD.replace(' before', ' prior to')],
+  ['B5 multi-edit before+after bold', boldParagraph, BASE_BOLD.replace('Check', 'Consult').replace('deploying', 'shipping')],
+];
+
+/**
+ * repro3 P1–P4 — the boundary-insertion table. P1/P2 are the durable field
+ * failure: apply probed the character at `at - 1` (the last char of the link
+ * text) and dressed the inserted comma in the link's mark, so the re-export
+ * moved the comma INSIDE the link and every repair push re-made the same edit
+ * forever.
+ */
+const REPRO3_SCENARIOS = [
+  ['P1 comma right after link', linkedParagraph, BASE_LINK.replace(') before', '), before')],
+  ['P2 word right after link, no space', linkedParagraph, `Check the [runbook](${RB})s before deploying.`],
+  ['P3 comma right after bold', boldParagraph, BASE_BOLD.replace('** before', '**, before')],
+  ['P4 word right before link text start', linkedParagraph, `Check the my[runbook](${RB}) before deploying.`],
+];
+
+describe('US1 corpus — first-push convergence (FR-013, SC-001)', () => {
+  test.each(REPRO1_SCENARIOS)('repro1 %s', (name, mk, pushed) => {
+    const { doc, frag } = mk();
+    expectConverged(pushOnce(frag, pushed), name);
+    doc.destroy();
+  });
+
+  test.each(REPRO3_SCENARIOS)('repro3 %s', (name, mk, pushed) => {
+    const { doc, frag } = mk();
+    expectConverged(pushOnce(frag, pushed), name);
+    doc.destroy();
+  });
+
+  test('P1 leaves the comma OUTSIDE the link mark in the CRDT, not just in the export', () => {
+    const { doc, frag } = linkedParagraph();
+    pushOnce(frag, BASE_LINK.replace(') before', '), before'));
+    const textNode = frag.toArray()[0].toArray()[0];
+    const linked = textNode.toDelta()
+      .filter((op) => op.attributes && op.attributes.link)
+      .map((op) => op.insert)
+      .join('');
+    expect(linked).toBe('runbook');
+    doc.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T004 — the classifier records the resolved run's marks (I1)
+// ---------------------------------------------------------------------------
+
+/** Source map + markdown for a built fixture. */
+function mapOf(frag, flavor = 'squire') {
+  return toMarkdownWithSourceMap(frag.toArray(), { flavor });
+}
+
+describe('classifyRange records the resolved run marks (I1, FR-001/002/003)', () => {
+  test('inside-run insertion carries that run\'s marks', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    // md offset 13 is inside the "runbook" link run [11,18).
+    const cls = classifyRange(sourceMap, 13, 13);
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({ link: { href: RB } });
+    doc.destroy();
+  });
+
+  test('left rule at a styled span\'s END keeps the span (FR-003, order unchanged)', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    // md offset 18 is the link run's mdEnd — typing there continues the link.
+    const cls = classifyRange(sourceMap, 18, 18);
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({ link: { href: RB } });
+    doc.destroy();
+  });
+
+  test('left rule at a bold span\'s END keeps the bold', () => {
+    const { doc, frag } = boldParagraph();
+    const { sourceMap } = mapOf(frag);
+    const cls = classifyRange(sourceMap, 19, 19); // the bold run is [12,19)
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({ bold: true });
+    doc.destroy();
+  });
+
+  test('following rule at a CLOSING-syntax boundary takes the following (plain) run (FR-002)', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    // md offset 43 is the first char after ")" — the trailing plain run's start,
+    // and no run ends there. This is the comma-after-link case.
+    const cls = classifyRange(sourceMap, 43, 43);
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({});
+    doc.destroy();
+  });
+
+  test('insertion before an OPENING "[" takes the left (plain) run, never the link', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    const cls = classifyRange(sourceMap, 10, 10); // "Check the " ends at 10; "[" is at 10
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({});
+    doc.destroy();
+  });
+
+  test('insertion before an OPENING "**" takes the left (plain) run, never the bold', () => {
+    const { doc, frag } = boldParagraph();
+    const { sourceMap } = mapOf(frag);
+    const cls = classifyRange(sourceMap, 10, 10);
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].attrs).toEqual({});
+    doc.destroy();
+  });
+
+  /**
+   * Adjacent mapped runs with NO syntax between them (two text nodes in one
+   * block). The spec's edge-case prose says the left-preference rule resolves
+   * this; the frozen resolution order actually resolves it one rule EARLIER —
+   * `findRun` matches `mdStart <= o < mdEnd`, so the shared offset is *inside*
+   * the following run and rule 1 claims it before rule 2 is consulted.
+   *
+   * Pinned as-is: RBD-056-5 freezes the order, and for this shape the outcome
+   * is unobservable in marks anyway — two runs that serialize adjacently with
+   * no delimiter between them carry the same marks, because differing marks
+   * are exactly what produces a delimiter. The discrepancy is recorded in
+   * clarifications-needed.md as spec prose to correct, not behavior to change.
+   */
+  test('adjacent mapped runs with no syntax between: the inside rule resolves first', () => {
+    const doc = new Y.Doc();
+    const frag = doc.getXmlFragment('default');
+    let a; let b;
+    doc.transact(() => {
+      const p = new Y.XmlElement('paragraph');
+      a = new Y.XmlText(); a.insert(0, 'abc');
+      b = new Y.XmlText(); b.insert(0, 'def');
+      p.insert(0, [a, b]);
+      frag.insert(0, [p]);
+    });
+    const { markdown, sourceMap } = mapOf(frag);
+    expect(markdown).toBe('abcdef');
+    // Offset 3 is BOTH the first run's mdEnd and the second run's mdStart.
+    const cls = classifyRange(sourceMap, 3, 3);
+    expect(cls.kind).toBe('text');
+    expect(cls.segments[0].textNode).toBe(b);
+    expect(cls.segments[0].textOff).toBe(0);
+    expect(cls.segments[0].attrs).toEqual({});
+    // The left rule still owns a boundary the inside rule cannot claim: the
+    // very end of the last run, where no following run starts.
+    const end = classifyRange(sourceMap, 6, 6);
+    expect(end.segments[0].textNode).toBe(b);
+    expect(end.segments[0].textOff).toBe(3);
+    doc.destroy();
+  });
+
+  test('a block that STARTS with a marked run classifies structural, not "following"', () => {
+    const { doc, frag } = mkDoc((f) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, ' is the guide.');
+      t.insert(0, 'runbook', { link: { href: RB } });
+      p.insert(0, [t]);
+      f.insert(0, [p]);
+    });
+    const { markdown, sourceMap } = mapOf(frag);
+    expect(markdown.startsWith('[runbook]')).toBe(true);
+    // Offset 0 sits on the opening "[" — no run contains it, none ends there.
+    expect(classifyRange(sourceMap, 0, 0).kind).toBe('structural');
+    doc.destroy();
+  });
+
+  test('insertion inside link syntax (the URL) is structural', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    expect(classifyRange(sourceMap, 25, 25).kind).toBe('structural');
+    doc.destroy();
+  });
+
+  test('insertion in an inter-block separator is structural', () => {
+    const { doc, frag } = mkDoc((f) => {
+      const para = (s) => {
+        const p = new Y.XmlElement('paragraph');
+        const t = new Y.XmlText(); t.insert(0, s); p.insert(0, [t]);
+        return p;
+      };
+      f.insert(0, [para('aaa'), para('bbb')]);
+    });
+    const { markdown, sourceMap } = mapOf(frag);
+    expect(markdown).toBe('aaa\n\nbbb');
+    expect(classifyRange(sourceMap, 4, 4).kind).toBe('structural');
+    doc.destroy();
+  });
+
+  test('a replacement records the FIRST replaced character\'s run marks', () => {
+    const { doc, frag } = linkedParagraph();
+    const { sourceMap } = mapOf(frag);
+    // Replacing the link display text [11,18) → the link run's marks.
+    expect(classifyRange(sourceMap, 11, 18).segments[0].attrs).toEqual({ link: { href: RB } });
+    // Replacing "the" inside the leading plain run → plain.
+    expect(classifyRange(sourceMap, 6, 9).segments[0].attrs).toEqual({});
+    doc.destroy();
   });
 });

@@ -34,7 +34,7 @@ finding to report, not code).
 **Purpose**: Prove the committed seeds still reproduce every defect on
 current main, so the fix has a red baseline.
 
-- [ ] T001 Run the four repro seeds against current main (`node specs/056-sync-apply-correctness/repro/repro1.js` … `repro4.js`) and record the failing-scenario counts per family (repro1 fail count, repro2 push1 FAILs, repro3 STUCK/REPRODUCED lines, repro4 non-converging + leak lines) in the test-plan header comment of the suite created in T002. If any family no longer reproduces, STOP and report before changing the engine.
+- [X] T001 Run the four repro seeds against current main (`node specs/056-sync-apply-correctness/repro/repro1.js` … `repro4.js`) and record the failing-scenario counts per family (repro1 fail count, repro2 push1 FAILs, repro3 STUCK/REPRODUCED lines, repro4 non-converging + leak lines) in the test-plan header comment of the suite created in T002. If any family no longer reproduces, STOP and report before changing the engine.
 
 ---
 
@@ -44,7 +44,7 @@ current main, so the fix has a red baseline.
 
 **⚠️ CRITICAL**: complete before any user story phase.
 
-- [ ] T002 Create `server/__tests__/markdown-sync.apply-correctness.test.js` with the shared DB-free harness and NO scenarios yet: `pushOnce(frag, pushedMd, flavor)` mirroring the repro scripts (source map → canonicalize → computeHunks → planPush → buildChangeReport → transact applyHunks → resultMd), doc builders (`linkedParagraph`, `boldParagraph`, `multiBlockLinked`, parameterized `linkPara`), a `repairPush` helper (fresh re-export baseline → one push → assert convergence), and the repro4 raw-syntax leak matcher (`/\\\[|\\\]|\]\(/` over result with well-formed links stripped). Follow the harness idioms of `server/__tests__/markdown-sync.replay.test.js` (research R7).
+- [X] T002 Create `server/__tests__/markdown-sync.apply-correctness.test.js` with the shared DB-free harness and NO scenarios yet: `pushOnce(frag, pushedMd, flavor)` mirroring the repro scripts (source map → canonicalize → computeHunks → planPush → buildChangeReport → transact applyHunks → resultMd), doc builders (`linkedParagraph`, `boldParagraph`, `multiBlockLinked`, parameterized `linkPara`), a `repairPush` helper (fresh re-export baseline → one push → assert convergence), and the repro4 raw-syntax leak matcher (`/\\\[|\\\]|\]\(/` over result with well-formed links stripped). Follow the harness idioms of `server/__tests__/markdown-sync.replay.test.js` (research R7).
 
 **Checkpoint**: harness merges green (zero scenarios), gates untouched.
 
@@ -62,14 +62,14 @@ failures/STUCK.
 
 ### Tests for User Story 1 (write first, show failing)
 
-- [ ] T003 [US1] Encode the repro1 scenario table (L1–L7 link shapes, B1–B5 bold shapes) and the repro3 boundary-insertion table (P1 comma after link, P2 word after link no-space, P3 comma after bold, P4 word before link text start) as data-driven cases in `server/__tests__/markdown-sync.apply-correctness.test.js`, asserting first-push convergence (`resultMd === pushedCanon`, FR-013/SC-001). Run the suite and confirm the pre-fix failures match T001's recorded counts.
-- [ ] T004 [US1] Add classifier unit cases to the same file: for each resolution branch (inside-run, left-rule at a styled span's end — FR-003 pinned unchanged, following-rule at closing-syntax boundary — FR-002, structural at opening syntax / block-leading link / inter-block), assert `classifyRange` records the resolved run's `attrs` on the insertion segment per contracts/apply-invariants.md I1, including the spec edge cases: adjacent mapped runs with no syntax between (left wins), insertion before opening `[`/`**` (left run or structural — never the following mark), marked-block start (structural).
+- [X] T003 [US1] Encode the repro1 scenario table (L1–L7 link shapes, B1–B5 bold shapes) and the repro3 boundary-insertion table (P1 comma after link, P2 word after link no-space, P3 comma after bold, P4 word before link text start) as data-driven cases in `server/__tests__/markdown-sync.apply-correctness.test.js`, asserting first-push convergence (`resultMd === pushedCanon`, FR-013/SC-001). Run the suite and confirm the pre-fix failures match T001's recorded counts.
+- [X] T004 [US1] Add classifier unit cases to the same file: for each resolution branch (inside-run, left-rule at a styled span's end — FR-003 pinned unchanged, following-rule at closing-syntax boundary — FR-002, structural at opening syntax / block-leading link / inter-block), assert `classifyRange` records the resolved run's `attrs` on the insertion segment per contracts/apply-invariants.md I1, including the spec edge cases: adjacent mapped runs with no syntax between (left wins), insertion before opening `[`/`**` (left run or structural — never the following mark), marked-block start (structural).
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] In `server/markdown-sync.js` `classifyRange` (:193-233): record `attrs` on every resolved segment at plan time per research R1 — insertion branches sample the resolved run's own span via `marksAtChar(textNode.toDelta(), …)` (inside → char at resolved offset; left → run's last char; following → run's first char); proper-range branch records the first replaced character's run attrs on `segments[0]`. Resolution ORDER unchanged (RBD-056-5).
-- [ ] T006 [US1] In `server/markdown-sync.js` `applyHunks` step 2 (:1236-1258): format inserted text with the hunk's recorded `attrs` only — delete the `toDelta()` probe and the `at - 1` anchor line (:1250-1252); keep the per-node shift bookkeeping and delete-then-insert order intact (FR-001).
-- [ ] T007 [US1] Run the US1 tables plus the gate suites `markdown-sync.replay.test.js` and `markdown-sync.convergence.test.js`; `node specs/.../repro/repro1.js` and `repro3.js` (P-loop section) must print zero failures. Any gate drift must fall in research R8 class (b) (plan-side replacement marks) — review each against spec FR-001..003 before updating an expectation; anything else is a regression to fix, not an expectation to edit.
+- [X] T005 [US1] In `server/markdown-sync.js` `classifyRange` (:193-233): record `attrs` on every resolved segment at plan time per research R1 — insertion branches sample the resolved run's own span via `marksAtChar(textNode.toDelta(), …)` (inside → char at resolved offset; left → run's last char; following → run's first char); proper-range branch records the first replaced character's run attrs on `segments[0]`. Resolution ORDER unchanged (RBD-056-5).
+- [X] T006 [US1] In `server/markdown-sync.js` `applyHunks` step 2 (:1236-1258): format inserted text with the hunk's recorded `attrs` only — delete the `toDelta()` probe and the `at - 1` anchor line (:1250-1252); keep the per-node shift bookkeeping and delete-then-insert order intact (FR-001).
+- [X] T007 [US1] Run the US1 tables plus the gate suites `markdown-sync.replay.test.js` and `markdown-sync.convergence.test.js`; `node specs/.../repro/repro1.js` and `repro3.js` (P-loop section) must print zero failures. Any gate drift must fall in research R8 class (b) (plan-side replacement marks) — review each against spec FR-001..003 before updating an expectation; anything else is a regression to fix, not an expectation to edit.
 
 **Checkpoint**: US1 corpus green; the durable field failure (comma joins
 link) is dead; left-preference typing behavior verified unchanged.

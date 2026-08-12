@@ -183,15 +183,37 @@ function resolveMd(sourceMap, offset) {
  * Classify a markdown range [start,end) (research R2, FR-007 text-hunk test).
  *
  * Returns one of:
- *   { kind: 'text', block, segments: [{ textNode, textOff, length, mdStart, mdEnd }] }
+ *   { kind: 'text', block, segments: [{ textNode, textOff, length, mdStart, mdEnd, attrs? }] }
  *       — every char in the range lies in runs of a SINGLE block (segments are
  *         the per-run slices to delete/format; for an insertion point start===end
  *         a single zero-length segment marks where to insert).
  *   { kind: 'structural', blocks: [blockObj...] } — touches syntax, crosses
  *         blocks, or lands in an inter-block separator.
+ *
+ * ── MARKS ARE PLAN DATA (feature 056, FR-001, contract I1) ──────────────────
+ * The resolved segment also carries `attrs`: the mark attributes of the run
+ * this classification RESOLVED TO, sampled here from the pristine baseline
+ * fork. Source-map runs are maximal same-marks spans, so one character of the
+ * resolved run is authoritative for the whole run.
+ *
+ * `applyHunks` formats inserted text with exactly these attributes. It used to
+ * decide for itself by probing the document at `at - 1` after the delete, which
+ * answered a different question than the one the classifier had already
+ * answered correctly: a comma typed after `[runbook](url)` resolves HERE to the
+ * following plain run (rule 3), and apply then dressed it in the link's mark
+ * because the character before the insertion point is the link text's last
+ * character. That is the durable field failure — the comma moved inside the
+ * link and no repair push could ever move it out.
+ *
+ * The resolution ORDER below is unchanged and deliberately so (RBD-056-5): the
+ * left-preference branch is what makes typing at the end of a styled span
+ * continue that span. 056 changes only which answer apply honors.
  */
 function classifyRange(sourceMap, start, end) {
   const { runs, blocks } = sourceMap;
+
+  // Marks of one character of `run`, offset `charOff` into its text node.
+  const runAttrs = (run, charOff) => marksAtChar(run.textNode.toDelta(), charOff);
 
   if (start === end) {
     // Insertion point. Inside a run → split there. At a run boundary → prefer
@@ -200,10 +222,11 @@ function classifyRange(sourceMap, start, end) {
     if (inside !== -1) {
       const r = runs[inside];
       const bi = blockOfRun(blocks, r);
+      const textOff = r.textOff + (start - r.mdStart);
       return {
         kind: 'text',
         block: blocks[bi],
-        segments: [{ textNode: r.textNode, textOff: r.textOff + (start - r.mdStart), length: 0, mdStart: start, mdEnd: start }],
+        segments: [{ textNode: r.textNode, textOff, length: 0, mdStart: start, mdEnd: start, attrs: runAttrs(r, textOff) }],
       };
     }
     let left = -1;
@@ -211,10 +234,12 @@ function classifyRange(sourceMap, start, end) {
     if (left !== -1) {
       const r = runs[left];
       const bi = blockOfRun(blocks, r);
+      // The left run's LAST character — the span being continued.
+      const attrs = runAttrs(r, r.textOff + (r.mdEnd - r.mdStart) - 1);
       return {
         kind: 'text',
         block: blocks[bi],
-        segments: [{ textNode: r.textNode, textOff: r.textOff + (r.mdEnd - r.mdStart), length: 0, mdStart: start, mdEnd: start }],
+        segments: [{ textNode: r.textNode, textOff: r.textOff + (r.mdEnd - r.mdStart), length: 0, mdStart: start, mdEnd: start, attrs }],
       };
     }
     let right = -1;
@@ -222,10 +247,12 @@ function classifyRange(sourceMap, start, end) {
     if (right !== -1) {
       const r = runs[right];
       const bi = blockOfRun(blocks, r);
+      // The following run's FIRST character — text after a closing delimiter
+      // belongs to what follows it, not to the span that just closed (FR-002).
       return {
         kind: 'text',
         block: blocks[bi],
-        segments: [{ textNode: r.textNode, textOff: r.textOff, length: 0, mdStart: start, mdEnd: start }],
+        segments: [{ textNode: r.textNode, textOff: r.textOff, length: 0, mdStart: start, mdEnd: start, attrs: runAttrs(r, r.textOff) }],
       };
     }
     // Insertion inside syntax or between blocks → structural.
@@ -256,6 +283,13 @@ function classifyRange(sourceMap, start, end) {
     cursor = segEnd;
   }
   if (ok && cursor === end && blockIdx !== null) {
+    // Replacement text takes the FIRST replaced character's marks (I1). Apply
+    // used to probe whatever character happened to sit at the insertion point
+    // AFTER the delete — i.e. whatever followed the deleted range — which is
+    // the same neighbour-probing nondeterminism as the insertion case, and why
+    // a net-zero delete+reinsert reproduced identical wrong marks.
+    segments[0].attrs = runAttrs(
+      { textNode: segments[0].textNode }, segments[0].textOff);
     return { kind: 'text', block: blocks[blockIdx], segments };
   }
   // Structural: collect every block the range overlaps.
@@ -1247,11 +1281,20 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
       const at = startOff + d;
       if (oldLen > 0) textNode.delete(at, oldLen);
       if (h.newText.length > 0) {
-        const delta = textNode.toDelta();
-        const anchor = oldLen > 0 ? at : Math.max(at - 1, 0);
-        const attrs = marksAtChar(delta, anchor);
-        if (attrs && Object.keys(attrs).length > 0) textNode.insert(at, h.newText, attrs);
-        else textNode.insert(at, h.newText);
+        // Marks come from the PLAN (feature 056, FR-001/I1): the classifier
+        // already resolved which mapped run this edit belongs to, against the
+        // pristine baseline. Reading them back off the live fork here — as the
+        // removed `at - 1` probe did — asks a different question, and answers
+        // it with a document whose offsets earlier hunks in this same text node
+        // have already shifted.
+        //
+        // The recorded set is applied in FULL, negations included. A Y.XmlText
+        // insert with no attributes is not "plain": Yjs gives the new text the
+        // formatting of the character to its LEFT, which for the comma after
+        // `[runbook](url)` is the link itself. Spelling every inline mark out —
+        // the resolved run's own attributes over the cleared set — is what
+        // makes the plan's answer the one that lands.
+        textNode.insert(at, h.newText, { ...CLEAR_ATTRS, ...(seg0.attrs || {}) });
       }
       shift.set(textNode, d + (h.newText.length - oldLen));
     }
