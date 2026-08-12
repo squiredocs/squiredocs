@@ -562,7 +562,7 @@ describe('planPush lane exclusivity — a block\'s hunks travel together (I2, FR
     expect(plan.structural).toHaveLength(2);
     expect(plan.structural.every((h) => (h.blocks || []).includes(block))).toBe(true);
     // Folded hunks count as structural work, never as text work (RBD-056-7).
-    expect(plan.counts).toEqual({ textHunks: 0, structuralHunks: 2 });
+    expect(plan.plannedCounts).toEqual({ textHunks: 0, structuralHunks: 2 });
     doc.destroy();
   });
 

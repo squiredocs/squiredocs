@@ -1040,7 +1040,7 @@ function marksAtChar(delta, off) {
  *   { textBlocks:   [{ block, hunks }]                 — surgical char ops
  *     reconcileBlocks: [{ block, textNode, targetDelta }] — in-place inline
  *     structural:   [ hunk+{blocks} ]                  — fork block replacement
- *     counts: { textHunks, structuralHunks } }
+ *     plannedCounts: { textHunks, structuralHunks } }   // plan-side only; never a receipt source
  */
 function planPush(hunks, sourceMap, baselineMd) {
   const groups = new Map(); // blockNode -> { block, hunks[] }
@@ -1132,7 +1132,9 @@ function planPush(hunks, sourceMap, baselineMd) {
     textBlocks,
     reconcileBlocks,
     structural,
-    counts: { textHunks, structuralHunks: structural.length },
+    // Plan-side tallies only — receipts derive from apply results (056). The
+    // name exists to make "planned" vs "applied" impossible to confuse.
+    plannedCounts: { textHunks, structuralHunks: structural.length },
   };
 }
 
@@ -1397,6 +1399,10 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
         // `[runbook](url)` is the link itself. Spelling every inline mark out —
         // the resolved run's own attributes over the cleared set — is what
         // makes the plan's answer the one that lands.
+        // Bare CLEAR_ATTRS (not clearAttrsFor(flavor)) is deliberate: insert
+        // only formats the NEW text, and seg0.attrs sampled from the live fork
+        // already carries any portable-preserved marks — unlike the reconcile
+        // lane, there is no existing text whose hidden marks need protecting.
         textNode.insert(at, h.newText, { ...CLEAR_ATTRS, ...(seg0.attrs || {}) });
       }
       shift.set(textNode, d + (h.newText.length - oldLen));
