@@ -211,3 +211,59 @@ one block = at most one entry — the invariant verification tooling wants.
    `specs/057-live-doc-consistency` (read path / bindState / fan-out).
    The two specs share no requirements; if 057 lands receipt changes,
    reconcile at plan/merge time against FR-011's additive-only rule.
+
+---
+
+# Recorded during implementation (T023)
+
+Five artifact-vs-code discrepancies found while building. None changed the
+feature's shape; all are corrections the artifacts (and in one case the Squire
+design doc) should absorb. Nothing in `design/` was hand-edited.
+
+1. **R1's "empty attrs → plain insert (unchanged behavior)" is FALSIFIED, and
+   the design amendment inherits the error.** R1 concluded that apply becomes
+   `textNode.insert(at, h.newText, attrs)` and that empty recorded attrs mean a
+   bare insert. A bare `Y.XmlText.insert` is not plain: Yjs formats new text
+   like the character to its LEFT, so recording `{}` for the comma after
+   `[runbook](url)` and inserting bare reproduced Bug A exactly. Apply must
+   spell the resolved run's attributes out in FULL over the cleared inline-mark
+   set (`{ ...CLEAR_ATTRS, ...seg0.attrs }`) so the negations land too.
+   Verified against Yjs directly before implementing; pinned by the P1 CRDT
+   assertion in the corpus suite. **The design doc's "apply honors the recorded
+   run" wording is still correct in substance** — it is the mechanism note that
+   needs amending. FLAGGED for a Squire amendment (Constitution VI).
+
+2. **Spec Edge Case 1 ("adjacent mapped runs → the left-preference rule
+   resolves it") does not match the frozen resolution order.** `findRun`
+   matches `mdStart <= o < mdEnd`, so at a boundary between two genuinely
+   adjacent runs the offset is *inside* the following run and rule 1 claims it
+   before the left rule is consulted. RBD-056-5 freezes the order, so the code
+   is right and the prose is wrong. Immaterial in practice: two runs that
+   serialize adjacently with no delimiter between them carry the same marks,
+   because differing marks are what produce a delimiter. Pinned as-is in the
+   corpus suite. Correct the spec prose; no behavior change.
+
+3. **T011 and R2 disagree on the forced-hunk defensive guard.** T011 says a
+   block claimed by a forced hunk with leftover char hunks "routes the group to
+   the fold"; R2 says the violation is "a skip (counted, R4)". R2 was
+   implemented. Folding would compose a forced whole-block rebuild AND that
+   block's char hunks into one group, whose rebuild string is garbage — a
+   corruption where R2's counted skip is merely visible (`skipped > 0` +
+   `converged: false`). The state is impossible by 055 construction either way.
+   Correct T011's wording.
+
+4. **`quickstart.md` §1 overstates the red baseline.** It says the pre-056
+   seeds show "failing scenarios in every family"; repro1 reported 0 failures
+   on the pinned engine and always did (no commit touches
+   `server/markdown-sync.js` between the seed commit 416824a8 and the branch
+   point 1458fdeb). repro1 is the CONTROL family — it pins that the
+   left-preference branch survives the mark-inheritance change. The real red
+   baseline is repro2 (5 FAILs), repro3 (2 STUCK + S1 REPRODUCED) and repro4
+   (3 non-converging + 1 leak); it is recorded in the corpus suite's header.
+
+5. **`plan.md`'s Constitution I check is wrong about README.md.** It states
+   "README.md contains no sync-receipt operation-field prose (grep verified)";
+   README.md's two-way-sync section documents the receipt shape, `noop`,
+   `operations` and `blocksChanged` directly. Updated in this change (receipt
+   shape gains `converged`; a new bullet covers the honesty fields), which
+   Constitution I required regardless of what the plan predicted.

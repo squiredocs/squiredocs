@@ -184,11 +184,20 @@ function hasRawSyntaxLeak(md) {
   return /\\\[|\\\]|\]\(/.test(md.replace(/\[[^\]]*\]\([^)]*\)/g, ''));
 }
 
-/** Jest-friendly assertion bundle for one converging push. */
+/**
+ * Assertion bundle for one converging push: the document matches the pushed
+ * file, the receipt-level `converged` says so, no raw syntax leaked, and
+ * nothing was skipped.
+ *
+ * The `skipped` check rides here on purpose (SC-003). It makes every scenario
+ * in the corpus a witness that the dead-man switch stays at zero on healthy
+ * paths, rather than that being asserted in a handful of places.
+ */
 function expectConverged(r, label) {
   expect(`${label}: ${r.resultMd}`).toBe(`${label}: ${r.pushedCanon}`);
   expect(r.converged).toBe(true);
   expect(hasRawSyntaxLeak(r.resultMd)).toBe(false);
+  expect(`${label} skipped: ${r.ops.skipped}`).toBe(`${label} skipped: 0`);
 }
 
 // ---------------------------------------------------------------------------
