@@ -756,5 +756,145 @@ describe('023 gap tolerance across every reader', () => {
         expect(gapLogs()).toHaveLength(0);
       });
     });
+
+    // ── Feature 057 (FR-003) ────────────────────────────────────────────────
+    // getYDoc is the BIND-time reader, and it was the last log-rebuild reader
+    // with no tail-completeness option. Without it a bind whose fetch stopped
+    // short of the committed tail looked complete, and the binder memoized the
+    // truncated document as the trusted live copy for the life of the pod —
+    // the defect this feature closes.
+    describe('057 FR-003: getYDoc gains expectedTailClock', () => {
+      test('a short tail reports gapped even though the rows present are gap-free', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+
+        const res = await persistence.getYDoc(docGuid, { withGap: true, expectedTailClock: 3 });
+
+        expect(res.gapped).toBe(true);
+        expect(String(gapLogs()[0][0])).toContain('reason=short-tail');
+        expect(String(gapLogs()[0][0])).toContain('getYDoc');
+        expect(String(gapLogs()[0][0])).toContain('expectedTailClock=3');
+      });
+
+      test('an interior gap past the budget reports gapped with the gap reason', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        await insertRow(docGuid, 0, u[0]);
+        await insertRow(docGuid, 1, u[1]);
+        await insertRow(docGuid, 3, u[3]); // clock 2 never arrives
+
+        const res = await persistence.getYDoc(docGuid, { withGap: true, expectedTailClock: 3 });
+
+        expect(res.gapped).toBe(true);
+        // The tail IS reached (row 3 is present), so the sole cause is the gap.
+        expect(String(gapLogs()[0][0])).toContain('reason=gap');
+        expect(String(gapLogs()[0][0])).not.toContain('reason=gap+short-tail');
+      });
+
+      test('the missing tail row arriving during the retry window heals the load', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+        const release = setTimeout(() => { insertRow(docGuid, 3, u[3]).catch(() => {}); }, 20);
+
+        const res = await persistence.getYDoc(docGuid, { withGap: true, expectedTailClock: 3 });
+        clearTimeout(release);
+
+        expect(res.gapped).toBe(false);
+        expect(res.ydoc.getXmlFragment('default').toString()).toContain('seg-3');
+        expect(gapLogs()).toHaveLength(0);
+      });
+
+      test('the same short read WITHOUT the option still reports complete (G2: existing callers byte-identical)', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        for (let i = 0; i < 3; i++) await insertRow(docGuid, i, u[i]);
+
+        const { value: res, queries } = await countQueries(() =>
+          persistence.getYDoc(docGuid, { withGap: true })
+        );
+
+        expect(res.gapped).toBe(false);
+        expect(queries).toBe(1);       // no retry budget spent for an unasked question
+        expect(gapLogs()).toHaveLength(0);
+      });
+
+      test('an empty document with expectedTailClock null is complete, not short', async () => {
+        const docGuid = newDocGuid();
+
+        // `null` is what a caller passes when getClockRange found no rows at all
+        // (US3 scenario 4): there is no tail to reach, so an empty load is a
+        // legitimate empty document rather than an incomplete read.
+        const res = await persistence.getYDoc(docGuid, { withGap: true, expectedTailClock: null });
+
+        expect(res.gapped).toBe(false);
+        expect(gapLogs()).toHaveLength(0);
+      });
+    });
+
+    // ── Feature 057 (FR-006): the reconciler's batched newest-clock probe ────
+    describe('057 FR-006: getNewestClocks', () => {
+      test('returns MAX(clock) per guid in ONE query', async () => {
+        const a = newDocGuid();
+        const b = newDocGuid();
+        const u = buildUpdateChain(3);
+        for (let i = 0; i < 3; i++) await insertRow(a, i, u[i]);
+        await insertRow(b, 0, u[0]);
+        await insertRow(b, 1, u[1]);
+
+        let queries = 0;
+        const realQuery = persistence.pool.query.bind(persistence.pool);
+        persistence.pool.query = (...args) => { queries += 1; return realQuery(...args); };
+        let result;
+        try {
+          result = await persistence.getNewestClocks([a, b]);
+        } finally {
+          persistence.pool.query = realQuery;
+        }
+
+        expect(result.get(a)).toBe(2);
+        expect(result.get(b)).toBe(1);
+        expect(queries).toBe(1); // SC-005: one batch, not one per document
+      });
+
+      test('empty input returns an empty Map WITHOUT querying', async () => {
+        const realQuery = persistence.pool.query.bind(persistence.pool);
+        let queries = 0;
+        persistence.pool.query = (...args) => { queries += 1; return realQuery(...args); };
+        try {
+          expect(await persistence.getNewestClocks([])).toEqual(new Map());
+          expect(await persistence.getNewestClocks(undefined)).toEqual(new Map());
+          expect(await persistence.getNewestClocks(null)).toEqual(new Map());
+        } finally {
+          persistence.pool.query = realQuery;
+        }
+        expect(queries).toBe(0);
+      });
+
+      test('a document with no rows is ABSENT from the result, not present with null', async () => {
+        const withRows = newDocGuid();
+        const withoutRows = newDocGuid();
+        const u = buildUpdateChain(1);
+        await insertRow(withRows, 0, u[0]);
+
+        const result = await persistence.getNewestClocks([withRows, withoutRows]);
+
+        expect(result.get(withRows)).toBe(0);
+        expect(result.has(withoutRows)).toBe(false); // nothing to reconcile toward
+        expect(result.size).toBe(1);
+      });
+
+      test('a non-contiguous log still reports the true MAX', async () => {
+        const docGuid = newDocGuid();
+        const u = buildUpdateChain(4);
+        await insertRow(docGuid, 0, u[0]);
+        await insertRow(docGuid, 3, u[3]); // clock 1,2 missing
+
+        // Deliberately NOT gap-checked: this probe answers "how far has the log
+        // got", which is a question about the log, not about a rebuild.
+        expect((await persistence.getNewestClocks([docGuid])).get(docGuid)).toBe(3);
+      });
+    });
   });
 });
