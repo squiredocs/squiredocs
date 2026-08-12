@@ -22,6 +22,7 @@ const presenceClaim = require('./presence-claim');
 // every session, which is precisely the kind of thing nobody notices.
 const { docs: wsDocs } = require('y-websocket/bin/utils');
 const { dominates } = require('../verified-clock');
+const collabReconcile = require('../collab-reconcile');
 
 /** The live registry doc for a guid, or null. Never creates one. */
 function _peekRegistryDoc(docGuid) {
@@ -379,6 +380,8 @@ function _waitForDocumentContent(ydoc, docGuid) {
     // session could follow — the gate would never resolve on exactly the
     // documents people are using.
     let targetSV = null;
+    // At most ONE nudge per gate. See `nudgeRegistry` below.
+    let nudged = false;
 
     const settle = (reason) => {
       if (settled) return;
@@ -387,6 +390,51 @@ function _waitForDocumentContent(ydoc, docGuid) {
       ydoc.off('update', check);
       console.log(`[agent-presence] ${reason}`);
       resolve();
+    };
+
+    /**
+     * Fire ONE reconcile pass at the registry doc, and re-check when it lands.
+     *
+     * WHY THE GATE NEEDS A NUDGE AT ALL
+     * ---------------------------------
+     * Stage 1 waits for `registryDoc._verifiedClock >= armClock`, but NOTHING
+     * on the live edit path advances that clock — the persist path in
+     * collab-bind-state.js does not touch it, and the gate's own `check` re-runs
+     * only on SESSION-doc updates. So a row committed between the binder's tail
+     * probe and this gate's arming leaves verified(T0) < armClock(T1) with no
+     * event inside the 10s budget that could ever close the difference. The gate
+     * would sit there and burn its whole timeout on precisely the documents that
+     * are being edited — the busy ones.
+     *
+     * Reconciliation is the mechanism that advances the clock, so ask for one.
+     * It fetches only the SUFFIX above what is verified (bounded work, not the
+     * whole log), applies nothing when fan-out already delivered the bytes, and
+     * writes nothing back — it targets the REGISTRY doc under ORIGIN_DB_LOAD,
+     * which is neither persisted nor rebroadcast.
+     *
+     * ONCE per gate, guarded by `nudged`: `check` runs on every session update,
+     * and an unguarded trigger would turn a busy document into a stream of
+     * queries. One pass is enough — if it does not settle the gate, the 10s
+     * timeout still bounds the wait exactly as before.
+     *
+     * Fire-and-forget with an explicit re-check on completion. Readiness is a
+     * wait, never a write, so nothing here may reject into session creation.
+     */
+    const nudgeRegistry = (registryDoc) => {
+      if (nudged) return;
+      // A doc still binding is skipped by `reconcileIfBound` anyway, and its
+      // binder is about to set the clock itself. Don't spend the one nudge on it.
+      if (registryDoc._bindComplete !== true) return;
+      nudged = true;
+      Promise.resolve(
+        collabReconcile.reconcileIfBound(docGuid, registryDoc, {
+          persistence: persistenceProvider,
+          docs: wsDocs,
+        })
+      ).then(
+        () => { if (!settled) check(); },
+        (err) => console.warn(`[agent-presence] readiness reconcile failed for ${docGuid}:`, err?.message || err)
+      );
     };
 
     /**
@@ -429,7 +477,11 @@ function _waitForDocumentContent(ydoc, docGuid) {
           // without a verified clock was never available to give.
           const boundWithoutClock = verified === undefined && registryDoc._bindComplete === true;
 
-          if (!provenThroughArm && !boundWithoutClock) return;
+          if (!provenThroughArm && !boundWithoutClock) {
+            // Nothing else will advance the clock inside the budget. Ask once.
+            nudgeRegistry(registryDoc);
+            return;
+          }
           targetSV = Y.encodeStateVector(registryDoc);
         }
         if (dominates(Y.encodeStateVector(ydoc), targetSV)) {

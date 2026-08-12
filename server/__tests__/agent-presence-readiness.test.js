@@ -127,7 +127,11 @@ describe('057 US4 — readiness gate', () => {
   });
 
   test('a registry doc BEHIND the armed clock does not satisfy stage 1', async () => {
-    agentPresence.init({ getClockRange: async () => ({ minClock: 0, maxClock: 9 }) });
+    agentPresence.init({
+      getClockRange: async () => ({ minClock: 0, maxClock: 9 }),
+      // No rows come back, so the stage-1 nudge cannot advance anything.
+      getUpdatesInRange: async () => [],
+    });
     const registry = registryDoc(4, (d) => addParagraph(d, 'stale'));
     register(registry);
 
@@ -137,6 +141,97 @@ describe('057 US4 — readiness gate', () => {
     await flush();
 
     expect(gate.settled).toBe(false);
+  });
+
+  // ── The stage-1 nudge (post-merge review LOW-1) ──────────────────────────
+  // Nothing on the live persist path advances `_verifiedClock`, and `check` only
+  // re-runs on SESSION updates. So a row committed between the binder's tail
+  // probe and this gate's arming left verified(T0) < armClock(T1) with no event
+  // inside the 10s budget that could close it — the gate burned its full timeout
+  // on exactly the documents being edited. Reconciliation is what advances the
+  // clock, so the gate asks for one, ONCE.
+
+  test('a registry clock behind the arm is nudged forward, settling well inside the budget', async () => {
+    jest.useFakeTimers();
+    // Row 9 was committed just after the binder probed the tail, leaving the
+    // registry verified only through 8. Its content is already in the registry
+    // doc via fan-out, so the reconcile PROVES clock 9 and applies nothing.
+    const registry = registryDoc(8, (d) => addParagraph(d, 'body'));
+    const rowBytes = Y.encodeStateAsUpdate(registry, Y.encodeStateVector(new Y.Doc()));
+    const getUpdatesInRange = jest.fn().mockResolvedValue([{ clock: 9, update_data: rowBytes }]);
+    agentPresence.init({
+      getClockRange: async () => ({ minClock: 0, maxClock: 9 }),
+      getUpdatesInRange,
+    });
+    register(registry);
+
+    const session = new Y.Doc();
+    syncFrom(session, registry); // stage 2 is already satisfied; stage 1 is not
+    const gate = track(agentPresence._waitForDocumentContent(session, DOC));
+
+    // No timer is advanced anywhere in this test: settling is the nudge's doing,
+    // not the 10s timeout's.
+    await flush();
+    await flush();
+
+    expect(gate.settled).toBe(true);
+    expect(registry._verifiedClock).toBe(9);
+    // The suffix above what is verified, never the whole log.
+    expect(getUpdatesInRange).toHaveBeenCalledWith(DOC, 9, expect.any(Number), { includeData: true });
+  });
+
+  test('the nudge fires at most ONCE, however many update events arrive', async () => {
+    jest.useFakeTimers();
+    const getUpdatesInRange = jest.fn().mockResolvedValue([]);
+    agentPresence.init({
+      getClockRange: async () => ({ minClock: 0, maxClock: 9 }),
+      getUpdatesInRange,
+    });
+    register(registryDoc(4, (d) => addParagraph(d, 'stale')));
+
+    const session = new Y.Doc();
+    const gate = track(agentPresence._waitForDocumentContent(session, DOC));
+    await flush();
+
+    // A busy document: many session updates, each running `check`. An unguarded
+    // trigger would turn every one of them into a database query.
+    for (let i = 0; i < 5; i++) { addParagraph(session, `edit-${i}`); await flush(); }
+
+    expect(getUpdatesInRange).toHaveBeenCalledTimes(1);
+    expect(gate.settled).toBe(false); // and the 10s timeout still bounds the wait
+  });
+
+  test('the nudge is not spent on a doc that is still binding', async () => {
+    jest.useFakeTimers();
+    const getUpdatesInRange = jest.fn().mockResolvedValue([]);
+    agentPresence.init({
+      getClockRange: async () => ({ minClock: 0, maxClock: 6 }),
+      getUpdatesInRange,
+    });
+    register(new Y.Doc()); // no _bindComplete: the binder is about to set the clock
+
+    const gate = track(agentPresence._waitForDocumentContent(new Y.Doc(), DOC));
+    await flush();
+
+    expect(getUpdatesInRange).not.toHaveBeenCalled();
+    expect(gate.settled).toBe(false);
+  });
+
+  test('a nudge that FAILS leaves the timeout to bound the wait, never rejecting', async () => {
+    jest.useFakeTimers();
+    agentPresence.init({
+      getClockRange: async () => ({ minClock: 0, maxClock: 9 }),
+      getUpdatesInRange: async () => { throw new Error('db down mid-gate'); },
+    });
+    register(registryDoc(4, (d) => addParagraph(d, 'stale')));
+
+    const gate = track(agentPresence._waitForDocumentContent(new Y.Doc(), DOC));
+    await flush();
+    expect(gate.settled).toBe(false);
+
+    jest.advanceTimersByTime(10000);
+    await flush();
+    expect(gate.settled).toBe(true);
   });
 
   test('MONOTONE: edits after stage 1 over-satisfy the gate, they never starve it', async () => {
