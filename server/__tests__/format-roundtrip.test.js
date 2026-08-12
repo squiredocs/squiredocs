@@ -1121,7 +1121,7 @@ describe('sync round-trip invariant (push(export(doc)) is a no-op)', () => {
         expect(computeHunks(baselineMd, pushed, sourceMap.blocks, pushedBlocks)).toHaveLength(0);
         const plan = planPush(
           computeHunks(baselineMd, pushed, sourceMap.blocks, pushedBlocks), sourceMap, baselineMd);
-        expect(plan.counts).toEqual({ textHunks: 0, structuralHunks: 0 });
+        expect(plan.plannedCounts).toEqual({ textHunks: 0, structuralHunks: 0 });
 
         // (c) repeated pull→push cycle (≥3 iterations) stays a no-op (SC-009)
         let md = baselineMd;
