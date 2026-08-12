@@ -78,13 +78,13 @@
 
 ### Tests for User Story 3
 
-- [ ] T015 [P] [US3] Write `/local-dev/server/__tests__/collab-bind-completeness.test.js` (fail first): US3 acceptance 1–4 (interior gap past budget ⇒ refused, no memoization, evicted, 1013, `refusal.reason=incomplete-load` counter; short-of-captured-tail ⇒ refused identically; heals-within-budget ⇒ clean bind, `_verifiedClock`=tail then `_bindComplete`, no refusal; zero rows ⇒ empty bind OK, `_verifiedClock` -1); paging posture: first incomplete-load refusal pages nobody, repeat within `PAGE_THROTTLE_MS` pages once, load-error paging byte-identical to 041
+- [X] T015 [P] [US3] Write `/local-dev/server/__tests__/collab-bind-completeness.test.js` (fail first): US3 acceptance 1–4 (interior gap past budget ⇒ refused, no memoization, evicted, 1013, `refusal.reason=incomplete-load` counter; short-of-captured-tail ⇒ refused identically; heals-within-budget ⇒ clean bind, `_verifiedClock`=tail then `_bindComplete`, no refusal; zero rows ⇒ empty bind OK, `_verifiedClock` -1); paging posture: first incomplete-load refusal pages nobody, repeat within `PAGE_THROTTLE_MS` pages once, load-error paging byte-identical to 041
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Extend `refuseBind` in `/local-dev/server/bind-failure.js` with `reason: 'load-error'|'incomplete-load'` (default preserves 041 behavior exactly): incomplete-load skips the page on a doc's first refusal and pages through the existing per-doc throttle on repeat (RBD-057-3(b)); export the reason values; keep the return shape additive
-- [ ] T017 [US3] Rework `createBindState` in `/local-dev/server/collab-bind-state.js`: capture `expectedTailClock` via `getClockRange(docGuid)` BEFORE the load; call `getYDoc(docGuid, {withGap: true, expectedTailClock: maxClock})` (null max ⇒ no tail check); on `gapped` ⇒ `refuseBind({reason: 'incomplete-load', ...})` + `recordBindRefusal('incomplete-load')` + perf log, no memoization; on success set `ydoc._verifiedClock = maxClock ?? -1` then `_bindComplete = true` (order per contract); catch path keeps 041 behavior with `reason: 'load-error'` (depends on T002, T016)
-- [ ] T018 [US3] 041/046 regression sweep: existing `bind-failure`, `live-doc-trust`, and pending-write suites pass unchanged (`isTrustedLiveDoc` consumers untouched); the sole deliberate delta is the new refusal class
+- [X] T016 [US3] Extend `refuseBind` in `/local-dev/server/bind-failure.js` with `reason: 'load-error'|'incomplete-load'` (default preserves 041 behavior exactly): incomplete-load skips the page on a doc's first refusal and pages through the existing per-doc throttle on repeat (RBD-057-3(b)); export the reason values; keep the return shape additive
+- [X] T017 [US3] Rework `createBindState` in `/local-dev/server/collab-bind-state.js`: capture `expectedTailClock` via `getClockRange(docGuid)` BEFORE the load; call `getYDoc(docGuid, {withGap: true, expectedTailClock: maxClock})` (null max ⇒ no tail check); on `gapped` ⇒ `refuseBind({reason: 'incomplete-load', ...})` + `recordBindRefusal('incomplete-load')` + perf log, no memoization; on success set `ydoc._verifiedClock = maxClock ?? -1` then `_bindComplete = true` (order per contract); catch path keeps 041 behavior with `reason: 'load-error'` (depends on T002, T016)
+- [X] T018 [US3] 041/046 regression sweep: existing `bind-failure`, `live-doc-trust`, and pending-write suites pass unchanged (`isTrustedLiveDoc` consumers untouched); the sole deliberate delta is the new refusal class
 
 **Checkpoint**: torn loads can no longer be frozen into the registry.
 

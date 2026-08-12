@@ -43,16 +43,73 @@ const PAGE_THROTTLE_MS = 5 * 60 * 1000;
  *  small values and only exist for documents that actually failed to load. */
 const lastPagedByDoc = new Map();
 
+/**
+ * The two reasons a bind is refused (feature 057, FR-004).
+ *
+ * They mean different things and want different responses, which is why they
+ * are named rather than merged:
+ *
+ *   • `load-error` — the load THREW. Feature 041's database-health canary; a
+ *     storm of it is the shape of an outage, and it pages immediately.
+ *   • `incomplete-load` — the load SUCCEEDED and came back wrong: an interior
+ *     clock gap, or rows stopping short of the tail that was committed before
+ *     the fetch began. Usually a lost race against a mid-commit row, which the
+ *     retry budget did not happen to win; persistently, a damaged log.
+ */
+const BIND_REFUSAL_REASONS = {
+  LOAD_ERROR: 'load-error',
+  INCOMPLETE_LOAD: 'incomplete-load',
+};
+
+/**
+ * docGuid -> when this document's CURRENT run of incomplete-load refusals began.
+ *
+ * Feature 057 (RBD-057-3) asks for a posture the load-error path does not need:
+ * a single torn read is expected background noise on an append-only log being
+ * written concurrently, so paging on it would train the on-call to ignore the
+ * alert. A SECOND one for the same document inside the throttle window is a
+ * different claim — the retry did not heal it, so the log itself is likely
+ * damaged (RBD-057-4) — and that must reach a human. The refusal still happens
+ * either way: this governs who gets woken, never whether we fail closed.
+ */
+const incompleteRunStartByDoc = new Map();
+
 function prune(now) {
-  if (lastPagedByDoc.size < 1000) return;
-  for (const [guid, at] of lastPagedByDoc) {
-    if (now - at >= PAGE_THROTTLE_MS) lastPagedByDoc.delete(guid);
+  if (lastPagedByDoc.size >= 1000) {
+    for (const [guid, at] of lastPagedByDoc) {
+      if (now - at >= PAGE_THROTTLE_MS) lastPagedByDoc.delete(guid);
+    }
+  }
+  if (incompleteRunStartByDoc.size >= 1000) {
+    for (const [guid, at] of incompleteRunStartByDoc) {
+      if (now - at >= PAGE_THROTTLE_MS) incompleteRunStartByDoc.delete(guid);
+    }
   }
 }
 
 /** Test seam: forget the throttle state. */
 function resetPageThrottle() {
   lastPagedByDoc.clear();
+  incompleteRunStartByDoc.clear();
+}
+
+/**
+ * Should THIS refusal be allowed to page at all, before the per-document
+ * throttle has its say?
+ *
+ * `load-error` always may (041, unchanged). `incomplete-load` may only once the
+ * same document has already refused inside the current window.
+ */
+function refusalMayPage(reason, docGuid, now) {
+  if (reason !== BIND_REFUSAL_REASONS.INCOMPLETE_LOAD) return true;
+  const runStart = incompleteRunStartByDoc.get(docGuid);
+  if (runStart === undefined || now - runStart >= PAGE_THROTTLE_MS) {
+    // First occurrence, or the previous one aged out — start a fresh run and
+    // stay silent. One retry and one counter increment is the whole cost.
+    incompleteRunStartByDoc.set(docGuid, now);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -70,9 +127,15 @@ function resetPageThrottle() {
  * @param {Map|null} [args.docs] - y-websocket's `docs` registry
  * @param {Function|null} [args.notify] - `notifyException`
  * @param {number} [args.now] - injectable clock (tests)
- * @returns {{ paged: boolean, evicted: boolean, closedConnections: number, destroyed: boolean }}
+ * @param {'load-error'|'incomplete-load'} [args.reason] - why the bind is being
+ *   refused (feature 057). Defaults to `load-error`, so every 041 call site
+ *   keeps its exact behavior — including paging on the first occurrence.
+ * @returns {{ paged: boolean, evicted: boolean, closedConnections: number, destroyed: boolean, reason: string }}
  */
-function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null, now = Date.now() }) {
+function refuseBind({
+  docName, docGuid, ydoc, error, docs = null, notify = null, now = Date.now(),
+  reason = BIND_REFUSAL_REASONS.LOAD_ERROR,
+}) {
   // 1. Mark the doc. The update listener checks this and drops persist attempts,
   //    belt-and-suspenders behind the connection close below.
   if (ydoc) ydoc._bindFailed = true;
@@ -80,13 +143,18 @@ function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null,
   // 2. Error-level log. NEVER the info-level NEW DOC line — after this feature a
   //    NEW DOC log means a genuinely new document (SC-004).
   console.error(
-    `[bindState] REFUSED bind for ${docGuid}: document load failed, serving an empty doc would lie about its history:`,
+    reason === BIND_REFUSAL_REASONS.INCOMPLETE_LOAD
+      // The load worked and its RESULT is untrustworthy, which is a different
+      // fact from the outage below and reads differently in a log.
+      ? `[bindState] REFUSED bind for ${docGuid}: document load was incomplete, memoizing it would freeze a document known to be missing content:`
+      : `[bindState] REFUSED bind for ${docGuid}: document load failed, serving an empty doc would lie about its history:`,
     error?.message || error
   );
 
-  // 3. Page, throttled per document.
+  // 3. Page, throttled per document — and, for an incomplete load, only once the
+  //    document has shown the problem is not a one-off (RBD-057-3).
   let paged = false;
-  if (typeof notify === 'function') {
+  if (typeof notify === 'function' && refusalMayPage(reason, docGuid, now)) {
     const lastPaged = lastPagedByDoc.get(docGuid);
     if (lastPaged === undefined || now - lastPaged >= PAGE_THROTTLE_MS) {
       lastPagedByDoc.set(docGuid, now);
@@ -148,7 +216,7 @@ function refuseBind({ docName, docGuid, ydoc, error, docs = null, notify = null,
     }
   }
 
-  return { paged, evicted, closedConnections, destroyed };
+  return { paged, evicted, closedConnections, destroyed, reason };
 }
 
 /**
@@ -191,4 +259,5 @@ module.exports = {
   BindFailedError,
   BIND_FAILED_CLOSE_CODE,
   PAGE_THROTTLE_MS,
+  BIND_REFUSAL_REASONS,
 };
