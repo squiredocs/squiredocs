@@ -1181,7 +1181,12 @@ function reconcileBlockPlan(block, blockHunks, baselineMd) {
   }
   const targetDelta = pmInlineToDelta(nb.content || []);
   if (targetDelta === null) return null;
-  return { block, textNode: textChildren[0], targetDelta };
+  // `hunkCount` carries the group's hunk count through to the apply result
+  // (feature 056, FR-011). 054's `operations.textHunks` counts reconcile-lane
+  // hunks as text hunks — planPush adds `bh.length` for both branches — and
+  // that meaning is frozen, so apply needs the same number to report it from
+  // what it actually did rather than from what was planned.
+  return { block, textNode: textChildren[0], targetDelta, hunkCount: blockHunks.length };
 }
 
 /** ProseMirror inline content → a Yjs delta (or null if it isn't pure text). */
@@ -1307,13 +1312,37 @@ function structuralOps(structural, sourceMap, baselineMd) {
 
 /**
  * Apply a push plan (from planPush) to the fork fragment. Caller MUST wrap this
- * in the fork's transaction (after pinning the synthetic clientID). Returns
- * operation counts. Structural replacement uses block-node identity for live
- * indices (order-stable); plain text hunks track a per-node offset shift.
+ * in the fork's transaction (after pinning the synthetic clientID). Structural
+ * replacement uses block-node identity for live indices (order-stable); plain
+ * text hunks track a per-node offset shift.
+ *
+ * ── RETURNS AN APPLY RESULT, NOT THE PLAN'S COUNTS (056, FR-007, I4) ────────
+ * The receipt's `operations` and `blocksChanged` both used to be read off the
+ * PLAN — this function ended by echoing `{ ...plan.counts }`, and the change
+ * report was built before the transaction ran. So a push that planned four
+ * operations and applied three reported four, and the one apply dropped was
+ * invisible: the receipt said success, the document disagreed, and the agent's
+ * only way to find out was to diff the re-export by hand.
+ *
+ * Now every lane reports what it DID:
+ *
+ *   { textHunks, structuralHunks,   // 054 names and meaning, now truthful
+ *     skipped,                      // operations apply declined
+ *     outcomes: { reconciled, textBlocks, replacements, insertions } }
+ *
+ * `skipped` is 0 on every healthy push. The fold-together rule (FR-004)
+ * designs the known skip paths out of existence, so this is a dead-man switch
+ * for paths added later, not a routine counter — `skipped > 0` on a receipt
+ * means something reached apply that planning did not account for.
  */
 function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' } = {}) {
   const { textBlocks, reconcileBlocks, structural } = plan;
   const { replacements, insertions } = structuralOps(structural, sourceMap, baselineMd);
+
+  let textHunks = 0;
+  let structuralHunks = 0;
+  let skipped = 0;
+  const outcomes = { reconciled: [], textBlocks: [], replacements: [], insertions: [] };
 
   // Blocks replaced structurally — skip in-block edits that land inside them.
   const replacedNodes = new Set();
@@ -1325,13 +1354,25 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
   //    which marks survive the clear-and-reformat (F2): portable pushes must not
   //    wipe marks the flavor couldn't express.
   for (const rec of reconcileBlocks) {
-    if (replacedNodes.has(rec.block.blockNode)) continue;
+    // Dead post-fold: the planner no longer routes a structurally claimed
+    // block's hunks here. Kept as counted defence rather than a silent skip.
+    if (replacedNodes.has(rec.block.blockNode)) {
+      outcomes.reconciled.push({ blockNode: rec.block.blockNode, applied: false });
+      skipped += rec.hunkCount || 1;
+      continue;
+    }
     reconcileTextNode(rec.textNode, rec.targetDelta, flavor);
+    outcomes.reconciled.push({ blockNode: rec.block.blockNode, applied: true });
+    textHunks += rec.hunkCount || 1;
   }
 
   // 2) Plain text hunks — surgical char ops, per-node offset shift.
   for (const tb of textBlocks) {
-    if (replacedNodes.has(tb.block.blockNode)) continue;
+    if (replacedNodes.has(tb.block.blockNode)) {
+      outcomes.textBlocks.push({ blockNode: tb.block.blockNode, applied: false });
+      skipped += tb.hunks.length;
+      continue;
+    }
     const shift = new Map();
     for (const h of tb.hunks.slice().sort((a, b) => a.oldStart - b.oldStart)) {
       const seg0 = h.segments[0];
@@ -1360,6 +1401,8 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
       }
       shift.set(textNode, d + (h.newText.length - oldLen));
     }
+    outcomes.textBlocks.push({ blockNode: tb.block.blockNode, applied: true });
+    textHunks += tb.hunks.length;
   }
 
   // 3) Structural replacements — block-node identity for live indices.
@@ -1374,7 +1417,13 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
     const lastBlock = sourceMap.blocks[g.last];
     const idx = fragment.toArray().indexOf(firstBlock.blockNode);
     const idxLast = fragment.toArray().indexOf(lastBlock.blockNode);
-    if (idx === -1 || idxLast === -1) continue;
+    if (idx === -1 || idxLast === -1) {
+      // The baseline block is not in the fork any more, so there is nothing to
+      // replace. Counted, never silent.
+      outcomes.replacements.push({ first: g.first, last: g.last, applied: false });
+      skipped += g.hunks.length;
+      continue;
+    }
     const count = idxLast - idx + 1;
     let s = '';
     let cur = firstBlock.mdStart;
@@ -1388,6 +1437,10 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
     if (newNodes.length > 0) fragment.insert(idx, newNodes);
     g.tailNode = newNodes.length > 0 ? newNodes[newNodes.length - 1] : null;
     for (let i = g.first; i <= g.last; i++) groupOfBlockNode.set(sourceMap.blocks[i].blockNode, g);
+    // A rebuild that parses to nothing is a whole-block DELETION — the push
+    // asked for those blocks to go away and they did. Applied, not skipped.
+    outcomes.replacements.push({ first: g.first, last: g.last, applied: true });
+    structuralHunks += g.hunks.length;
   }
 
   // 4) Boundary insertions between blocks.
@@ -1424,7 +1477,13 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
   const insertedAt = new Map();
   for (const ins of insertions) {
     const newNodes = mdToNodes(ins.newText);
-    if (newNodes.length === 0) continue;
+    if (newNodes.length === 0) {
+      // Nothing to insert: unlike a replacement, an insertion that parses to
+      // no nodes achieves nothing at all. Counted.
+      outcomes.insertions.push({ afterBlock: ins.afterBlock || null, applied: false });
+      skipped += 1;
+      continue;
+    }
     let at = 0;
     if (ins.afterBlock) {
       const resolved = anchorIndexFor(ins.afterBlock);
@@ -1433,9 +1492,11 @@ function applyHunks(fragment, plan, sourceMap, baselineMd, { flavor = 'squire' }
     const already = insertedAt.get(ins.afterBlock || null) || 0;
     fragment.insert(at + already, newNodes);
     insertedAt.set(ins.afterBlock || null, already + newNodes.length);
+    outcomes.insertions.push({ afterBlock: ins.afterBlock || null, applied: true });
+    structuralHunks += 1;
   }
 
-  return { ...plan.counts };
+  return { textHunks, structuralHunks, skipped, outcomes };
 }
 
 // ===========================================================================
@@ -1539,16 +1600,48 @@ function blockTypeOf(block) {
  * inherits the coalescing rule (which would otherwise over-report) and the
  * boundary-insertion anchoring for free.
  *
+ * ── FILTERED BY WHAT APPLY DID (056, FR-007) ───────────────────────────────
+ * With `outcomes` (the apply result's per-operation record) the report drops
+ * every entry whose operation did not apply, so `blocksChanged` lists only
+ * blocks apply actually changed. Callers that pass three arguments — the
+ * DB-free replay harness and the committed repro seeds — still get the
+ * unfiltered plan view.
+ *
+ * This is why `applySyncPush` builds the report AFTER the apply transaction
+ * now. It is safe: every input is baseline-side and immutable across apply
+ * (the source map's extents, the baseline markdown the excerpts are sliced
+ * from, and the block objects used as identity keys), so building it later
+ * changes nothing but what is knowable — namely, the outcomes.
+ *
  * @param {object} plan       - the plan from `planPush`
  * @param {object} sourceMap  - the baseline source map
  * @param {string} baselineMd - the canonical baseline markdown
+ * @param {object} [outcomes] - the apply result's `outcomes` record
  * @returns {Array<object>} entries, ordered by block position
  */
-function buildChangeReport(plan, sourceMap, baselineMd) {
+function buildChangeReport(plan, sourceMap, baselineMd, outcomes = null) {
   const blocks = sourceMap.blocks;
   const idxOf = new Map();
   blocks.forEach((b, i) => idxOf.set(b, i));
   const { replacements, insertions } = structuralOps(plan.structural, sourceMap, baselineMd);
+
+  // Correlation, per lane, with the apply result. Text and reconcile entries
+  // key on the block node; structural groups on their block-index range (the
+  // same coalescing this function and `applyHunks` both take from
+  // `structuralOps`); insertions on position, which is the only thing that
+  // distinguishes two insertions sharing an anchor.
+  const appliedByNode = (list) => {
+    const m = new Map();
+    for (const o of list || []) m.set(o.blockNode, o.applied);
+    return m;
+  };
+  const recApplied = outcomes ? appliedByNode(outcomes.reconciled) : null;
+  const textApplied = outcomes ? appliedByNode(outcomes.textBlocks) : null;
+  const replApplied = outcomes
+    ? new Map((outcomes.replacements || []).map((o) => [`${o.first}:${o.last}`, o.applied]))
+    : null;
+  const insApplied = outcomes ? (outcomes.insertions || []) : null;
+  const didApply = (map, key) => !map || map.get(key) !== false;
 
   // Blocks a structural group replaces wholesale. `applyHunks` skips in-block
   // edits that land inside them, so the report must too — otherwise one block
@@ -1580,17 +1673,20 @@ function buildChangeReport(plan, sourceMap, baselineMd) {
 
   for (const tb of plan.textBlocks) {
     const i = idxOf.get(tb.block);
-    if (i !== undefined && !replaced.has(i)) push(i, 'text');
+    if (i !== undefined && !replaced.has(i) && didApply(textApplied, tb.block.blockNode)) push(i, 'text');
   }
   for (const rb of plan.reconcileBlocks) {
     const i = idxOf.get(rb.block);
-    if (i !== undefined && !replaced.has(i)) push(i, 'reconcile');
+    if (i !== undefined && !replaced.has(i) && didApply(recApplied, rb.block.blockNode)) push(i, 'reconcile');
   }
   for (const g of replacements) {
+    if (!didApply(replApplied, `${g.first}:${g.last}`)) continue;
     for (let i = g.first; i <= g.last; i++) push(i, 'structural');
   }
 
-  for (const ins of insertions) {
+  for (let insIdx = 0; insIdx < insertions.length; insIdx++) {
+    const ins = insertions[insIdx];
+    if (insApplied && insApplied[insIdx] && insApplied[insIdx].applied === false) continue;
     // An inserted block has no baseline index of its own, so it is reported
     // against its anchor plus an explicit `position` — inventing a post-push
     // index the baseline source map cannot know would be a guess (research R5).
@@ -1861,13 +1957,21 @@ async function applySyncPush(persistence, docGuid, opts) {
      * the case most likely to be mistaken for one: it reports the document as
      * already matching, which is exactly when a client would be tempted to
      * write the receipt back over its file.
+     *
+     * `converged` is a parameter rather than a constant (056, FR-010): a noop
+     * performs nothing NOW, so the zero counts are the truth about this push,
+     * but whether the document MATCHES the pushed file is a separate question
+     * and the one the caller actually wanted answered. `noop: true,
+     * converged: false` is the designed re-pull-and-repair signal — `noop`
+     * alone no longer certifies success.
      */
-    const noopReceipt = async () => {
+    const noopReceipt = async (converged) => {
       const currentClock = await readCurrentClock(persistence, docGuid);
       const receipt = {
         docId: docGuid, mode: 'sync', noop: true, clock: currentClock,
-        overlaps: [], operations: { textHunks: 0, structuralHunks: 0 },
+        overlaps: [], operations: { textHunks: 0, structuralHunks: 0, skipped: 0 },
         blocksChanged: [],
+        converged,
         images,
       };
       if (dryRun) {
@@ -1879,30 +1983,56 @@ async function applySyncPush(persistence, docGuid, opts) {
     };
 
     // No-op short-circuit (FR-009/D7): re-export CURRENT state, store nothing.
-    if (pushedMd === canonicalMd) return noopReceipt();
+    // Nothing to apply means nothing can have failed to apply — converged by
+    // definition (the file already IS the document's canonical form).
+    if (pushedMd === canonicalMd) return noopReceipt(true);
 
     // Pin the synthetic clientID BEFORE any op is created (FR-011).
     fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
 
     const hunks = computeHunks(canonicalMd, pushedMd, sourceMap.blocks, pushedBlocks);
     const plan = planPush(hunks, sourceMap, canonicalMd);
-    // Derived from the plan, before it is applied — the report describes the
-    // baseline blocks the push would change, and after `applyHunks` runs the
-    // fork's block extents no longer correspond to the baseline offsets the
-    // excerpts are sliced from.
-    const blocksChanged = buildChangeReport(plan, sourceMap, canonicalMd);
-    let operations;
+    let applyResult;
     fork.transact(() => {
-      operations = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor });
+      applyResult = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor });
     });
+
+    // `converged` (056, FR-008, contract I5): did the engine actually realize
+    // the pushed file? One byte comparison answers it — serialize the fork we
+    // just applied to, in the push's flavor, and compare to the canonical
+    // pushed markdown the diff ran against. Fork-side, so it costs no durable
+    // write and is available on every branch including dry run.
+    //
+    // It measures the engine's own application fidelity and nothing else.
+    // Divergence caused by a CONCURRENT editor is the staleness quartet's job
+    // (`docChangedSinceBaseline`); an apply-correct push over a concurrently
+    // edited document reads `converged: true` alongside it, deliberately.
+    const converged = toMarkdown(fragment, { flavor }) === pushedMd;
+
+    // Both receipt fields now come from what apply DID, not what was planned.
+    const operations = {
+      textHunks: applyResult.textHunks,
+      structuralHunks: applyResult.structuralHunks,
+      skipped: applyResult.skipped,
+    };
+    // Built after the transaction and filtered by the apply outcomes — every
+    // input is baseline-side and immutable across apply (research R4).
+    const blocksChanged = buildChangeReport(plan, sourceMap, canonicalMd, applyResult.outcomes);
+
     const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
 
     // Idempotency short-circuit (F5): a byte-identical re-push (same baseline,
     // same content → same pinned synthetic clientID → byte-identical update)
     // adds nothing the live doc doesn't already carry. Rather than store a
     // duplicate no-op version row, return the no-op receipt (re-export current).
+    //
+    // This is the branch that used to lie outright: it reported success for a
+    // re-push whose content the document had never actually taken, because the
+    // FIRST push misapplied and the second produced the same (equally wrong)
+    // update. `converged` is what distinguishes "already done" from "still not
+    // done and this push will not fix it".
     if (await pushIsAlreadyApplied(persistence, docGuid, pushUpdate, getSharedDoc)) {
-      return noopReceipt();
+      return noopReceipt(converged);
     }
 
     // Overlap flags (advisory, FR-012): computed BEFORE our push lands, so the
@@ -1957,6 +2087,10 @@ async function applySyncPush(persistence, docGuid, opts) {
         overlaps,
         blocksChanged,
         operations,
+        // The same determination a real push produces, from the same fork
+        // (FR-012): a preview that could not tell you whether the push will
+        // converge would be missing the answer worth previewing.
+        converged,
         images,
       };
       if (overlapsUnavailable) receipt.overlapsUnavailable = true;
@@ -2000,7 +2134,7 @@ async function applySyncPush(persistence, docGuid, opts) {
     // consumer for no gain.
     const receipt = {
       docId: docGuid, mode: 'sync', noop: false, clock, markdown,
-      overlaps, blocksChanged, operations, images,
+      overlaps, blocksChanged, operations, converged, images,
     };
     if (overlapsUnavailable) receipt.overlapsUnavailable = true;
     return receipt;

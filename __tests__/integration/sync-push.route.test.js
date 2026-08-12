@@ -246,7 +246,7 @@ describe('sync-push route (mode=sync)', () => {
     expect(res.status).toBe(200);
     expect(res.body.noop).toBe(true);
     expect(res.body.clock).toBe(clock); // current clock, unchanged
-    expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+    expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0, skipped: 0 });
     expect(res.body.markdown).toContain('unchanged body here'); // current re-export
     const rowsAfter = (await pool.query('SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
     expect(rowsAfter).toBe(rowsBefore); // no update stored
@@ -551,7 +551,7 @@ describe('sync-push route (mode=sync)', () => {
     // Short-circuit: no-op receipt, clock unchanged from after the first push.
     expect(res2.body.noop).toBe(true);
     expect(res2.body.clock).toBe(res1.body.clock);
-    expect(res2.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+    expect(res2.body.operations).toEqual({ textHunks: 0, structuralHunks: 0, skipped: 0 });
 
     // No duplicate update row stored by the second push.
     const rowsAfter2 = (await pool.query(
@@ -994,7 +994,9 @@ describe('sync-push route (mode=sync)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.noop).toBe(true);
-      expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0 });
+      // `skipped` is additive (056, sync-receipt-v3): a noop still performs
+      // nothing, and now says so with all three counters.
+      expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0, skipped: 0 });
       // No new update row: a noop push must not accrete version history.
       expect(await maxClock(docId)).toBe(clock);
       expect(await currentBody(docId)).toContain('11. Check the queue depth');
@@ -1358,6 +1360,156 @@ describe('sync-push route (mode=sync)', () => {
       const versionsAfter = (await pool.query(
         'SELECT COUNT(*)::int c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
       expect(versionsAfter).toBe(versionsBefore + 1);
+    });
+  });
+
+  // --------------------------------------------------------------------
+  // Feature 056 — honest receipts (contracts/sync-receipt-v3.md).
+  //
+  // `converged` answers the question `noop` was being mistaken for: did the
+  // document actually end up matching the pushed file? Every mode=sync
+  // receipt carries it — applied, both noop shapes, and dry run.
+  // --------------------------------------------------------------------
+  describe('receipt honesty (056, US3)', () => {
+    test('an applied push carries converged:true, skipped:0, and every 054 field', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Report\n\nAlpha paragraph.\n\nBravo paragraph.');
+      const res = await put(docId, fileFor(docId, clock, body.replace('Alpha paragraph.', 'Alpha CHANGED.')));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body.converged).toBe(true);
+      expect(res.body.operations.skipped).toBe(0);
+      // FR-011 compatibility snapshot: every v2 field, unchanged.
+      expect(res.body).toMatchObject({
+        docId, mode: 'sync', noop: false,
+        clock: expect.any(Number),
+        markdown: expect.any(String),
+        overlaps: expect.any(Array),
+        blocksChanged: expect.any(Array),
+        operations: {
+          textHunks: expect.any(Number),
+          structuralHunks: expect.any(Number),
+          skipped: expect.any(Number),
+        },
+        baselineClock: expect.any(Number),
+        currentClock: expect.any(Number),
+        clockGap: expect.any(Number),
+        docChangedSinceBaseline: expect.any(Boolean),
+        images: expect.any(Object),
+      });
+      // And `converged: true` is a claim about the document, so check it.
+      expect(await currentBody(docId)).toContain('Alpha CHANGED.');
+    });
+
+    test('a canonical-equal noop is converged with an empty report', async () => {
+      const { docId, clock, body } = await seedDoc('# Report\n\nNothing changes here.');
+      const res = await put(docId, fileFor(docId, clock, body));
+      await drain();
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ noop: true, converged: true, blocksChanged: [] });
+      expect(res.body.operations).toEqual({ textHunks: 0, structuralHunks: 0, skipped: 0 });
+    });
+
+    /**
+     * FR-010, the designed pair (RBD-056-1). A byte-identical re-push takes
+     * the idempotency short-circuit and returns `noop: true`. Whether that
+     * noop is good news depends on something `noop` cannot express, so the
+     * receipt now says both things separately:
+     *
+     *   • `converged` — did the ENGINE realize the pushed file? Yes: the fork
+     *     replay produces exactly the pushed content.
+     *   • `docChangedSinceBaseline` — has anyone ELSE touched the document
+     *     since the baseline? Also yes, and deliberately a different field.
+     */
+    test('FR-010: a re-push over a concurrently edited doc is noop + converged + stale', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.\n\nBravo line.');
+      const edited = body.replace('Alpha line.', 'Alpha CHANGED.');
+
+      const first = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+      expect(first.body.converged).toBe(true);
+
+      // A live collaborator edits an untouched block.
+      const shared = documentService.getSharedDoc(docId);
+      const para = shared.get('default', Y.XmlFragment).toArray()
+        .find((n) => n.nodeName === 'paragraph' && n.get(0).toString().includes('Bravo'));
+      shared.transact(() => para.get(0).insert(para.get(0).length, ' Live addition.'), { userId: ownerId });
+      await drain();
+
+      // The same file, the same baseline clock — the idempotency short-circuit.
+      const again = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      expect(again.status).toBe(200);
+      expect(again.body).toMatchObject({
+        noop: true,
+        converged: true,
+        docChangedSinceBaseline: true,
+      });
+      expect(again.body.clockGap).toBeGreaterThan(0);
+    });
+
+    test('FR-010: a re-push over a MATCHING doc is noop + converged, gap zero', async () => {
+      const { docId, clock, body } = await seedDoc('# Notes\n\nAlpha line.');
+      const edited = body.replace('Alpha line.', 'Alpha CHANGED.');
+      await put(docId, fileFor(docId, clock, edited));
+      await drain();
+
+      const again = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+      expect(again.status).toBe(200);
+      expect(again.body).toMatchObject({ noop: true, converged: true });
+      expect(again.body.operations).toEqual({ textHunks: 0, structuralHunks: 0, skipped: 0 });
+      // The `noop: true, converged: false` branch is a backstop a correct fork
+      // replay cannot reach from the route, so it is asserted where it CAN be
+      // driven: server/__tests__/markdown-sync.apply-correctness.test.js,
+      // "a push that applies nothing reports noop with converged:false".
+    });
+
+    test('FR-012: a dry run reports the converged a real push then produces', async () => {
+      const { docId, clock, body } = await seedDoc(
+        '# Preview\n\nAlpha paragraph.\n\nBravo paragraph.');
+      const edited = body.replace('Alpha paragraph.', 'Alpha CHANGED.');
+
+      const beforeRows = (await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c;
+      const preview = await put(docId, fileFor(docId, clock, edited), { query: '?mode=sync&dryRun=true' });
+      await drain();
+
+      expect(preview.status).toBe(200);
+      expect(preview.body.dryRun).toBe(true);
+      expect(preview.body.converged).toBe(true);
+      expect('markdown' in preview.body).toBe(false);
+      // 054's trace-freedom, re-verified now that the preview computes more.
+      expect(await maxClock(docId)).toBe(clock);
+      expect((await pool.query(
+        'SELECT COUNT(*)::int AS c FROM yjs_updates WHERE doc_guid=$1', [docId])).rows[0].c).toBe(beforeRows);
+      expect(await currentBody(docId)).toContain('Alpha paragraph.');
+
+      const real = await put(docId, fileFor(docId, clock, edited));
+      await drain();
+      expect(real.body.converged).toBe(preview.body.converged);
+      expect(real.body.operations).toEqual(preview.body.operations);
+    });
+
+    test('a dry run over a noop push previews the noop, converged and all', async () => {
+      const { docId, clock, body } = await seedDoc('# Preview\n\nUnchanged.');
+      const res = await put(docId, fileFor(docId, clock, body), { query: '?mode=sync&dryRun=true' });
+      await drain();
+      expect(res.body).toMatchObject({ dryRun: true, noop: true, converged: true });
+      expect('markdown' in res.body).toBe(false);
+    });
+
+    test('append and replace receipts carry no converged field (out of scope)', async () => {
+      const { docId } = await seedDoc('# Notes\n\nOriginal line.');
+      for (const mode of ['append', 'replace']) {
+        const res = await put(docId, '# Notes\n\nWholly different.', { query: `?mode=${mode}` });
+        await drain();
+        expect(res.status).toBe(200);
+        expect('converged' in res.body).toBe(false);
+      }
     });
   });
 });

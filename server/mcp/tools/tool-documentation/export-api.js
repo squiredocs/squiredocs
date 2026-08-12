@@ -260,9 +260,20 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
                      // Verify a push from this — no re-export-and-grep needed.
                      // A block can read op "reconcile" here and pushSide
                      // "text" in overlaps: the two answer different questions.
-      operations:{ textHunks, structuralHunks },
+      operations:{ textHunks, structuralHunks, skipped },
                      // retained: counts HUNKS where blocksChanged counts
-                     // BLOCKS; the two need not agree
+                     // BLOCKS; the two need not agree. All three count what
+                     // the engine ACTUALLY did, never what it planned.
+                     // "skipped" is operations the apply layer declined: it is
+                     // 0 on every healthy push, so any non-zero value is an
+                     // anomaly worth reporting, not a routine counter.
+      converged,     // did the document end up matching the file you pushed?
+                     // true means the engine's post-push content is
+                     // byte-identical to your canonicalized file. It measures
+                     // the ENGINE's fidelity only — a correct push over a
+                     // concurrently edited document reads converged:true with
+                     // docChangedSinceBaseline:true, which are deliberately
+                     // separate signals.
       baselineClock, currentClock, clockGap, docChangedSinceBaseline }
                      // staleness, on EVERY sync response including no-ops:
                      // how far the document moved since your baseline.
@@ -272,8 +283,18 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
 
   200 no-op: a byte-identical / formatting-only / lossy-degradation-only push
   stores nothing, creates no version entry, and returns { noop:true, clock:
-  <current>, markdown:<current re-export>, blocksChanged:[] } plus the
-  staleness fields — so pull→push loops never generate phantom edits.
+  <current>, markdown:<current re-export>, blocksChanged:[], operations:{
+  textHunks:0, structuralHunks:0, skipped:0 }, converged } plus the staleness
+  fields — so pull→push loops never generate phantom edits.
+
+  READ "converged" ON NO-OPS: noop:true alone does not certify success. It
+  says this push performed nothing NOW, which is good news only if the
+  document already matches your file. The pair to act on is
+  noop:true + converged:false — your file and the document disagree and
+  re-pushing the same bytes will not change that. Re-pull, re-apply your edits
+  onto the fresh export, and push again; the "markdown" in this very receipt
+  is that fresh baseline. The engine never retries, falls back, or rolls back
+  on its own — it tells you and leaves the document as it is.
 
   strict=true (default false): refuse to merge over changes you have not seen.
   If the document moved since your baseline the push is rejected with 409
@@ -283,7 +304,9 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
 
   dryRun=true (default false): compute the whole plan and apply nothing.
   Returns 200 with the same receipt shape plus "dryRun":true, and WITHOUT
-  "markdown" — a dry run is never a baseline. No stored update, no version
+  "markdown" — a dry run is never a baseline. Its "converged" is the value the
+  real push then produces, so a preview tells you whether the push will land
+  your file in full. No stored update, no version
   entry, no clock advance, no live fan-out, and no agent presence announcement.
   One disclosed exception: the staged image pass still runs, so a dry run may
   rehost an external image or copy a cross-document one (reported in "images"),

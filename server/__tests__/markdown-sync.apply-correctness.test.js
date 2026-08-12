@@ -49,6 +49,8 @@ const {
   planPush,
   applyHunks,
   buildChangeReport,
+  syntheticClientId,
+  sha256,
 } = require('../markdown-sync');
 
 // ---------------------------------------------------------------------------
@@ -675,6 +677,309 @@ describe('unbalanced brackets are mark syntax (I3, FR-005/006)', () => {
     const delta = frag.toArray()[0].toArray()[0].toDelta();
     expect(delta.map((op) => op.insert).join('')).toContain('[sic]');
     expect(delta.filter((op) => op.attributes && op.attributes.link).map((op) => op.insert).join('')).toBe('runbook');
+    doc.destroy();
+  });
+});
+
+// ===========================================================================
+// User Story 3 — receipts report what happened, not what was planned
+// ===========================================================================
+
+/** Apply a hand-built plan inside a transaction and return the apply result. */
+function applyPlan(frag, plan, sourceMap, baselineMd, flavor = 'squire') {
+  let ops;
+  frag.doc.transact(() => { ops = applyHunks(frag, plan, sourceMap, baselineMd, { flavor }); });
+  return ops;
+}
+
+/** An empty plan shell a test can fill one lane of. */
+function emptyPlan(over = {}) {
+  return {
+    textBlocks: [], reconcileBlocks: [], structural: [],
+    counts: { textHunks: 0, structuralHunks: 0 },
+    ...over,
+  };
+}
+
+/** Every outcome across every lane. */
+function allOutcomes(ops) {
+  return [
+    ...ops.outcomes.reconciled,
+    ...ops.outcomes.textBlocks,
+    ...ops.outcomes.replacements,
+    ...ops.outcomes.insertions,
+  ];
+}
+
+describe('applyHunks returns an apply result (I4, FR-007)', () => {
+  test('a healthy text-lane push counts the work it did, and skips nothing', () => {
+    const { doc, frag } = linkedParagraph();
+    const r = pushOnce(frag, BASE_LINK.replace('Check', 'Consult').replace('deploying', 'shipping'));
+    expect(r.ops.skipped).toBe(0);
+    expect(r.ops.textHunks).toBe(2);
+    expect(r.ops.structuralHunks).toBe(0);
+    expect(allOutcomes(r.ops).every((o) => o.applied)).toBe(true);
+    doc.destroy();
+  });
+
+  test('a RECONCILE-lane push counts its hunks as textHunks (054 meaning, FR-011)', () => {
+    const { doc, frag } = mkDoc((f) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText(); t.insert(0, 'Check the runbook before deploying.'); p.insert(0, [t]);
+      f.insert(0, [p]);
+    });
+    const r = pushOnce(frag, 'Check the runbook before **shipping**.');
+    expectConverged(r, 'reconcile lane');
+    expect(r.plan.reconcileBlocks).toHaveLength(1);
+    expect(r.plan.textBlocks).toHaveLength(0);
+    // The reconcile entry carries the group's hunk count through to apply.
+    const planned = r.plan.reconcileBlocks[0].hunkCount;
+    expect(planned).toBeGreaterThan(0);
+    expect(r.ops.textHunks).toBe(planned);
+    expect(r.ops.structuralHunks).toBe(0);
+    expect(r.ops.skipped).toBe(0);
+    expect(r.blocksChanged).toEqual([expect.objectContaining({ op: 'reconcile' })]);
+    doc.destroy();
+  });
+
+  test('an UNRESOLVABLE block node is a counted skip, and leaves the report', () => {
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const p3 = sourceMap.blocks[3];
+    // One structural group over p1, one ordinary text group over p3.
+    const plan = planPush([
+      { oldStart: p1.mdStart, oldEnd: p1.mdEnd, newText: '## Promoted to a heading' },
+      { oldStart: markdown.indexOf('Outro'), oldEnd: markdown.indexOf('Outro') + 5, newText: 'Closing' },
+    ], sourceMap, markdown);
+    expect(plan.structural.length).toBeGreaterThan(0);
+    expect(plan.textBlocks).toHaveLength(1);
+    // Doctor the document: detach ONLY p1, so its group cannot resolve while
+    // every other lane still can.
+    doc.transact(() => { frag.delete(1, 1); });
+
+    const ops = applyPlan(frag, plan, sourceMap, markdown);
+    expect(ops.skipped).toBeGreaterThan(0);
+    expect(ops.outcomes.replacements.every((o) => o.applied === false)).toBe(true);
+    expect(ops.outcomes.textBlocks).toEqual([{ blockNode: p3.blockNode, applied: true }]);
+    expect(ops.textHunks).toBe(1);
+    expect(ops.structuralHunks).toBe(0);
+
+    const report = buildChangeReport(plan, sourceMap, markdown, ops.outcomes);
+    expect(report.map((e) => e.op)).toEqual(['text']);
+    expect(report.some((e) => e.blockIndex === p1.blockIndex)).toBe(false);
+    // Without outcomes the report is still the plan view (the DB-free harness
+    // and the committed repro seeds call it with three arguments).
+    expect(buildChangeReport(plan, sourceMap, markdown).length).toBeGreaterThan(report.length);
+    doc.destroy();
+  });
+
+  test('an insertion whose markdown parses to zero nodes is a counted skip', () => {
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const plan = emptyPlan({
+      structural: [{ oldStart: p1.mdEnd, oldEnd: p1.mdEnd, newText: '   \n\n', blocks: [] }],
+    });
+    const before = toMarkdownNodes(frag.toArray());
+    const ops = applyPlan(frag, plan, sourceMap, markdown);
+    expect(ops.skipped).toBe(1);
+    expect(ops.structuralHunks).toBe(0);
+    expect(ops.outcomes.insertions).toEqual([{ afterBlock: p1, applied: false }]);
+    expect(toMarkdownNodes(frag.toArray())).toBe(before);
+    expect(buildChangeReport(plan, sourceMap, markdown, ops.outcomes)).toEqual([]);
+    doc.destroy();
+  });
+
+  test('a REPLACEMENT rebuilding to zero nodes is a deletion, not a skip', () => {
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const plan = emptyPlan({
+      structural: [{ oldStart: p1.mdStart, oldEnd: p1.mdEnd, newText: '', blocks: [p1] }],
+    });
+    const ops = applyPlan(frag, plan, sourceMap, markdown);
+    expect(ops.skipped).toBe(0);
+    expect(ops.structuralHunks).toBe(1);
+    expect(ops.outcomes.replacements).toEqual([{ first: 1, last: 1, applied: true }]);
+    expect(toMarkdownNodes(frag.toArray())).not.toContain('Intro paragraph');
+    doc.destroy();
+  });
+
+  test('a FOLDED block reports once as structural, with its hunks in structuralHunks', () => {
+    const { doc, frag } = linkedParagraph();
+    const r = pushOnce(frag, BASE_LINK.replace('Check', 'Consult').replace('/rb', '/rb2'));
+    expectConverged(r, 'U2 folded');
+    expect(r.ops.textHunks).toBe(0);
+    expect(r.ops.structuralHunks).toBe(2);
+    expect(r.ops.skipped).toBe(0);
+    expect(r.blocksChanged).toEqual([expect.objectContaining({ op: 'structural', blockIndex: 0 })]);
+    doc.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applySyncPush-shaped emulation (repro3's `emulateSyncPush`): the fork, the
+// pinned synthetic clientID, the already-applied probe, and the receipt
+// assembly — without a database. This is where the noop branches are driven.
+// ---------------------------------------------------------------------------
+
+const ZERO_OPS = { textHunks: 0, structuralHunks: 0, skipped: 0 };
+
+function emulateSyncPush(liveDoc, baselineUpdate, body, opts = {}) {
+  const { docGuid = 'doc-g', baselineClock = 7, flavor = 'squire', doctorPlan = null } = opts;
+  const fork = new Y.Doc();
+  Y.applyUpdate(fork, baselineUpdate);
+  const fragment = fork.get('default', Y.XmlFragment);
+  const baselineSV = Y.encodeStateVector(fork);
+  const { markdown: canonicalMd, sourceMap } = toMarkdownWithSourceMap(fragment.toArray(), { flavor });
+  const { markdown: pushedMd, blocks: pushedBlocks } = canonicalizePushedWithBlocks(body, { flavor });
+
+  // Branch 1: canonical-equal noop — nothing to apply, converged by definition.
+  if (pushedMd === canonicalMd) {
+    fork.destroy();
+    return { noop: true, reason: 'canonical-equal', converged: true, operations: { ...ZERO_OPS }, blocksChanged: [] };
+  }
+
+  fork.clientID = syntheticClientId(docGuid, baselineClock, sha256(pushedMd));
+  const hunks = computeHunks(canonicalMd, pushedMd, sourceMap.blocks, pushedBlocks);
+  let plan = planPush(hunks, sourceMap, canonicalMd);
+  if (doctorPlan) plan = doctorPlan(plan);
+  let ops;
+  fork.transact(() => { ops = applyHunks(fragment, plan, sourceMap, canonicalMd, { flavor }); });
+  const converged = toMarkdownNodes(fragment.toArray(), { flavor }) === pushedMd;
+  const operations = { textHunks: ops.textHunks, structuralHunks: ops.structuralHunks, skipped: ops.skipped };
+  const blocksChanged = buildChangeReport(plan, sourceMap, canonicalMd, ops.outcomes);
+  const pushUpdate = Y.encodeStateAsUpdate(fork, baselineSV);
+  fork.destroy();
+
+  // The idempotency probe: does this update add anything the live doc lacks?
+  const probe = new Y.Doc({ gc: false });
+  Y.applyUpdate(probe, Y.encodeStateAsUpdate(liveDoc));
+  const before = Y.snapshot(probe);
+  Y.applyUpdate(probe, pushUpdate);
+  const after = Y.snapshot(probe);
+  const already = Y.equalSnapshots(before, after);
+  probe.destroy();
+
+  // Branch 2: already-applied noop — zero counts, and the honest `converged`.
+  if (already) {
+    return { noop: true, reason: 'already-applied', converged, operations: { ...ZERO_OPS }, blocksChanged: [] };
+  }
+  Y.applyUpdate(liveDoc, pushUpdate);
+  return { noop: false, converged, operations, blocksChanged };
+}
+
+// ===========================================================================
+// User Story 4 — a repair push always works
+// ===========================================================================
+
+describe('repair convergence from any reachable state (FR-014, SC-002)', () => {
+  const everyScenario = [
+    ...REPRO1_SCENARIOS.map(([n, mk, pushed]) => [n, mk, () => pushed]),
+    ...REPRO3_SCENARIOS.map(([n, mk, pushed]) => [n, mk, () => pushed]),
+    ...REPRO2_SCENARIOS,
+    ...REPRO4_SCENARIOS.map(([n, mutate]) => [
+      n, () => linkPara('Check the ', 'runbook', RB, ' before deploying.'), mutate,
+    ]),
+  ];
+
+  test.each(everyScenario)('%s: a second push against a fresh re-export converges', (name, mk, mutate) => {
+    const { doc, frag } = mk();
+    const pushed = mutate(toMarkdownNodes(frag.toArray()));
+    pushOnce(frag, pushed);
+    // pushOnce re-derives the baseline from the document every time, so this
+    // IS "re-export, then push the desired content once".
+    const repair = repairPush(frag, pushed);
+    expectConverged(repair, `${name} repair`);
+    expect(repair.ops.skipped).toBe(0);
+    doc.destroy();
+  });
+
+  test('a doc corrupted the pre-056 way (comma INSIDE the link) repairs in one push', () => {
+    // Exactly what the old engine left behind for repro3 P1, and what no
+    // number of repair pushes could undo.
+    const { doc, frag } = mkDoc((f) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, ' before deploying.');
+      t.insert(0, 'runbook,', { link: { href: RB } });
+      t.insert(0, 'Check the ');
+      p.insert(0, [t]);
+      f.insert(0, [p]);
+    });
+    expect(toMarkdownNodes(frag.toArray())).toBe(`Check the [runbook,](${RB}) before deploying.`);
+    const desired = `Check the [runbook](${RB}), before deploying.`;
+    expectConverged(repairPush(frag, desired), 'comma-inside-link repair');
+    doc.destroy();
+  });
+
+  test('a doc holding repro2-U2\'s partial apply repairs in one push', () => {
+    // URL changed, word swap dropped — the shape the fold-together rule ends.
+    const { doc, frag } = mkDoc((f) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, ' before deploying.');
+      t.insert(0, 'runbook', { link: { href: 'https://example.com/rb2' } });
+      t.insert(0, 'Check the ');
+      p.insert(0, [t]);
+      f.insert(0, [p]);
+    });
+    const desired = 'Consult the [runbook](https://example.com/rb2) before deploying.';
+    expectConverged(repairPush(frag, desired), 'U2 partial-apply repair');
+    doc.destroy();
+  });
+});
+
+describe('no-progress pushes are impossible to misread (FR-014, FR-017)', () => {
+  test('a push that applies nothing reports noop with converged:false', () => {
+    // The backstop branch the route cannot reach once the engine is correct
+    // (analysis finding U1): a plan doctored to apply nothing produces an
+    // update the live document already subsumes, so the idempotency
+    // short-circuit fires — and `noop: true` alone would call that success.
+    const { doc, frag } = linkedParagraph();
+    const baselineUpdate = Y.encodeStateAsUpdate(doc);
+    const desired = `Check the [runbook](${RB}), before deploying.`;
+
+    const r = emulateSyncPush(doc, baselineUpdate, desired, {
+      doctorPlan: () => ({ textBlocks: [], reconcileBlocks: [], structural: [], counts: { textHunks: 0, structuralHunks: 0 } }),
+    });
+
+    expect(r.noop).toBe(true);
+    expect(r.reason).toBe('already-applied');
+    expect(r.converged).toBe(false);          // the alarm
+    expect(r.operations).toEqual(ZERO_OPS);   // zero effect, honestly reported
+    expect(r.blocksChanged).toEqual([]);
+    expect(toMarkdownNodes(frag.toArray())).not.toBe(desired);
+    doc.destroy();
+  });
+
+  test('repro3 S1: the repair loop now converges, and the second push says so', () => {
+    const { doc, frag } = linkedParagraph();
+    const baselineUpdate = Y.encodeStateAsUpdate(doc);
+    const desired = 'Consult the [runbook](https://example.com/rb2) before deploying.';
+
+    const first = emulateSyncPush(doc, baselineUpdate, desired);
+    expect(first.noop).toBe(false);
+    expect(first.converged).toBe(true);
+    expect(first.operations.skipped).toBe(0);
+    expect(toMarkdownNodes(frag.toArray())).toBe(desired);
+
+    // The agent re-runs the same file against the same stale baseline. It is
+    // still a noop — but now a noop that certifies the document matches.
+    const second = emulateSyncPush(doc, baselineUpdate, desired);
+    expect(second).toMatchObject({ noop: true, reason: 'already-applied', converged: true });
+    doc.destroy();
+  });
+
+  test.each(['squire', 'portable'])('round-trip import(export(doc)) is a converged noop — %s flavor', (flavor) => {
+    const { doc, frag } = multiBlockLinked();
+    const baselineUpdate = Y.encodeStateAsUpdate(doc);
+    const exported = toMarkdownNodes(frag.toArray(), { flavor });
+    const r = emulateSyncPush(doc, baselineUpdate, exported, { flavor });
+    expect(r).toMatchObject({ noop: true, reason: 'canonical-equal', converged: true });
+    expect(r.operations).toEqual(ZERO_OPS);
+    expect(r.blocksChanged).toEqual([]);
     doc.destroy();
   });
 });
