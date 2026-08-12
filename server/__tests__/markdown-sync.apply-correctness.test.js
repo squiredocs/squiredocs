@@ -449,3 +449,232 @@ describe('classifyRange records the resolved run marks (I1, FR-001/002/003)', ()
     doc.destroy();
   });
 });
+
+// ===========================================================================
+// User Story 2 — no edit in a pushed file is silently dropped
+// ===========================================================================
+
+/**
+ * repro2 — mixed structural/text edits in one block (U/D/M/A/C/W/MB). The
+ * five that failed pre-fix (U2, U3, U4, D2, MB1) are all the same shape: one
+ * hunk lands in link SYNTAX (structural) and another lands in the same
+ * block's TEXT, the structural rebuild claims the block, and apply skips the
+ * text hunk it can no longer place. That edit was silently dropped.
+ */
+const REPRO2_SCENARIOS = [
+  ['U1 change URL only', linkedParagraph, (b) => b.replace('/rb', '/rb2')],
+  ['U2 URL edit + word swap same para', linkedParagraph, (b) => b.replace('Check', 'Consult').replace('/rb', '/rb2')],
+  ['U3 URL + display text edit', linkedParagraph, (b) => b.replace('runbook]', 'playbook]').replace('/rb', '/rb2')],
+  ['U4 URL edit + bold a word', linkedParagraph, (b) => b.replace('deploying', '**shipping**').replace('/rb', '/rb2')],
+  ['D1 unwrap link to plain text', linkedParagraph, (b) => b.replace(`[runbook](${RB})`, 'runbook')],
+  ['D2 unwrap link + word swap', linkedParagraph, (b) => b.replace(`[runbook](${RB})`, 'runbook').replace('Check', 'Consult')],
+  ['M1 move link within sentence', linkedParagraph, () => `Before deploying, check the [runbook](${RB}).`],
+  ['A1 add second link', linkedParagraph, (b) => b.replace('deploying.', 'deploying per the [SOP](https://example.com/sop).')],
+  ['C1 edits hugging "[" on both sides', linkedParagraph, (b) => b.replace('the [runbook]', 'thy [Runbook]')],
+  ['C2 edits hugging "](" both sides', linkedParagraph, (b) => b.replace('runbook](https', 'runbooks](http0s').replace('http0s', 'https')],
+  ['C3 url tail + following text', linkedParagraph, (b) => b.replace('/rb) before', '/rb2) after')],
+  ['W1 rewrite around kept link', linkedParagraph, () => `Always read the [runbook](${RB}) first.`],
+  ['MB1 URL edit + word swap (multi-block)', multiBlockLinked, (b) => b.replace('Check', 'Consult').replace('/rb', '/rb2')],
+  ['MB2 unwrap link + edits in other blocks', multiBlockLinked, (b) => b.replace(`[runbook](${RB})`, 'runbook').replace('Intro', 'Introduction').replace('Outro', 'Closing')],
+  ['MB3 move link paragraph + edit it', multiBlockLinked, (b) => b.replace(
+    `Check the [runbook](${RB}) before deploying.\n\nOutro text here.`,
+    `Outro text here.\n\nCheck the [playbook](${RB}) before deploying.`)],
+];
+
+/**
+ * repro4 — the link fuzz table. F7 leaked raw `](` into the document as
+ * literal text: a lone `[` insertion has no inline-mark syntax by the old
+ * test, so it rode the plain-text lane and spliced a bracket into a block
+ * whose remaining markdown then no longer parsed as a link.
+ */
+const REPRO4_SCENARIOS = [
+  ['F1 linkify word, same url', (b) => b.replace('deploying', `[deploying](${RB})`)],
+  ['F2 linkify word, new url', (b) => b.replace('deploying', '[deploying](https://example.com/dep)')],
+  ['F3 move link to other word', (b) => b.replace(`[runbook](${RB})`, 'runbook').replace('deploying', `[deploying](${RB})`)],
+  ['F4 url edit + comma after link', (b) => b.replace('/rb)', '/rb2),')],
+  ['F5 parenthetical after link', (b) => b.replace(') before', ') (updated) before')],
+  ['F6 bracketed note after link', (b) => b.replace(') before', ') [sic] before')],
+  ['F7 pull preceding word into link', (b) => b.replace(`the [runbook](${RB})`, `[the runbook](${RB})`)],
+  ['F8 push word out of link', (b) => b.replace(`[runbook](${RB}) before`, `[run](${RB})book before`)],
+  ['F9 replace link + outside edit', (b) => b.replace(`[runbook](${RB})`, '[handbook](https://example.com/hb)').replace('Check', 'Read')],
+  ['F10 comma after link + word swap', (b) => b.replace(') before', '), before').replace('Check', 'Consult')],
+];
+
+describe('US2 corpus — first-push convergence and no raw-syntax leaks (FR-013, SC-001/004)', () => {
+  test.each(REPRO2_SCENARIOS)('repro2 %s', (name, mk, mutate) => {
+    const { doc, frag } = mk();
+    const pushed = mutate(toMarkdownNodes(frag.toArray()));
+    expectConverged(pushOnce(frag, pushed), name);
+    doc.destroy();
+  });
+
+  test.each(REPRO4_SCENARIOS)('repro4 %s', (name, mutate) => {
+    const { doc, frag } = linkPara('Check the ', 'runbook', RB, ' before deploying.');
+    const pushed = mutate(toMarkdownNodes(frag.toArray()));
+    expectConverged(pushOnce(frag, pushed), name);
+    doc.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T009 — planner invariants: lane exclusivity (I2) and brackets (I3)
+// ---------------------------------------------------------------------------
+
+/** Plan a hand-built hunk list against a fixture, bypassing the aligner. */
+function planOf(frag, hunks, flavor = 'squire') {
+  const { markdown, sourceMap } = mapOf(frag, flavor);
+  return { markdown, sourceMap, plan: planPush(hunks, sourceMap, markdown) };
+}
+
+/** Every block a plan mentions, per lane. */
+function lanesOf(plan) {
+  return {
+    text: plan.textBlocks.map((tb) => tb.block),
+    reconcile: plan.reconcileBlocks.map((rb) => rb.block),
+    structural: plan.structural.flatMap((h) => h.blocks || []),
+  };
+}
+
+describe('planPush lane exclusivity — a block\'s hunks travel together (I2, FR-004)', () => {
+  test('a structural URL hunk folds the same block\'s text hunk (the U2 shape)', () => {
+    const { doc, frag } = linkedParagraph();
+    const { markdown, sourceMap } = mapOf(frag);
+    const urlEnd = markdown.indexOf('/rb') + 3;
+    const plan = planPush([
+      { oldStart: 1, oldEnd: 5, newText: 'onsult' },                  // "Check" → "Consult" (text)
+      { oldStart: urlEnd, oldEnd: urlEnd, newText: '2' },             // inside the URL (structural)
+    ], sourceMap, markdown);
+    const lanes = lanesOf(plan);
+    const block = sourceMap.blocks[0];
+    expect(lanes.text).not.toContain(block);
+    expect(lanes.reconcile).not.toContain(block);
+    expect(plan.structural).toHaveLength(2);
+    expect(plan.structural.every((h) => (h.blocks || []).includes(block))).toBe(true);
+    // Folded hunks count as structural work, never as text work (RBD-056-7).
+    expect(plan.counts).toEqual({ textHunks: 0, structuralHunks: 2 });
+    doc.destroy();
+  });
+
+  test('a MULTI-block structural claim folds every claimed block\'s text group', () => {
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const p2 = sourceMap.blocks[2];
+    // A range spanning p1's tail, the separator, and p2's head → structural
+    // over both blocks; plus one text hunk inside each of them.
+    const plan = planPush([
+      { oldStart: markdown.indexOf('Intro'), oldEnd: markdown.indexOf('Intro') + 5, newText: 'Start' },
+      { oldStart: p1.mdEnd - 1, oldEnd: p2.mdStart + 5, newText: 'MERGED' },
+      { oldStart: markdown.indexOf('deploying'), oldEnd: markdown.indexOf('deploying') + 9, newText: 'shipping' },
+    ], sourceMap, markdown);
+    const lanes = lanesOf(plan);
+    expect(lanes.text).toEqual([]);
+    expect(lanes.reconcile).toEqual([]);
+    expect(plan.structural).toHaveLength(3);
+    expect(lanes.structural).toContain(p1);
+    expect(lanes.structural).toContain(p2);
+    doc.destroy();
+  });
+
+  test('a forced (055) hunk does not fold another block\'s group', () => {
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const p3 = sourceMap.blocks[3];
+    const plan = planPush([
+      { oldStart: p1.mdStart, oldEnd: p1.mdEnd, newText: 'A wholly rewritten intro.', forced: true, blocks: [p1] },
+      { oldStart: markdown.indexOf('Outro'), oldEnd: markdown.indexOf('Outro') + 5, newText: 'Closing' },
+    ], sourceMap, markdown);
+    const lanes = lanesOf(plan);
+    expect(lanes.text).toEqual([p3]);            // p3's edit is untouched by the forced claim
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBe(true);
+    doc.destroy();
+  });
+
+  test('a forced hunk is never joined by the same block\'s char hunks (FR-016)', () => {
+    // Impossible by 055 construction (a block is either aligner-forced or
+    // char-diffed). If it ever happened, the forced hunk must still stand
+    // alone — apply's replaced-block guard counts the leftover as a skip
+    // rather than composing two rebuilds of one block.
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const plan = planPush([
+      { oldStart: p1.mdStart, oldEnd: p1.mdEnd, newText: 'A wholly rewritten intro.', forced: true, blocks: [p1] },
+      { oldStart: markdown.indexOf('Intro'), oldEnd: markdown.indexOf('Intro') + 5, newText: 'Start' },
+    ], sourceMap, markdown);
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].forced).toBe(true);
+    expect(plan.textBlocks.map((tb) => tb.block)).toEqual([p1]);
+    doc.destroy();
+  });
+
+  test('an edge-block insertion claims nothing and folds nothing', () => {
+    // A whole new paragraph inserted at p3's leading edge inserts AROUND p3,
+    // preserving its CRDT identity — so it is emitted with `blocks: []` and
+    // must not drag any other block's group into the structural lane.
+    const { doc, frag } = multiBlockLinked();
+    const { markdown, sourceMap } = mapOf(frag);
+    const p1 = sourceMap.blocks[1];
+    const p3 = sourceMap.blocks[3];
+    const plan = planPush([
+      { oldStart: markdown.indexOf('Intro'), oldEnd: markdown.indexOf('Intro') + 5, newText: 'Start' },
+      { oldStart: p3.mdStart, oldEnd: p3.mdStart, newText: 'A brand new paragraph.\n\n' },
+    ], sourceMap, markdown);
+    expect(plan.structural).toHaveLength(1);
+    expect(plan.structural[0].blocks).toEqual([]);      // claims nothing
+    expect(plan.textBlocks.map((tb) => tb.block)).toEqual([p1]);
+    doc.destroy();
+  });
+});
+
+describe('unbalanced brackets are mark syntax (I3, FR-005/006)', () => {
+  test('a lone "[" insertion never rides the plain-text lane', () => {
+    const { doc, frag } = linkedParagraph();
+    const { markdown, plan } = planOf(frag, [
+      { oldStart: 6, oldEnd: 6, newText: '[' },
+    ]);
+    expect(markdown.startsWith('Check the')).toBe(true);
+    expect(plan.textBlocks).toHaveLength(0);
+    doc.destroy();
+  });
+
+  test('a lone "]" insertion never rides the plain-text lane', () => {
+    const { doc, frag } = linkedParagraph();
+    const { plan } = planOf(frag, [{ oldStart: 6, oldEnd: 6, newText: ']' }]);
+    expect(plan.textBlocks).toHaveLength(0);
+    doc.destroy();
+  });
+
+  test('a DELETION whose replaced slice holds a bracket never rides the plain lane', () => {
+    const { doc, frag } = mkDoc((f) => {
+      const p = new Y.XmlElement('paragraph');
+      const t = new Y.XmlText();
+      t.insert(0, 'A note [sic] in the middle.');
+      p.insert(0, [t]);
+      f.insert(0, [p]);
+    });
+    const { markdown, sourceMap } = mapOf(frag);
+    expect(markdown).toBe('A note [sic] in the middle.');
+    // Delete "[sic] " — the new text is plain, the deleted text is not.
+    const at = markdown.indexOf('[sic] ');
+    const plan = planPush(
+      [{ oldStart: at, oldEnd: at + '[sic] '.length, newText: '' }], sourceMap, markdown);
+    expect(plan.textBlocks).toHaveLength(0);
+    doc.destroy();
+  });
+
+  test('a bracketed note routes through a reparse lane and stays literal text', () => {
+    const { doc, frag } = linkPara('Check the ', 'runbook', RB, ' before deploying.');
+    const base = toMarkdownNodes(frag.toArray());
+    const r = pushOnce(frag, base.replace(') before', ') [sic] before'));
+    expectConverged(r, 'bracketed note');
+    expect(r.plan.textBlocks).toHaveLength(0);
+    // The brackets survive as characters, not as a link.
+    const delta = frag.toArray()[0].toArray()[0].toDelta();
+    expect(delta.map((op) => op.insert).join('')).toContain('[sic]');
+    expect(delta.filter((op) => op.attributes && op.attributes.link).map((op) => op.insert).join('')).toBe('runbook');
+    doc.destroy();
+  });
+});

@@ -991,9 +991,33 @@ function newTextBreaksBlock(s) {
   return /^\s*(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?|```|~~~|-{3,}$|\|)/.test(s);
 }
 
-/** True if inserted text carries inline mark syntax (so it isn't literal text). */
+/**
+ * True if inserted text carries inline mark syntax (so it isn't literal text).
+ *
+ * Square brackets count on their own (feature 056, FR-005). The test used to
+ * require the complete `](` pair, so a hunk inserting a LONE `[` — which is
+ * what "wrap this word in a link" diffs to — read as plain text and was
+ * spliced straight into the block's CRDT string. The block's remaining
+ * markdown then no longer parsed as a link and the export leaked raw `](` into
+ * the document as literal characters. `](` stays in the class for the shapes
+ * that carry the pair intact.
+ */
 function newTextHasInlineMarkSyntax(s) {
-  return /[*_~`]|<\/?[a-zA-Z]|\]\(/.test(s);
+  return /[*_~`\[\]]|<\/?[a-zA-Z]|\]\(/.test(s);
+}
+
+/**
+ * True if the baseline text a hunk REPLACES carries square-bracket syntax
+ * (FR-005, the deletion direction). A delete that removes one bracket of a
+ * pair unbalances the block's remaining markdown just as surely as an insert
+ * that adds one, so it must not ride the plain-text lane either. Matching the
+ * bare characters also covers the escaped `\[` / `\]` the serializer emits for
+ * literal brackets. Parentheses are deliberately NOT in this class: a stray
+ * `)` in prose is legal text, and any real link-paren interaction reaches the
+ * whole-block reparse through the bracket that must accompany it.
+ */
+function deletedTextHasBracketSyntax(s) {
+  return /[\[\]]/.test(s);
 }
 
 /** Attributes of the character at index `off` in a delta (or {} if none). */
@@ -1042,12 +1066,50 @@ function planPush(hunks, sourceMap, baselineMd) {
     }
   }
 
+  // ── FOLD-TOGETHER (feature 056, FR-004, contract I2) ─────────────────────
+  //
+  // A block appears in AT MOST ONE lane. If any structural hunk claims a
+  // block, every one of that block's hunks joins it in the structural lane.
+  //
+  // The bug this closes: classification is per hunk, so one paragraph could
+  // send its URL edit to the structural lane and its word swap to the text
+  // lane. Apply then rebuilt the block from the structural group's hunks
+  // ALONE and skipped the text hunk, because the block it addressed no longer
+  // existed — the word swap was silently dropped, and the receipt still
+  // reported it. Once every hunk of the block reaches the structural lane the
+  // existing group composition in `applyHunks` rebuilds from all of them by
+  // construction; no apply-side change is needed.
+  //
+  // Two deliberate non-triggers:
+  //   • FORCED hunks (055 aligner decisions) — they already carry the block's
+  //     full new content, so folding char hunks in would compose two rebuilds
+  //     of one block. By 055's construction a block is either aligner-forced
+  //     or char-diffed, never both; if that invariant were ever broken the
+  //     leftover group stays where it is and apply's replaced-block guard
+  //     COUNTS it as a skip (research R4), which is visible on the receipt as
+  //     `skipped > 0` and `converged: false`, rather than corrupting a block.
+  //   • EDGE-BLOCK INSERTIONS (`blocks: []`) — an insertion BESIDE a block is
+  //     not an edit OF it, so it claims nothing.
+  const structuralClaims = new Set();
+  for (const h of structural) {
+    if (h.forced) continue;
+    for (const b of h.blocks || []) structuralClaims.add(b.blockNode);
+  }
+
   const textBlocks = [];
   const reconcileBlocks = [];
   let textHunks = 0;
   for (const { block, hunks: bh } of groups.values()) {
+    if (structuralClaims.has(block.blockNode)) {
+      // Folded: re-emitted as structural hunks so the rebuild sees them all.
+      // They count as structural work, never as text work (RBD-056-7).
+      for (const h of bh) structural.push({ ...h, blocks: [block] });
+      continue;
+    }
     const allPlain = bh.every(
-      (h) => !newTextBreaksBlock(h.newText) && !newTextHasInlineMarkSyntax(h.newText)
+      (h) => !newTextBreaksBlock(h.newText)
+        && !newTextHasInlineMarkSyntax(h.newText)
+        && !deletedTextHasBracketSyntax(baselineMd.slice(h.oldStart, h.oldEnd))
     );
     if (allPlain) {
       textBlocks.push({ block, hunks: bh });
