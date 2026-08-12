@@ -159,11 +159,46 @@ describe('057 US4 — readiness gate', () => {
     expect(gate.settled).toBe(true);
   });
 
+  test('a doc bound WITHOUT a verified clock falls back to its completion flag', async () => {
+    agentPresence.init({ getClockRange: async () => ({ minClock: 0, maxClock: 6 }) });
+    // Only a non-production binder produces this shape; the real one sets both.
+    const registry = new Y.Doc();
+    addParagraph(registry, 'loaded-by-another-binder');
+    registry._bindComplete = true;
+    expect(registry._verifiedClock).toBeUndefined();
+    register(registry);
+
+    const session = new Y.Doc();
+    const gate = track(agentPresence._waitForDocumentContent(session, DOC));
+    await flush();
+
+    // Stage 2 still governs: the session has not caught up with the pod yet.
+    expect(gate.settled).toBe(false);
+
+    syncFrom(session, registry);
+    await flush();
+    expect(gate.settled).toBe(true);
+  });
+
+  test('the fallback does NOT apply to a doc that is still binding', async () => {
+    agentPresence.init({ getClockRange: async () => ({ minClock: 0, maxClock: 6 }) });
+    const registry = new Y.Doc(); // no _bindComplete, no _verifiedClock
+    register(registry);
+
+    const session = new Y.Doc();
+    syncFrom(session, registry);
+    const gate = track(agentPresence._waitForDocumentContent(session, DOC));
+    await flush();
+
+    expect(gate.settled).toBe(false);
+  });
+
   // ── Timeout semantics are UNCHANGED (SC-007) ─────────────────────────────
   test('content that never arrives still resolves on the existing 10s timeout', async () => {
     jest.useFakeTimers();
     agentPresence.init({ getClockRange: async () => ({ minClock: 0, maxClock: 7 }) });
-    register(registryDoc(null));
+    // A bind that never completes: neither stage 1 signal ever appears.
+    register(new Y.Doc());
 
     const gate = track(agentPresence._waitForDocumentContent(new Y.Doc(), DOC));
     await flush();

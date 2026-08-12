@@ -408,11 +408,28 @@ function _waitForDocumentContent(ydoc, docGuid) {
       try {
         if (targetSV === null) {
           const registryDoc = _peekRegistryDoc(docGuid);
-          if (!registryDoc
-            || typeof registryDoc._verifiedClock !== 'number'
-            || registryDoc._verifiedClock < armClock) {
-            return;
-          }
+          if (!registryDoc) return;
+          const verified = registryDoc._verifiedClock;
+
+          // The primary claim: this pod has PROVEN integration through the
+          // armed clock, set by the binder over a complete load or advanced by
+          // reconciliation.
+          const provenThroughArm = typeof verified === 'number' && verified >= armClock;
+
+          // The fallback: a document that completed its bind but carries no
+          // verified clock. The production binder always sets both, so this can
+          // only be a document bound by some other binder — and for one of
+          // those, "the load finished" is the strongest claim that exists.
+          // Waiting for a clock nobody will ever set would mean every session on
+          // such a document silently burns the full timeout.
+          //
+          // This does NOT reopen the defect. Stage 2 still applies, so the
+          // session must have caught up with everything the pod holds; what is
+          // given up is only the assurance that the POD is current, which
+          // without a verified clock was never available to give.
+          const boundWithoutClock = verified === undefined && registryDoc._bindComplete === true;
+
+          if (!provenThroughArm && !boundWithoutClock) return;
           targetSV = Y.encodeStateVector(registryDoc);
         }
         if (dominates(Y.encodeStateVector(ydoc), targetSV)) {
