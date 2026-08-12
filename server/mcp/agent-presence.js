@@ -10,6 +10,23 @@ const { WebsocketProvider } = require('y-websocket');
 const documents = require('../documents');
 const { ROLES } = documents;
 const presenceClaim = require('./presence-claim');
+// Feature 057 (FR-009): readiness resolves on PROVEN integration, which needs
+// the pod's own registry doc and state-vector domination.
+//
+// The registry is read straight from y-websocket, the way collab-bind-state and
+// bind-failure already read it, rather than through documentService.peekSharedDoc.
+// Same non-creating lookup, one fewer dependency: peekSharedDoc answers null
+// until documentService.init has been handed the registry, so routing through it
+// would make a readiness gate's correctness depend on an unrelated module's
+// initialisation order — and the failure mode is a silent full-timeout wait on
+// every session, which is precisely the kind of thing nobody notices.
+const { docs: wsDocs } = require('y-websocket/bin/utils');
+const { dominates } = require('../verified-clock');
+
+/** The live registry doc for a guid, or null. Never creates one. */
+function _peekRegistryDoc(docGuid) {
+  return (wsDocs && typeof wsDocs.get === 'function') ? (wsDocs.get(`s/${docGuid}`) || null) : null;
+}
 
 // Persistence provider - set by init function
 let persistenceProvider = null;
@@ -353,36 +370,85 @@ function _waitForDocumentContent(ydoc, docGuid) {
   return new Promise((resolve) => {
     let timeoutId = null;
     let settled = false;
-
-    const onUpdate = () => {
-      settle(`Content arrived for ${docGuid}`);
-    };
+    // The armed clock: the newest durable clock at the moment we started
+    // waiting. Null until the probe returns.
+    let armClock = null;
+    // Captured the instant stage 1 is satisfied, and FROZEN thereafter. A live
+    // document is edited continuously, so re-reading the registry doc's state
+    // vector on every check would move the goalposts forward faster than the
+    // session could follow — the gate would never resolve on exactly the
+    // documents people are using.
+    let targetSV = null;
 
     const settle = (reason) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
-      ydoc.off('update', onUpdate);
+      ydoc.off('update', check);
       console.log(`[agent-presence] ${reason}`);
       resolve();
     };
 
-    // Listen for the first content update immediately (before async DB
-    // check) so we don't miss updates that arrive while the query runs.
-    ydoc.once('update', onUpdate);
-
-    persistenceProvider.getUpdateCount(docGuid).then((updateCount) => {
-      if (settled) return; // content arrived while we were checking
-
-      if (updateCount === 0) {
-        settle(`Document ${docGuid} confirmed empty (0 updates in DB)`);
-      } else {
-        // Content exists but hasn't arrived yet — wait for bindState to finish
-        console.log(`[agent-presence] Document ${docGuid} has ${updateCount} updates in DB, waiting up to 10s...`);
-        timeoutId = setTimeout(() => {
-          settle(`Timeout waiting for ${updateCount} persisted updates to sync for ${docGuid}`);
-        }, 10000);
+    /**
+     * The two-stage condition. Both stages are monotone: once true they stay
+     * true, so later edits can only over-satisfy them.
+     *
+     * Stage 1 — has THIS POD verified integration through the armed clock? The
+     * registry doc's `_verifiedClock` is the only honest answer, and it is set
+     * by the binder over a proven-complete load or advanced by reconciliation.
+     * Peeked without creating: a document not loaded here has nothing to prove.
+     *
+     * Stage 2 — has the agent's session doc actually received that state? The
+     * session doc is one WebSocket hop from the registry doc, and it is the doc
+     * the agent will read, so the registry being right is necessary but not
+     * sufficient.
+     */
+    const check = () => {
+      if (settled || armClock === null) return;
+      try {
+        if (targetSV === null) {
+          const registryDoc = _peekRegistryDoc(docGuid);
+          if (!registryDoc
+            || typeof registryDoc._verifiedClock !== 'number'
+            || registryDoc._verifiedClock < armClock) {
+            return;
+          }
+          targetSV = Y.encodeStateVector(registryDoc);
+        }
+        if (dominates(Y.encodeStateVector(ydoc), targetSV)) {
+          settle(`Document ${docGuid} integrated through clock ${armClock}`);
+        }
+      } catch (err) {
+        // Readiness is a wait, not a write. A failure to EVALUATE the condition
+        // must leave the timeout to bound the wait, never reject into session
+        // creation.
+        console.warn(`[agent-presence] readiness check failed for ${docGuid}:`, err?.message || err);
       }
+    };
+
+    // Listen before the async probe so updates arriving while it runs are not
+    // missed; `check` is inert until the clock is armed, and the immediate call
+    // after arming covers anything that landed in the meantime.
+    ydoc.on('update', check);
+
+    persistenceProvider.getClockRange(docGuid).then(({ maxClock }) => {
+      if (settled) return;
+
+      if (maxClock === null || maxClock === undefined) {
+        // No rows at all: genuinely empty, and there is nothing to integrate.
+        // (This subsumes the old getUpdateCount === 0 branch.)
+        settle(`Document ${docGuid} confirmed empty (0 updates in DB)`);
+        return;
+      }
+
+      armClock = maxClock;
+      console.log(`[agent-presence] Document ${docGuid} has updates through clock ${maxClock} in DB, waiting up to 10s...`);
+      // UNCHANGED (RBD-057-5): same 10s budget, same resolve-anyway outcome.
+      // Only what we are waiting FOR has changed.
+      timeoutId = setTimeout(() => {
+        settle(`Timeout waiting for durable clock ${maxClock} to integrate for ${docGuid}`);
+      }, 10000);
+      check();
     }).catch((err) => {
       if (settled) return;
       console.warn(`[agent-presence] Could not check update count for ${docGuid}:`, err.message);
@@ -1037,4 +1103,9 @@ module.exports = {
   // a copy of it.
   _buildAgentInfo,
   _sessionsByUserId: sessionsByUserId,
+  // Test seam (feature 057): the readiness gate is driven directly so its two
+  // stages and its unchanged timeout budgets can be asserted without standing
+  // up a WebSocket server.
+  _waitForDocumentContent,
+  _peekRegistryDoc,
 };

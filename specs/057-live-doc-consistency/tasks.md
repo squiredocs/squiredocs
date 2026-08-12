@@ -98,12 +98,12 @@
 
 ### Tests for User Story 4
 
-- [ ] T019 [P] [US4] Write `/local-dev/server/__tests__/agent-presence-readiness.test.js` (fail first): US4 acceptance 1–2 (N counted, first event only ⇒ unresolved; full integration ⇒ resolved; never-arriving ⇒ existing 10s timeout resolves honestly, 2s DB-error fallback intact), edge cases counted=0 ⇒ immediate, counted=1 resolves on that update, later concurrent edits over-satisfy (monotone, no starvation)
+- [X] T019 [P] [US4] Write `/local-dev/server/__tests__/agent-presence-readiness.test.js` (fail first): US4 acceptance 1–2 (N counted, first event only ⇒ unresolved; full integration ⇒ resolved; never-arriving ⇒ existing 10s timeout resolves honestly, 2s DB-error fallback intact), edge cases counted=0 ⇒ immediate, counted=1 resolves on that update, later concurrent edits over-satisfy (monotone, no starvation)
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] Replace `_waitForDocumentContent` in `/local-dev/server/mcp/agent-presence.js` (:352-395) with the two-stage gate: arm-time `C` = newest durable clock (`getClockRange`; no rows ⇒ resolve immediately); stage 1 registry-doc `_verifiedClock >= C` via non-creating peek (document-service precedent :142); stage 2 session-doc SV dominates the registry SV captured at stage-1 satisfaction (`verified-clock.js` `dominates`); re-check on session-doc `update` events + one immediate check; keep the 10s timeout and 2s fallback verbatim (depends on T004)
-- [ ] T021 [US4] SC-006 consolidation in `/local-dev/server/__tests__/telemetry-metrics.test.js`: one fault-injection assertion per counter (`collab.read.gapped_serves`, `collab.read.stale_serves`, `collab.bind.refusals{incomplete-load}`, `collab.reconcile.repairs`) via the capture harness, plus the metrics-fault-never-propagates case for the new recorders (depends on T005; scenario plumbing from T007/T010/T015 may be referenced, not duplicated)
+- [X] T020 [US4] Replace `_waitForDocumentContent` in `/local-dev/server/mcp/agent-presence.js` (:352-395) with the two-stage gate: arm-time `C` = newest durable clock (`getClockRange`; no rows ⇒ resolve immediately); stage 1 registry-doc `_verifiedClock >= C` via non-creating peek (document-service precedent :142); stage 2 session-doc SV dominates the registry SV captured at stage-1 satisfaction (`verified-clock.js` `dominates`); re-check on session-doc `update` events + one immediate check; keep the 10s timeout and 2s fallback verbatim (depends on T004)
+- [X] T021 [US4] SC-006 consolidation in `/local-dev/server/__tests__/telemetry-metrics.test.js`: one fault-injection assertion per counter (`collab.read.gapped_serves`, `collab.read.stale_serves`, `collab.bind.refusals{incomplete-load}`, `collab.reconcile.repairs`) via the capture harness, plus the metrics-fault-never-propagates case for the new recorders (depends on T005; scenario plumbing from T007/T010/T015 may be referenced, not duplicated)
 
 **Checkpoint**: all four stories independently functional.
 

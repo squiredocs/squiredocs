@@ -47,6 +47,11 @@ function makeFakePersistence() {
       }),
     }),
     getUpdateCount: async () => 0,
+    // Feature 057: the readiness gate arms on the newest DURABLE CLOCK rather
+    // than an update count, so an empty document is a null maxClock. Same fact
+    // this double always asserted ("this doc has nothing"), in the shape the
+    // gate now asks for.
+    getClockRange: async () => ({ minClock: null, maxClock: null }),
   };
 }
 
