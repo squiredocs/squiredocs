@@ -121,6 +121,21 @@ describe('AI Usage', () => {
       expect(cached).toBeLessThan(full);
     });
 
+    test('honors a per-model cacheReadMultiplier (Opus 5.5 0.05x, Fable 5.1 0.025x)', () => {
+      // claude-opus-5-5: input 400 → 1M cached reads = 400 * 0.05 = 20 cents
+      expect(aiUsage.computeCostCents('claude-opus-5-5', 1_000_000, 0, {
+        cacheReadTokens: 1_000_000,
+      })).toBe(20);
+      // claude-fable-5-1: input 1000 → 1M cached reads = 1000 * 0.025 = 25 cents
+      expect(aiUsage.computeCostCents('claude-fable-5-1', 1_000_000, 0, {
+        cacheReadTokens: 1_000_000,
+      })).toBe(25);
+      // claude-sonnet-5-5 has no override: input 200 * 0.1 = 20 cents
+      expect(aiUsage.computeCostCents('claude-sonnet-5-5', 1_000_000, 0, {
+        cacheReadTokens: 1_000_000,
+      })).toBe(20);
+    });
+
     test('omitting the cache arg matches the pre-caching result', () => {
       // Backward compatibility: positional call is unchanged.
       expect(aiUsage.computeCostCents('claude-haiku', 1000, 1000)).toBe(1);

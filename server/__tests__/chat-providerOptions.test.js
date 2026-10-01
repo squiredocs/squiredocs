@@ -4,7 +4,7 @@
  * - tagLastMessageWithCache: adds an ephemeral cache breakpoint to the last
  *   message without mutating the input array.
  */
-const { buildProviderOptions, tagLastMessageWithCache } = require('../api/chat-models');
+const { buildProviderOptions, tagLastMessageWithCache, shouldStripReasoningFromHistory, MODEL_DEFS } = require('../api/chat-models');
 
 describe('buildProviderOptions', () => {
   test('returns anthropic cacheControl + adaptive thinking for non-haiku models', () => {
@@ -54,6 +54,31 @@ describe('buildProviderOptions', () => {
   test('returns undefined for unknown or missing provider', () => {
     expect(buildProviderOptions({ provider: 'totally-unknown' })).toBeUndefined();
     expect(buildProviderOptions(undefined)).toBeUndefined();
+  });
+});
+
+describe('shouldStripReasoningFromHistory', () => {
+  const def = (key) => MODEL_DEFS.find((d) => d.key === key);
+
+  test('strips for Claude models that bind thinking to an unedited history', () => {
+    for (const key of ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1']) {
+      expect(def(key).preservedThinking).toBe(true);
+      expect(shouldStripReasoningFromHistory(def(key))).toBe(true);
+    }
+  });
+
+  test('keeps prior-turn reasoning for the earlier Claude models', () => {
+    for (const key of ['claude-haiku', 'claude-sonnet', 'claude-sonnet-5', 'claude-opus', 'claude-opus-5', 'claude-fable-5']) {
+      expect(shouldStripReasoningFromHistory(def(key))).toBe(false);
+    }
+  });
+
+  test('still strips for providers that echo reasoning back (z.ai, OpenRouter) and not for Google/OpenAI', () => {
+    expect(shouldStripReasoningFromHistory(def('glm-5.3'))).toBe(true);
+    expect(shouldStripReasoningFromHistory(def('or-grok-4.7'))).toBe(true);
+    expect(shouldStripReasoningFromHistory(def('gemini-3.8-flash'))).toBe(false);
+    expect(shouldStripReasoningFromHistory(def('gpt-6.1-sol'))).toBe(false);
+    expect(shouldStripReasoningFromHistory(undefined)).toBe(false);
   });
 });
 

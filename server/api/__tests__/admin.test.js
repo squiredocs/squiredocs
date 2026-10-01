@@ -813,7 +813,7 @@ describe('Admin API', () => {
       expect(res.body.effectiveModelKey).not.toBe('or-kimi-k3'); // but degraded
       // AI_CHAT_MODEL is neutralized in beforeEach, so the fallback is the
       // DEFAULT_MODEL_KEY constant.
-      expect(res.body.effectiveModelKey).toBe('claude-opus');
+      expect(res.body.effectiveModelKey).toBe('claude-sonnet-5-5');
       // The unrunnable gateway entry is also gone from the picker.
       expect(res.body.models.map((m) => m.provider)).not.toContain('openrouter');
     });

@@ -966,12 +966,14 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
     // Strip parts we keep for persistence/UI but must not (or need not) resend:
     //  - provider-executed web-search results (Anthropic history-adjacency, above)
     //  - prior-turn reasoning for GLM/openai-compatible (echoed back as
-    //    reasoning_content otherwise; validatedMessages keeps it for UI + storage).
+    //    reasoning_content otherwise; validatedMessages keeps it for UI + storage)
+    //    and for Claude models that bind thinking blocks to an unedited history
+    //    (see shouldStripReasoningFromHistory).
     let modelInputMessages = validatedMessages;
     if (caps.providerExecutedWebSearch) {
       modelInputMessages = chatModels.stripProviderExecutedTools(modelInputMessages);
     }
-    if (caps.stripReasoningFromHistory) {
+    if (chatModels.shouldStripReasoningFromHistory(def)) {
       modelInputMessages = chatModels.stripReasoningParts(modelInputMessages);
     }
     // UI-only word-emphasis data on replayed tool results (feature 039, FR-012c).

@@ -53,6 +53,8 @@ jest.mock('../chat-models', () => ({
   // chat-models wholesale, so the new export has to be present here or the turn
   // dies with a TypeError and every failure is misclassified as 'internal'.
   stripUiOnlyDiffParts: jest.fn((m) => m),
+  // Same hazard for the history-reasoning gate chat.js consults on every turn.
+  shouldStripReasoningFromHistory: jest.fn(() => false),
 }));
 jest.mock('../ai-providers', () => ({
   ...jest.requireActual('../ai-providers'),

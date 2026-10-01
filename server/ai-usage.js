@@ -16,6 +16,8 @@ const { MODEL_DEFS } = require('./api/chat-models');
 // Cache reads cost 10% of base input; 5-minute-TTL cache writes cost 125%.
 // These are correct for the '5m' cache TTL set in chat-models.buildProviderOptions;
 // a 1-hour TTL would make the write multiplier 2.0 (keep the two in sync).
+// A registry entry may override the read multiplier with `cacheReadMultiplier`
+// (Claude Opus 5.5 reads at 0.05x, Fable 5.1 at 0.025x).
 const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_MULTIPLIER = 1.25;
 
@@ -54,7 +56,7 @@ function computeCostCents(modelKey, inputTokens, outputTokens, cache = {}) {
   const regularInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
 
   const inputCost = (regularInput / 1_000_000) * pricing.input;
-  const cacheReadCost = (cacheReadTokens / 1_000_000) * pricing.input * CACHE_READ_MULTIPLIER;
+  const cacheReadCost = (cacheReadTokens / 1_000_000) * pricing.input * (def.cacheReadMultiplier ?? CACHE_READ_MULTIPLIER);
   const cacheWriteCost = (cacheWriteTokens / 1_000_000) * pricing.input * CACHE_WRITE_MULTIPLIER;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
   return Math.ceil(inputCost + cacheReadCost + cacheWriteCost + outputCost);

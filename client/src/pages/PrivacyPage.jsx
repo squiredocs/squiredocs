@@ -17,7 +17,7 @@
  */
 import LegalPage from './LegalPage';
 
-const LAST_UPDATED = 'July 25, 2026';
+const LAST_UPDATED = 'October 1, 2026';
 const CONTACT_EMAIL = 'contact@squiredocs.com';
 
 export default function PrivacyPage() {
@@ -117,7 +117,8 @@ export default function PrivacyPage() {
         sent to a third-party AI provider to generate a response. Depending on
         the model you select, that provider is currently Anthropic, Google,
         OpenAI, or Z.ai, or a model host reached through the OpenRouter gateway
-        (for example Moonshot AI, Alibaba, or MiniMax). The models currently
+        (for example Moonshot AI, Alibaba, MiniMax, DeepSeek, Xiaomi, Tencent, or
+        xAI). The models currently
         available, and the provider each one belongs to, are shown in the model
         picker in the app. This processing is necessary to provide the feature.
         Your use of these features is also subject to the relevant provider's

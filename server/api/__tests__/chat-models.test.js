@@ -39,7 +39,9 @@ const { computeCostCents } = aiUsage;
 const { createPool, createTestUser, cleanupTestUser } = require('../../__tests__/helpers/db');
 
 const GATEWAY_KEYS = ['or-kimi-k3', 'or-qwen3.7-max', 'or-qwen3.7-plus', 'or-minimax-m3',
-  'or-glm-4.6', 'or-glm-4.7', 'or-glm-5', 'or-glm-5.2'];
+  'or-glm-4.6', 'or-glm-4.7', 'or-glm-5', 'or-glm-5.2',
+  'or-glm-5.3', 'or-glm-5.3-flash', 'or-qwen3.8-max', 'or-qwen3.8-flash',
+  'or-deepseek-v4.1-flash', 'or-mimo-v2.6-pro', 'or-grok-4.7'];
 
 // Save/restore the env keys these tests toggle.
 let savedOR, savedAnthropic, savedEnvOverride;
@@ -47,7 +49,7 @@ beforeEach(() => {
   savedOR = process.env.OPENROUTER_API_KEY;
   savedAnthropic = process.env.ANTHROPIC_API_KEY;
   savedEnvOverride = process.env.AI_CHAT_MODEL;
-  process.env.ANTHROPIC_API_KEY = 'sk-ant-test'; // claude-opus (terminal default) is eligible
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-test'; // claude-sonnet-5-5 (terminal default) is eligible
   delete process.env.AI_CHAT_MODEL;
 });
 afterEach(() => {
@@ -235,5 +237,48 @@ describe('026 FR-003/D5 — every gateway entry ships text-only and rides the ho
     expect(stillHasImage).toBe(false);
     // The image was swapped for an honest placeholder note, not dropped silently.
     expect(JSON.stringify(out)).toMatch(/can't view images/);
+  });
+});
+
+describe('2026-10-01 registry refresh — current-generation models are registered', () => {
+  // [key, provider, modelId, input cents/1M, output cents/1M]
+  const ADDED = [
+    ['claude-sonnet-5-5', 'anthropic', 'claude-sonnet-5-5', 200, 1000],
+    ['claude-opus-5-5', 'anthropic', 'claude-opus-5-5', 400, 2000],
+    ['claude-fable-5-1', 'anthropic', 'claude-fable-5-1', 1000, 5000],
+    ['gemini-3.8-flash', 'google', 'gemini-3.8-flash', 150, 750],
+    ['gpt-6-astra', 'openai', 'gpt-6-astra', 1000, 5000],
+    ['gpt-6.1-sol', 'openai', 'gpt-6.1-sol', 200, 1000],
+    ['gpt-6-luna', 'openai', 'gpt-6-luna', 10, 50],
+    ['glm-5.3', 'zai', 'glm-5.3', 140, 440],
+    ['glm-5.3-flash', 'zai', 'glm-5.3-flash', 15, 50],
+    ['or-glm-5.3', 'openrouter', 'z-ai/glm-5.3', 140, 440],
+    ['or-glm-5.3-flash', 'openrouter', 'z-ai/glm-5.3-flash', 15, 50],
+    ['or-qwen3.8-max', 'openrouter', 'qwen/qwen3.8-max-0902', 200, 600],
+    ['or-qwen3.8-flash', 'openrouter', 'qwen/qwen3.8-flash', 15, 47],
+    ['or-deepseek-v4.1-flash', 'openrouter', 'deepseek/deepseek-v4.1-flash', 15, 60],
+    ['or-mimo-v2.6-pro', 'openrouter', 'xiaomi/mimo-v2.6-pro', 43.5, 87],
+    ['or-grok-4.7', 'openrouter', 'x-ai/grok-4.7', 200, 600],
+  ];
+
+  test.each(ADDED)('%s resolves to %s / %s at the recorded price', (key, provider, modelId, input, output) => {
+    const def = MODEL_DEFS.find((d) => d.key === key);
+    expect(def).toBeTruthy();
+    expect(def.provider).toBe(provider);
+    expect(def.modelId).toBe(modelId);
+    expect(def.pricing).toEqual({ input, output });
+  });
+
+  test('model keys are unique', () => {
+    const keys = MODEL_DEFS.map((d) => d.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test('repriced entries carry the current list price', () => {
+    const price = (key) => MODEL_DEFS.find((d) => d.key === key).pricing;
+    expect(price('claude-sonnet-5')).toEqual({ input: 200, output: 1000 });
+    expect(price('gpt-5.6-sol')).toEqual({ input: 400, output: 2000 });
+    expect(price('gpt-5.6-terra')).toEqual({ input: 200, output: 1200 });
+    expect(price('gpt-5.6-luna')).toEqual({ input: 20, output: 120 });
   });
 });

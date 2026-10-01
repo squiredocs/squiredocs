@@ -12,23 +12,46 @@
 const { PROVIDERS, getProviderConfig, hasServerKey, ANTHROPIC_CACHE_CONTROL } = require('./ai-providers');
 const { stripUiOnlyDiffFields } = require('../mcp/diff-utils');
 
-const DEFAULT_MODEL_KEY = 'claude-opus';
+// Sonnet 5.5 since 2026-10-01 (was claude-opus / Opus 4.8): Sam's call, $2/$10 against
+// $5/$25. An admin selection in app_settings or AI_CHAT_MODEL still takes precedence.
+const DEFAULT_MODEL_KEY = 'claude-sonnet-5-5';
 
 // pricing: cents per 1M tokens (from official Anthropic/Google pricing)
 // contextWindow: model input limit in tokens (used for dynamic tool result sizing)
+// cacheReadMultiplier (optional): cache-read price as a fraction of base input, for
+//   models that deviate from the standard 0.1x (see computeCostCents in ai-usage.js)
+// preservedThinking (optional): the model rejects replayed thinking blocks once the
+//   earlier history has changed (see shouldStripReasoningFromHistory below)
 const MODEL_DEFS = [
   { key: 'claude-haiku',       provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5',              pricing: { input: 100, output: 500 },  contextWindow: 200_000 },
-  { key: 'claude-sonnet',      provider: 'anthropic', modelId: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',             pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
-  // Sonnet 5 has an introductory discount ($2/$10 per 1M through 2026-08-31); we
-  // record standard $3/$15 list pricing so metering stays correct after it lapses.
-  { key: 'claude-sonnet-5',    provider: 'anthropic', modelId: 'claude-sonnet-5',           label: 'Claude Sonnet 5',               pricing: { input: 300, output: 1500 }, contextWindow: 200_000 },
-  { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 200_000 },
+  // Claude 4.6 and later carry the full 1M-token context window at standard pricing
+  // (no long-context surcharge), so Sonnet 4.6 / Sonnet 5 / Opus 4.8 are 1M, not 200k.
+  { key: 'claude-sonnet',      provider: 'anthropic', modelId: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6',             pricing: { input: 300, output: 1500 }, contextWindow: 1_000_000 },
+  // Sonnet 5's $2/$10 launch price became its standard price: the increase to $3/$15
+  // scheduled for 2026-09-01 was cancelled (pricing page, verified 2026-10-01).
+  { key: 'claude-sonnet-5',    provider: 'anthropic', modelId: 'claude-sonnet-5',           label: 'Claude Sonnet 5',               pricing: { input: 200, output: 1000 }, contextWindow: 1_000_000 },
+  { key: 'claude-opus',        provider: 'anthropic', modelId: 'claude-opus-4-8',            label: 'Claude Opus 4.8',               pricing: { input: 500, output: 2500 }, contextWindow: 1_000_000 },
   // Claude 5 family (pricing + limits from platform.claude.com/docs/en/about-claude/pricing
   // and .../models/overview, verified 2026-07-26): Opus 5 $5/$25 per 1M, Fable 5 $10/$50
   // per 1M; both ship a 1M-token context window at standard pricing and 128k max output,
   // and both accept image input (vision is derived from the anthropic provider below).
   { key: 'claude-opus-5',      provider: 'anthropic', modelId: 'claude-opus-5',              label: 'Claude Opus 5',                 pricing: { input: 500, output: 2500 }, contextWindow: 1_000_000 },
   { key: 'claude-fable-5',     provider: 'anthropic', modelId: 'claude-fable-5',             label: 'Claude Fable 5',                pricing: { input: 1000, output: 5000 }, contextWindow: 1_000_000 },
+  // Current Claude generation, added 2026-10-01 (pricing + limits from
+  // platform.claude.com/docs/en/about-claude/pricing and .../models/overview): Sonnet 5.5
+  // $2/$10, Opus 5.5 $4/$20 (cheaper than Opus 5), Fable 5.1 $10/$50; all 1M context,
+  // 128k max output, image input. Their predecessors stay listed: all are still active,
+  // and removing an entry would break any user whose byok_model_key names it.
+  //   - Cache reads are discounted more deeply than the standard 0.1x on Opus 5.5
+  //     (0.05x) and Fable 5.1 (0.025x), hence cacheReadMultiplier.
+  //   - All three bind thinking blocks to the exact conversation that produced them
+  //     (preservedThinking). Thinking is always on and forced tool_choice is rejected;
+  //     the chat path only ever sends adaptive thinking and toolChoice 'none'.
+  //   - They need @ai-sdk/anthropic >= 3.0.127: older versions don't know the ids and
+  //     silently cap max_tokens at 4096 (thinking counts against it).
+  { key: 'claude-sonnet-5-5',  provider: 'anthropic', modelId: 'claude-sonnet-5-5',          label: 'Claude Sonnet 5.5',             pricing: { input: 200, output: 1000 }, contextWindow: 1_000_000, preservedThinking: true },
+  { key: 'claude-opus-5-5',    provider: 'anthropic', modelId: 'claude-opus-5-5',            label: 'Claude Opus 5.5',               pricing: { input: 400, output: 2000 }, contextWindow: 1_000_000, cacheReadMultiplier: 0.05, preservedThinking: true },
+  { key: 'claude-fable-5-1',   provider: 'anthropic', modelId: 'claude-fable-5-1',           label: 'Claude Fable 5.1',              pricing: { input: 1000, output: 5000 }, contextWindow: 1_000_000, cacheReadMultiplier: 0.025, preservedThinking: true },
   { key: 'gemini-2.5-flash',   provider: 'google',    modelId: 'gemini-2.5-flash',           label: 'Gemini 2.5 Flash',              pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
   { key: 'gemini-2.5-pro',     provider: 'google',    modelId: 'gemini-2.5-pro',             label: 'Gemini 2.5 Pro',                pricing: { input: 125, output: 1000 }, contextWindow: 1_048_576 },
   { key: 'gemini-3-flash',     provider: 'google',    modelId: 'gemini-3-flash-preview',     label: 'Gemini 3 Flash (Preview)',       pricing: { input:  50, output: 300 },  contextWindow: 1_048_576 },
@@ -48,6 +71,13 @@ const MODEL_DEFS = [
   // nothing is removed here.
   { key: 'gemini-3.5-flash-lite', provider: 'google', modelId: 'gemini-3.5-flash-lite',      label: 'Gemini 3.5 Flash-Lite',         pricing: { input:  30, output: 250 },  contextWindow: 1_048_576 },
   { key: 'gemini-3.6-flash',   provider: 'google',    modelId: 'gemini-3.6-flash',           label: 'Gemini 3.6 Flash',              pricing: { input: 150, output: 750 },  contextWindow: 1_048_576 },
+  // Gemini 3.8 Flash (stable, 2026-09) — the newest Flash, added 2026-10-01 off the
+  // same two pages: same limits and capabilities as 3.6 (thinking levels low/medium/
+  // high). Google is running 3.6/3.7/3.8 Flash at a promotional $0.75/$3.75 through
+  // 2026-12-31; we record the $1.50/$7.50 list price that applies from 2027-01-01 so
+  // metering needs no follow-up edit (it over-meters shared usage until then).
+  // 3.7 Flash is skipped: same price, superseded by 3.8 three weeks after release.
+  { key: 'gemini-3.8-flash',   provider: 'google',    modelId: 'gemini-3.8-flash',           label: 'Gemini 3.8 Flash',              pricing: { input: 150, output: 750 },  contextWindow: 1_048_576 },
   // OpenAI models. There is no shared server OpenAI key, so these only run when
   // a user supplies their own (selectable in Settings once an OpenAI key is
   // stored; isByokActive enforces the key at request time). pricing in cents per
@@ -66,9 +96,21 @@ const MODEL_DEFS = [
   // absent from /api/docs/deprecations, so they stay (removing an entry would break
   // any user whose byok_model_key names it). Their prices re-verified unchanged;
   // gpt-5.5's context window is corrected below to the documented 1,050,000.
-  { key: 'gpt-5.6-sol',        provider: 'openai',    modelId: 'gpt-5.6-sol',                label: 'GPT-5.6 Sol',                   pricing: { input: 500, output: 3000 }, contextWindow: 1_050_000 },
-  { key: 'gpt-5.6-terra',      provider: 'openai',    modelId: 'gpt-5.6-terra',              label: 'GPT-5.6 Terra',                 pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
-  { key: 'gpt-5.6-luna',       provider: 'openai',    modelId: 'gpt-5.6-luna',               label: 'GPT-5.6 Luna',                  pricing: { input: 100, output:  600 }, contextWindow: 1_050_000 },
+  //
+  // GPT-6 added 2026-10-01, verified off the same pages: Astra (top tier), GPT-6.1 Sol
+  // (the current Sol; supersedes gpt-6-sol at the same price, so gpt-6-sol is skipped)
+  // and Luna (efficiency tier). All take text+image, 1,050,000-token context, 128k max
+  // output, and accept reasoningEffort 'low'. They need @ai-sdk/openai >= 3.0.124:
+  // older versions only treat `gpt-5*` ids as reasoning models and would drop the
+  // reasoning options. The same check found GPT-5.6 repriced since July (Sol $5/$30 →
+  // $4/$20, Terra $2.50/$15 → $2/$12, Luna $1/$6 → $0.20/$1.20), corrected below.
+  // Prompts over 272k tokens bill at a higher long-context rate that is not modelled.
+  { key: 'gpt-6-astra',        provider: 'openai',    modelId: 'gpt-6-astra',                label: 'GPT-6 Astra',                   pricing: { input: 1000, output: 5000 }, contextWindow: 1_050_000 },
+  { key: 'gpt-6.1-sol',        provider: 'openai',    modelId: 'gpt-6.1-sol',                label: 'GPT-6.1 Sol',                   pricing: { input: 200, output: 1000 }, contextWindow: 1_050_000 },
+  { key: 'gpt-6-luna',         provider: 'openai',    modelId: 'gpt-6-luna',                 label: 'GPT-6 Luna',                    pricing: { input:  10, output:   50 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.6-sol',        provider: 'openai',    modelId: 'gpt-5.6-sol',                label: 'GPT-5.6 Sol',                   pricing: { input: 400, output: 2000 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.6-terra',      provider: 'openai',    modelId: 'gpt-5.6-terra',              label: 'GPT-5.6 Terra',                 pricing: { input: 200, output: 1200 }, contextWindow: 1_050_000 },
+  { key: 'gpt-5.6-luna',       provider: 'openai',    modelId: 'gpt-5.6-luna',               label: 'GPT-5.6 Luna',                  pricing: { input:  20, output:  120 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.5',            provider: 'openai',    modelId: 'gpt-5.5',                    label: 'GPT-5.5',                       pricing: { input: 500, output: 3000 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.4',            provider: 'openai',    modelId: 'gpt-5.4',                    label: 'GPT-5.4',                       pricing: { input: 250, output: 1500 }, contextWindow: 1_050_000 },
   { key: 'gpt-5.4-mini',       provider: 'openai',    modelId: 'gpt-5.4-mini',               label: 'GPT-5.4 mini',                  pricing: { input:  75, output:  450 }, contextWindow:   400_000 },
@@ -82,17 +124,32 @@ const MODEL_DEFS = [
   { key: 'glm-4.7',            provider: 'zai',       modelId: 'glm-4.7',                    label: 'GLM-4.7',                       pricing: { input:  60, output:  220 }, contextWindow:   200_000 },
   { key: 'glm-5',              provider: 'zai',       modelId: 'glm-5',                      label: 'GLM-5',                         pricing: { input: 100, output:  320 }, contextWindow:   200_000 },
   { key: 'glm-5.2',            provider: 'zai',       modelId: 'glm-5.2',                    label: 'GLM-5.2',                       pricing: { input: 140, output:  440 }, contextWindow: 1_000_000 },
+  // GLM-5.3 (2026-08), added 2026-10-01 off docs.z.ai: 1M context, 128k max output,
+  // function calling, reasoning always on (we send no thinking config, so nothing to
+  // adapt). 5.3 is the flagship at 5.2's price; 5.3-Flash is the cheap tier. Flash
+  // also accepts image/video input, but zai is not in VISION_PROVIDERS, so it ships
+  // text-only like the rest until a live image round-trip is verified.
+  { key: 'glm-5.3',            provider: 'zai',       modelId: 'glm-5.3',                    label: 'GLM-5.3',                       pricing: { input: 140, output:  440 }, contextWindow: 1_000_000 },
+  { key: 'glm-5.3-flash',      provider: 'zai',       modelId: 'glm-5.3-flash',              label: 'GLM-5.3 Flash',                 pricing: { input:  15, output:   50 }, contextWindow: 1_000_000 },
   // OpenRouter — an OpenAI-compatible gateway. Model ids are namespaced
   // (`z-ai/glm-*`, `moonshotai/*`, `qwen/*`, `minimax/*`, `deepseek/*`, `xiaomi/*`,
-  // `tencent/*`, `meta-llama/*`); like z.ai it only implements chat-completions, so
+  // `tencent/*`, `x-ai/*`, `meta-llama/*`); like z.ai it only implements chat-completions, so
   // the provider's createModel hook forces the chat model. When OPENROUTER_API_KEY is
   // set these become eligible as the shared assistant default (feature 026); a BYOK
   // user can also select them, billed to their own OpenRouter account. pricing (cents
   // per 1M tokens = catalog USD/token × 10^8) and context windows are read straight
-  // from OpenRouter's models API (openrouter.ai/api/v1/models). All gateway entries
-  // carry the 2026-07-26 snapshot (coordinated refresh; every entry re-verified off
-  // one catalog fetch). Refresh all gateway entries together off ONE snapshot when
-  // next revisited so metering stays consistent.
+  // from OpenRouter's models API (openrouter.ai/api/v1/models). Entries added through
+  // 2026-07-26 carry that day's snapshot (coordinated refresh; every entry re-verified
+  // off one catalog fetch).
+  //
+  // Pricing caveat found 2026-10-01: for a model served by many hosts, the catalog's
+  // headline price is now the CHEAPEST host, not what a routed request costs (Kimi K3
+  // reads 36.5/1000 while Moonshot's own endpoint, and most hosts, charge 300/1500;
+  // GLM-5.3 reads 22/339 against z.ai's 140/440). Re-reading the July entries off the
+  // headline would under-meter the shared key, so they are deliberately NOT repriced
+  // here. Entries added 2026-10-01 record the model author's own endpoint price from
+  // openrouter.ai/api/v1/models/<id>/endpoints, which is at or above what almost every
+  // host charges. Do not "refresh" either set from the headline price.
   //
   // Every model below must support tool calling (`tools` in the catalog's
   // supported_parameters) — the assistant drives its whole document workflow through
@@ -120,6 +177,10 @@ const MODEL_DEFS = [
   { key: 'or-kimi-k2.6',       provider: 'openrouter', modelId: 'moonshotai/kimi-k2.6',      label: 'Kimi K2.6',                     pricing: { input:  64.6,  output:  272 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-kimi-k2.5',       provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5',      label: 'Kimi K2.5',                     pricing: { input:  57,    output:  285 },   contextWindow:   262_144 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-kimi-k2-thinking', provider: 'openrouter', modelId: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking',           pricing: { input:  60,    output:  250 },   contextWindow:   262_144 }, // text-only per catalog
+  // Qwen3.8 (added 2026-10-01): Alibaba is the only host, so the price is unambiguous.
+  // Max is published only as a dated snapshot id. Flash is the cheap tier.
+  { key: 'or-qwen3.8-max',     provider: 'openrouter', modelId: 'qwen/qwen3.8-max-0902',     label: 'Qwen3.8 Max',                   pricing: { input: 200,    output:  600 },   contextWindow: 1_000_000 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
+  { key: 'or-qwen3.8-flash',   provider: 'openrouter', modelId: 'qwen/qwen3.8-flash',        label: 'Qwen3.8 Flash',                 pricing: { input:  15,    output:   47 },   contextWindow: 1_000_000 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-qwen3.7-max',     provider: 'openrouter', modelId: 'qwen/qwen3.7-max',          label: 'Qwen3.7 Max',                   pricing: { input: 147.5,  output: 442.5 },  contextWindow: 1_000_000 }, // text-only per catalog
   { key: 'or-qwen3.7-plus',    provider: 'openrouter', modelId: 'qwen/qwen3.7-plus',         label: 'Qwen3.7 Plus',                  pricing: { input:  32,    output:  128 },   contextWindow: 1_000_000 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   { key: 'or-minimax-m3',      provider: 'openrouter', modelId: 'minimax/minimax-m3',        label: 'MiniMax M3',                    pricing: { input:  30,    output:  120 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
@@ -127,6 +188,9 @@ const MODEL_DEFS = [
   { key: 'or-glm-4.7',         provider: 'openrouter', modelId: 'z-ai/glm-4.7',              label: 'GLM-4.7',                       pricing: { input:  40,    output:  175 },   contextWindow:   204_800 },
   { key: 'or-glm-5',           provider: 'openrouter', modelId: 'z-ai/glm-5',                label: 'GLM-5',                         pricing: { input:  95,    output:  255 },   contextWindow:   204_800 },
   { key: 'or-glm-5.2',         provider: 'openrouter', modelId: 'z-ai/glm-5.2',              label: 'GLM-5.2',                       pricing: { input:  71.96, output:  226.16 }, contextWindow: 1_048_576 },
+  // GLM-5.3 (added 2026-10-01), priced at z.ai's own endpoint (see the caveat above).
+  { key: 'or-glm-5.3',         provider: 'openrouter', modelId: 'z-ai/glm-5.3',              label: 'GLM-5.3',                       pricing: { input: 140,    output:  440 },   contextWindow: 1_048_576 }, // text-only per catalog
+  { key: 'or-glm-5.3-flash',   provider: 'openrouter', modelId: 'z-ai/glm-5.3-flash',        label: 'GLM-5.3 Flash',                 pricing: { input:  15,    output:   50 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image (and video) input — verify a live image round-trip through the gateway before enabling vision
   // Families added 2026-07-26 to broaden the gateway lineup beyond Moonshot/Qwen/
   // MiniMax/z.ai. Chosen off OpenRouter's live token-volume rankings (DeepSeek V4
   // Flash, Hy3 and MiMo V2.5 were all top-5 by 30-day tokens at authoring time) plus
@@ -137,14 +201,26 @@ const MODEL_DEFS = [
   // ordinary tool-driven document work at ~1/3 the price.
   { key: 'or-deepseek-v4-pro', provider: 'openrouter', modelId: 'deepseek/deepseek-v4-pro',  label: 'DeepSeek V4 Pro',               pricing: { input:  43.5,  output:   87 },   contextWindow: 1_048_576 },
   { key: 'or-deepseek-v4-flash', provider: 'openrouter', modelId: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash',          pricing: { input:  14,    output:   28 },   contextWindow: 1_048_576 },
+  // DeepSeek V4.1 Flash (2026-09-10, added 2026-10-01): the V4 Flash successor, priced
+  // at DeepSeek's own endpoint. There is no V4.1 Pro yet.
+  { key: 'or-deepseek-v4.1-flash', provider: 'openrouter', modelId: 'deepseek/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash',    pricing: { input:  15,    output:   60 },   contextWindow: 1_048_576 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   // Xiaomi's flagship, strong on agentic/long-horizon work. The sibling
   // `xiaomi/mimo-v2.5` is omnimodal; we take the text-only Pro so the text-only
   // declaration below is the model's own nature rather than a gateway limitation.
   { key: 'or-mimo-v2.5-pro',   provider: 'openrouter', modelId: 'xiaomi/mimo-v2.5-pro',      label: 'MiMo-V2.5-Pro',                 pricing: { input:  43.5,  output:   87 },   contextWindow: 1_050_000 },
+  // MiMo-V2.6-Pro (2026-09-21, added 2026-10-01): same price as V2.5-Pro. Unlike its
+  // predecessor the Pro is now omnimodal, so text-only here is a deferred verification.
+  { key: 'or-mimo-v2.6-pro',   provider: 'openrouter', modelId: 'xiaomi/mimo-v2.6-pro',      label: 'MiMo-V2.6-Pro',                 pricing: { input:  43.5,  output:   87 },   contextWindow: 1_050_000 }, // TODO(go-live): catalog lists image (and video/audio) input — verify a live image round-trip through the gateway before enabling vision
   // Tencent's agentic MoE (295B total / 21B active). Cheapest input of the capable
   // tier here. Labelled with its vendor since the bare product name isn't
   // self-identifying the way Kimi/Qwen/GLM are.
   { key: 'or-hy3',             provider: 'openrouter', modelId: 'tencent/hy3',               label: 'Tencent Hy3',                   pricing: { input:  13.2,  output:   52.8 }, contextWindow:   262_144 },
+  // Grok 4.7 (xAI, 2026-09-21, added 2026-10-01): a frontier lab reachable only through
+  // the gateway. xAI is the only host, so the catalog price is the real price.
+  // Meta's Muse Spark 1.3 was evaluated alongside it and left out: OpenRouter answers
+  // 403 until the account owner completes an 18+ attestation in their OpenRouter
+  // preferences, so it would fail for the shared key and for any BYOK user by default.
+  { key: 'or-grok-4.7',        provider: 'openrouter', modelId: 'x-ai/grok-4.7',             label: 'Grok 4.7',                      pricing: { input: 200,    output:  600 },   contextWindow:   500_000 }, // TODO(go-live): catalog lists image input — verify a live image round-trip through the gateway before enabling vision
   // Deliberately minimal tier. Llama 3.1 8B is a 2024-era small model — weak by
   // current standards, and that is the point: it is the floor option for accounts an
   // admin wants to keep functional but cheap (see the per-user model override). It is
@@ -330,6 +406,25 @@ function stripReasoningParts(messages) {
 }
 
 /**
+ * Whether prior-turn reasoning must be dropped from what we SEND for this model.
+ * Two independent causes:
+ *   - the provider echoes reasoning back as request content (`stripReasoningFromHistory`
+ *     capability — z.ai / OpenRouter, see stripReasoningParts);
+ *   - the model binds each thinking block to the exact conversation that produced it
+ *     (`preservedThinking` — Claude Sonnet 5.5 / Opus 5.5 / Fable 5.1). chat.js
+ *     rewrites replayed history on every turn (provider-executed search results,
+ *     UI-only diff data, deduplicated reads, the staleness note), so a replayed block
+ *     no longer matches its conversation, and Anthropic accounts created on or after
+ *     2026-08-31 reject the whole request with a 400. Dropping prior-turn thinking is
+ *     Anthropic's documented recovery; thinking produced within the current turn is
+ *     untouched (the AI SDK replays it unmodified across that turn's tool steps).
+ */
+function shouldStripReasoningFromHistory(def) {
+  if (!def) return false;
+  return !!(PROVIDERS[def.provider]?.capabilities?.stripReasoningFromHistory || def.preservedThinking);
+}
+
+/**
  * Return a copy of UI `messages` with UI-only word-emphasis data removed from
  * replayed tool outputs (feature 039, seam (c) of FR-012 / FR-014).
  *
@@ -444,7 +539,7 @@ function isSharedEligible(key) {
  * after OPENROUTER_API_KEY is removed (the feature's rollback path), or an unknown
  * key left by a later release — is skipped with a logged warning so the deployment
  * degrades gracefully instead of failing every shared turn at the provider
- * (feature 026 FR-005/D4). DEFAULT_MODEL_KEY (claude-opus) is the terminal fallback
+ * (feature 026 FR-005/D4). DEFAULT_MODEL_KEY (claude-sonnet-5-5) is the terminal fallback
  * and is returned unconditionally; it is not re-validated (it is the load-bearing
  * default for the whole deployment).
  *
@@ -557,4 +652,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, 
 
 // isSharedEligible is exported so the admin write-time validation and this
 // module's resolution-time fallback are literally the same predicate (035 FR-005).
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, stripUiOnlyDiffParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, shouldStripReasoningFromHistory, stripUiOnlyDiffParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

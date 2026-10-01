@@ -454,13 +454,13 @@ const PROVIDERS = {
     keyColumn: 'byok_openai_key',
     keyPlaceholder: 'sk-...',
     keyMask: 'sk-••••••',
-    // No shared server OpenAI key — GPT-5.x run only via BYOK, so they can never
+    // No shared server OpenAI key — GPT models run only via BYOK, so they can never
     // be selected as the shared-assistant default.
     serverKeyEnv: null,
     defaultClient: () => require('@ai-sdk/openai').openai,
     createClient: (apiKey) => require('@ai-sdk/openai').createOpenAI({ apiKey }),
     validateKey: validateOpenAIKey,
-    // GPT-5.x are reasoning models. Surface reasoning summaries to the client and
+    // GPT-5.x / GPT-6 are reasoning models. Surface reasoning summaries to the client and
     // keep effort 'low' to bound agentic-loop cost/latency ('minimal' is rejected by
     // gpt-5.4-mini; 'low' is supported across the family). BYOK-only — cost is on the
     // user's key. Bump to 'medium'/'high' per model here later if desired.
@@ -505,7 +505,7 @@ const PROVIDERS = {
     keyMask: 'sk-or-••••••',
     // Shared gateway key. When OPENROUTER_API_KEY is set, OpenRouter becomes
     // eligible to back the shared-assistant default (its gateway models — Kimi,
-    // Qwen, MiniMax, GLM — surface in the admin picker via the derived hasServerKey
+    // Qwen, MiniMax, GLM, DeepSeek, Grok and the rest — surface in the admin picker via the derived hasServerKey
     // check, exactly like Anthropic/Google). When the env var is absent the
     // provider is BYOK-only and dormant: no gateway model can be selected as the
     // shared default (feature 026). z.ai stays serverKeyEnv:null (BYOK-only).
