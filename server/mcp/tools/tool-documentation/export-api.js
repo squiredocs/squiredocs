@@ -331,6 +331,14 @@ TWO-WAY SYNC (push repo edits back — mode=sync):
   The server never falls back to whole-document replacement — mode=replace
   remains the explicit opt-in for clobber writes.
 
+RATE LIMITS (import and export):
+  240 requests per minute per user for import (create, append, replace, sync —
+  a dryRun counts) and a separate 240 per minute for export. The budget is per
+  USER, shared across all of that user's tokens. Over budget returns 429 with
+  a Retry-After header and "retryAfterSeconds" in the body; nothing was
+  applied. Wait that long, then resume where you stopped — do not retry
+  immediately.
+
 IMAGE REPORT (both routes, the "images" field):
   {
     "rehosted": [{ "src": "<external URL>", "url": "<app image URL>" }],

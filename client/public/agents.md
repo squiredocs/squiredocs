@@ -209,7 +209,12 @@ bodies capped at 5 MB, and return an itemized image report plus a `markdown`
 receipt — the canonical re-export of the resulting document, for exact
 verification. Pass `frontmatter=true` to get the receipt stamped with the
 document's `squire:` frontmatter (docGuid, clock): write it back over your
-source file and the file is immediately a valid `mode=sync` baseline. Example
+source file and the file is immediately a valid `mode=sync` baseline.
+
+Import and export are each limited to 240 requests per minute per user (shared
+across all of that user's tokens; a `dryRun` counts as an import). Over budget
+returns `429` with a `Retry-After` header and `retryAfterSeconds` in the body.
+Nothing was applied: wait that long, then resume where you stopped. Example
 export:
 
 ```

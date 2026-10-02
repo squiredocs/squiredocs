@@ -11,6 +11,7 @@ process.env.RL_FORCE_MEMORY = '1';
 process.env.RL_AUTH_PER_MIN = '3';
 process.env.RL_CHAT_PER_MIN = '2';
 process.env.RL_VERSION_HISTORY_PER_MIN = '3';
+process.env.RL_IMPORT_PER_MIN = '2';
 
 const request = require('supertest');
 const express = require('express');
@@ -33,6 +34,9 @@ function buildApp() {
 
   // Version-history class (F8): the /history* and /versions* routes mount this.
   app.get('/api/docs/:docId/history', fakeAuth, rateLimit.perUser('versionHistory'), (req, res) => res.json({ ok: true }));
+
+  // Import class: agent-facing, so its 429 carries retry guidance.
+  app.put('/api/docs/:docId/import', fakeAuth, rateLimit.perUser('import'), (req, res) => res.json({ ok: true }));
 
   return app;
 }
@@ -82,6 +86,28 @@ describe('rate limit — per-IP & per-user (FR-005/006/009)', () => {
     // A different user still has full budget.
     const other = await request(app).get('/api/docs/doc-1/history').set('x-user', 'vh-user-2');
     expect(other.status).toBe(200);
+  });
+
+  it('import class: 429 tells the caller how long to wait', async () => {
+    for (let i = 0; i < 2; i++) {
+      const ok = await request(app).put('/api/docs/doc-1/import').set('x-user', 'imp-user');
+      expect(ok.status).toBe(200);
+    }
+    const limited = await request(app).put('/api/docs/doc-1/import').set('x-user', 'imp-user');
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('Rate limit exceeded for markdown import.');
+    expect(limited.body.retryAfterSeconds).toBe(Number(limited.headers['retry-after']));
+    expect(limited.body.guidance).toContain(`Wait ${limited.body.retryAfterSeconds}s`);
+  });
+
+  it('import and export default to 240/min when not overridden', () => {
+    expect(rateLimit.CLASSES.export.points).toBe(240);
+    const saved = process.env.RL_IMPORT_PER_MIN;
+    delete process.env.RL_IMPORT_PER_MIN;
+    jest.isolateModules(() => {
+      expect(require('../rate-limit').CLASSES.import.points).toBe(240);
+    });
+    process.env.RL_IMPORT_PER_MIN = saved;
   });
 
   it('/health and /ready are never rate-limited (FR-012)', async () => {

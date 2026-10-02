@@ -161,8 +161,8 @@ const PORT = process.env.PORT || 3001;
 //   RL_TOKEN_PER_MIN=30            per-IP POST /mcp/auth/token budget
 //   (registration is intentionally unlimited — no sign-up gate; caps removed 2026-07-18)
 //   RL_SEARCH_PER_MIN=30            per-user content-search budget
-//   RL_IMPORT_PER_MIN=10            per-user markdown-import budget
-//   RL_EXPORT_PER_MIN=20            per-user document-export budget
+//   RL_IMPORT_PER_MIN=240           per-user markdown-import budget
+//   RL_EXPORT_PER_MIN=240           per-user document-export budget
 //   RL_CHAT_PER_MIN=30              per-user chat budget
 //   RL_FORCE_MEMORY=(unset)         set to 1 to force per-process limiter (tests/dev)
 // ─────────────────────────────────────────────────────────────────────────────

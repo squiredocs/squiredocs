@@ -27,8 +27,13 @@ const CLASSES = {
   auth:              { keyPrefix: 'rl:auth:ip',        points: num('RL_AUTH_PER_MIN', 30),            duration: MIN },
   token:             { keyPrefix: 'rl:token:ip',       points: num('RL_TOKEN_PER_MIN', 30),           duration: MIN },
   search:            { keyPrefix: 'rl:search:user',    points: num('RL_SEARCH_PER_MIN', 30),          duration: MIN },
-  import:            { keyPrefix: 'rl:import:user',     points: num('RL_IMPORT_PER_MIN', 10),          duration: MIN },
-  export:            { keyPrefix: 'rl:export:user',     points: num('RL_EXPORT_PER_MIN', 20),          duration: MIN },
+  // Markdown import/export is the REST byte channel agents are TOLD to use for
+  // file sync, and a sync pass touches every file in a directory (often twice:
+  // a dryRun preview is charged like a push). The original 10/20 per minute
+  // predated two-way sync and tripped on a single spec directory. 240/min is
+  // 4/s sustained: a bulk sync never reaches it, a runaway loop still does.
+  import:            { keyPrefix: 'rl:import:user',     points: num('RL_IMPORT_PER_MIN', 240),         duration: MIN },
+  export:            { keyPrefix: 'rl:export:user',     points: num('RL_EXPORT_PER_MIN', 240),         duration: MIN },
   chat:              { keyPrefix: 'rl:chat:user',       points: num('RL_CHAT_PER_MIN', 30),            duration: MIN },
   upload:            { keyPrefix: 'rl:upload:user',     points: num('RL_UPLOAD_PER_MIN', 20),          duration: MIN },
   // Feature 021 render-skip beacon: client-side reports are debounced/batched,
@@ -122,8 +127,9 @@ function clientIp(req) {
  * Send the 429 over-budget response. `Retry-After` in seconds from msBeforeNext
  * when known. For the chat route class the body carries the structured
  * `rate_limited` taxonomy payload (feature 012, FR-006) so the chat client
- * renders the specific rate-limit banner; every other route keeps the uniform
- * body (FR-009, non-chat 429 out of scope).
+ * renders the specific rate-limit banner. The agent-facing classes (mcp,
+ * import, export) add `retryAfterSeconds` and guidance; every other route keeps
+ * the uniform body (FR-009).
  */
 function reject429(res, rejRes, className) {
   if (rejRes && typeof rejRes.msBeforeNext === 'number') {
@@ -147,6 +153,20 @@ function reject429(res, rejRes, className) {
       guidance: secs
         ? `Wait ${secs}s before the next tool call. If you are making many small edits, batch them into fewer modify calls rather than retrying immediately.`
         : 'Wait before the next tool call, and batch many small edits into fewer modify calls rather than retrying immediately.',
+    });
+  }
+  if (className === 'import' || className === 'export') {
+    // Same reasoning as mcp: these routes are driven by agents running a sync
+    // loop, and a bare error gets retried immediately.
+    const secs = rejRes && typeof rejRes.msBeforeNext === 'number'
+      ? Math.max(1, Math.ceil(rejRes.msBeforeNext / 1000))
+      : null;
+    return res.status(429).json({
+      error: `Rate limit exceeded for markdown ${className}.`,
+      retryAfterSeconds: secs,
+      guidance: secs
+        ? `Wait ${secs}s, then resume where you stopped. Nothing was applied by this request, so retrying it is safe.`
+        : 'Wait before the next request, then resume where you stopped. Nothing was applied by this request, so retrying it is safe.',
     });
   }
   res.status(429).json({ error: 'Rate limit exceeded. Retry later.' });
