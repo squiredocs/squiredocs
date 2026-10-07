@@ -128,7 +128,7 @@ docker compose up -d --wait
 
 The image ships a `squire` command, run as `docker compose exec app squire <command>`. It uses the same database connection as the server. Commands that matter for this proposal:
 
-- `squire doctor [--json]` reports database reachability, migration state, Redis state, mode, `APP_URL`, which optional features are on (email, S3, semantic search, assistant keys), and whether the instance has an owner. It exits non-zero when the instance cannot serve requests.
+- `squire doctor [--json]` reports database reachability, migration state, Redis state, mode, `APP_URL`, which optional features are on (email, S3, semantic search, assistant keys), and whether the instance has an owner. It exits non-zero when the instance cannot serve requests. (From the 059 build.) It probes the server's /ready; owner presence and Redis are informational, and --json includes a failed list naming each check that failed, which explains a case like /ready passing while an http APP_URL on a non-local host fails.
 - `squire claim-link [--name N] [--email E]` mints a sign-in link for the owner. On an unclaimed instance the link creates the owner. On a claimed instance it signs the owner in.
 - `squire login-link --email E` mints a sign-in link for any existing user. This is the administrator recovery path in team mode.
 - `squire token create --name <agent>` mints an `sk_sqd_` token for the owner (or `--email` in team mode) with read and write scopes and a 30-day expiry, and writes it to a file with mode 0600 under the data directory. It never prints the token unless asked with `--stdout`. This is the headless fallback for connecting an agent.
@@ -151,7 +151,7 @@ How a link works:
 - On a claimed instance, a `claim-link` signs in the existing owner. The CLI ignores `--name` and `--email` and says so, and the page shows no fields, only "Signed in as <owner>". Changing the owner's name or email happens in Settings.
 - There is no HTTP endpoint or MCP tool that mints a link. The only ways to get one are the CLI inside the container and, on an unclaimed instance, the startup log (below).
 
-**The startup-log link (D11).** When the server finishes starting in local mode and the instance has no owner, it mints a claim link the same way the CLI does and logs it in a clearly marked block, so `docker compose logs app` shows it. Details:
+**The startup-log link (D11).** When the server finishes starting in local mode and the instance has no owner, it mints a claim link the same way the CLI does and logs it in a clearly marked block, so `docker compose logs app` shows it. (From the 059 build.) The block is printed just before the server reports ready, as plain lines outside the structured JSON log, so it stays readable. Details:
 
 - It runs only in local mode with no owner. An instance with an owner, and every team-mode instance including the hosted service, never logs a link.
 - It is minted once per boot, with the same 15-minute expiry and single use. If it expires before anyone clicks it, the person runs ./squire claim-link or restarts the app container.
@@ -164,6 +164,9 @@ How a link works:
 - Opening `/claim#<token>` first calls a read-only check that says whether the token is valid and whether it will create the owner or sign someone in, without spending it. Clicking Continue posts a form to `POST /auth/signin-link`, which spends the token and answers with the normal post-sign-in redirect. A client that asks for JSON gets JSON instead, which the CI job uses.
 - Minting a link deletes expired and used links. Redeeming a claim link voids every other unused claim link.
 - Sign-ins through a link record `signin_link` as the sign-in source in `users.signup_source` and `auth_events`.
+- (From the 059 build.) A link to an existing user does not redeem on open: the page shows "Sign in as <name>" and waits for Continue.
+- (From the 059 build.) A claim takes the users table lock before spending its link, so two simultaneous claims cannot both create an owner; the loser sees link_invalid.
+- (From the 059 build.) The migration backfills Google identities from users.google_id and maps the dev faucet's dev-test- users to the dev issuer. A compatibility trigger creates an identity for any row still written with google_id, which covers old pods during a rolling deploy; it is dropped together with the column in a later cleanup. One gap remains: a user created by a new pod who signs in on an old pod during the same rollout gets auth_failed once.
 
 Why not trust requests from localhost instead: Docker's port publishing makes every request reach the container from the bridge gateway address, so `req.ip` cannot tell a local browser from another machine. The application also deliberately uses a numeric `trust proxy` hop count, so forwarded headers cannot be used either.
 
