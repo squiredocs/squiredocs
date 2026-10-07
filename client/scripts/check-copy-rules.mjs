@@ -31,10 +31,12 @@ const RETIRED_STRINGS = [
   'Write with AI, right in your doc',
   'Free. No Setup. Sign in with Google.',
   'Unlimited Docs',
-  'Dedicated Instance',
   'Batteries included',
   'ChatGPT',
 ];
+// Retired plan names matched case-sensitively: the FR-019 FAQ answer says "run
+// a dedicated instance for you" in lowercase prose (RBD-062-20).
+const RETIRED_NAMES = ['Dedicated Instance'];
 
 export const COPY_RULES = [
   // FR-030: the product name is "Squire Docs". Case-sensitive, so the
@@ -69,7 +71,10 @@ export const COPY_RULES = [
   {
     id: 'retired-string',
     fr: 'FR-038',
-    patterns: [new RegExp(RETIRED_STRINGS.map(escapeRe).join('|'), 'gi')],
+    patterns: [
+      new RegExp(RETIRED_STRINGS.map(escapeRe).join('|'), 'gi'),
+      new RegExp(RETIRED_NAMES.map(escapeRe).join('|'), 'g'),
+    ],
   },
 ];
 

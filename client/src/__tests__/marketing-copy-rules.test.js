@@ -55,6 +55,7 @@ describe('checker catches each rule (US5, SC-004)', () => {
     ['"AGPL"', '<p>Licensed under the AGPL.</p>', 'other-license'],
     ['"Apache"', '<p>Apache-2.0 licensed.</p>', 'other-license'],
     ['"Unlimited Docs"', '<h2>Unlimited Docs</h2>', 'retired-string'],
+    ['the "Dedicated Instance" plan name', '<h2>Dedicated Instance</h2>', 'retired-string'],
     ['"ChatGPT"', '<p>Use ChatGPT inside your doc.</p>', 'retired-string'],
     ['"spec-driven" in an <h2>', '<h2>For spec-driven teams</h2>', 'spec-driven-heading'],
   ];
@@ -82,6 +83,7 @@ describe('checker catches each rule (US5, SC-004)', () => {
     ['github.com/squiredocs', `<a href="${GITHUB_ORG_URL}">github.com/squiredocs</a>`],
     ['"z.ai (GLM)"', '<p>Anthropic, OpenAI, z.ai (GLM), or OpenRouter.</p>'],
     ['an &mdash; inside an HTML comment', '<!-- a marker &mdash; and — here --><p>Clean.</p>'],
+    ['"a dedicated instance" in lowercase prose (RBD-062-20)', '<p>We run a dedicated instance for you.</p>'],
     ['"approve the agent"', '<p>Click the sign-in link and approve the agent.</p>'],
     ['"never", "however", "whatever"', '<p>However you work, whatever you use, never mind.</p>'],
   ];
@@ -144,7 +146,7 @@ const block = (html, openTag, closeTag = '</section>') => {
   return html.slice(start, end + closeTag.length);
 };
 
-const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const text = (html) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 const expectInOrder = (haystack, needles, label) => {
   let from = 0;
@@ -181,7 +183,7 @@ function expectClosingBand(html, label) {
 // --- Block 2: scanned sources are clean ---------------------------------------
 
 describe('scanned sources are clean (FR-030 to FR-038)', () => {
-  for (const name of ['landing.html']) {
+  for (const name of ['landing.html', 'pricing.html']) {
     it(`${name} has no copy-rule violations`, () => {
       const vs = findCopyRuleViolations(stripStampedFooter(readPage(name)), { requireMit: true });
       expect(vs, vs.map((v) => `${name}: ${v.rule} "${v.match}"`).join('\n')).toHaveLength(0);
@@ -318,5 +320,104 @@ describe('landing launch copy (US1, FR-001 to FR-013, FR-028)', () => {
 
   it('closing band (FR-028)', () => {
     expectClosingBand(html, 'landing.html');
+  });
+});
+
+describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
+  const html = readPage('pricing.html');
+  const DESCRIPTION =
+    'Squire Docs is free during public beta on squiredocs.com, with $10 of AI credits a month or your own API key. Self-host it free as open source software, or ask us for a managed instance in the cloud region you choose.';
+  const OG_DESCRIPTION =
+    'Free during beta, free to self-host, or a managed instance in the cloud region you choose.';
+
+  it('title and meta text (FR-020, RBD-062-15)', () => {
+    expect(titleOf(html)).toBe('Pricing | Squire Docs');
+    expect(metaContent(html, 'property', 'og:title')).toBe('Pricing | Squire Docs');
+    expect(metaContent(html, 'name', 'description')).toBe(DESCRIPTION);
+    expect(metaContent(html, 'property', 'og:description')).toBe(OG_DESCRIPTION);
+    expect(html.match(/<head>[\s\S]*<\/head>/)[0]).not.toMatch(/Dedicated/);
+  });
+
+  it('hero describes all three options (FR-018, RBD-062-14)', () => {
+    const hero = block(html, '<section class="pricing-hero">');
+    expect(text(block(hero, '<h1', '</h1>'))).toBe('Use ours free, or run your own.');
+    expect(text(block(hero, '<p', '</p>'))).toBe(
+      'Squire Docs is free during public beta on squiredocs.com, and free to self-host as open source software. Managed instances are priced per organization. No credit card needed.',
+    );
+  });
+
+  it('exactly three plan cards in order with the design prices and actions (FR-014 to FR-016)', () => {
+    const cards = html.split(/<div class="pricing-card(?: featured)?">/).slice(1).map((c) => c.slice(0, c.indexOf('</a>') + 4));
+    expect(cards).toHaveLength(3);
+    const expected = [
+      ['Hosted', 'Free during beta', '<a href="/signup" class="landing-btn google">Start free</a>', /\$10 of AI credits a month/],
+      ['Self-hosted', 'Free, open source', `<a href="${SELF_HOST_URL}" class="landing-btn outline">Run it yourself</a>`, /stays on your infrastructure/],
+      ['Managed instance', 'Custom pricing', '<a href="mailto:contact@squiredocs.com?subject=Managed%20instance" class="landing-btn outline">', /cloud region you choose/],
+    ];
+    expected.forEach(([name, price, action, body], i) => {
+      expect(cards[i]).toContain(`<h2>${name}</h2>`);
+      expect(cards[i]).toContain(`<p class="pricing-price">${price}</p>`);
+      expect(cards[i]).toContain(action);
+      expect(text(cards[i])).toMatch(body);
+    });
+    expect(html).toMatch(/<div class="pricing-card featured">\s*<span class="pricing-badge">Public beta<\/span>\s*<h2>Hosted<\/h2>/);
+  });
+
+  it('comparison table columns and the sign-in, credits, and residency rows (FR-017, RBD-062-8)', () => {
+    const table = block(html, '<div class="pricing-compare">', '</table>');
+    expectInOrder(table, ['<th>Hosted</th>', '<th>Self-hosted</th>', '<th>Managed instance</th>'], 'table header');
+    const row = (label) => {
+      const r = table.split('<tr>').find((tr) => tr.includes(label));
+      expect(r, `row "${label}" missing`).toBeTruthy();
+      return (r.match(/<td>([\s\S]*?)<\/td>/g) || []).slice(1).map((td) => (td.includes('pricing-check') ? 'yes' : td.includes('pricing-dash') ? 'no' : text(td)));
+    };
+    expect(row('<td>Sign-in</td>')).toEqual(['Sign in with Google', 'Sign-in link minted by your instance', 'Sign in with Google']);
+    expect(row('$10 of AI credits every month')).toEqual(['yes', 'no', 'no']);
+    expect(row('Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter')).toEqual(['yes', 'yes', 'yes']);
+    expect(row('Runs on your own infrastructure')).toEqual(['no', 'yes', 'no']);
+    expect(row('Hosted in the cloud region you choose')).toEqual(['no', 'no', 'yes']);
+    expect(table.match(/<tr>/g)).toHaveLength(14); // header + 13 rows
+  });
+
+  it('FAQ carries the launch questions and answers (FR-019)', () => {
+    const faq = block(html, '<div class="pricing-faq">', '</section>');
+    const answer = (q) => {
+      const d = faq.split('<details>').find((x) => x.includes(`<summary>${q}</summary>`));
+      expect(d, `FAQ "${q}" missing`).toBeTruthy();
+      return d.slice(d.indexOf('<p>'), d.indexOf('</p>') + 4);
+    };
+    for (const q of [
+      'What happens when my credits run out?',
+      'Do I need a credit card?',
+      'What happens to my documents if I stop using Squire Docs?',
+    ]) answer(q);
+    const run = answer('Can we run Squire Docs ourselves?');
+    expect(text(run)).toBe(
+      'Yes. Squire Docs is open source under the MIT license. Install it with one command, or follow the self-host guide. If you want us to run a dedicated instance for you in the cloud region of your choice, email contact@squiredocs.com.',
+    );
+    expect(run).toContain(`<a href="${GITHUB_ORG_URL}">MIT license</a>`);
+    expect(run).toContain(`<a href="${SELF_HOST_URL}">self-host guide</a>`);
+    expect(text(answer('Is the hosted version the same software?'))).toBe(
+      'Yes. squiredocs.com runs the same code as the public repository.',
+    );
+    expect(text(answer('Where can a managed instance run?'))).toBe(
+      'In the cloud region you choose, including EU regions. Your documents, database, and backups stay in that region, which helps you meet data residency and sovereignty requirements. Email contact@squiredocs.com to discuss your region.',
+    );
+    expect(text(answer('Do I need an API key to self-host?'))).toBe(
+      'No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add a key to turn on the built-in assistant and semantic search.',
+    );
+    const stay = answer('Will Squire Docs stay free?');
+    expect(stay).toContain('and your documents export as markdown at any time.');
+    expect(stay).toContain(`The open source project is <a href="${GITHUB_ORG_URL}">MIT licensed</a>.`);
+  });
+
+  it('old plan names are gone (FR-014)', () => {
+    expect(html).not.toContain('Unlimited Docs');
+    expect(html).not.toContain('Dedicated Instance');
+    expect(html).not.toMatch(/<h2>Bring your own key<\/h2>|<th>Bring your own key<\/th>/);
+  });
+
+  it('closing band (FR-028)', () => {
+    expectClosingBand(html, 'pricing.html');
   });
 });
