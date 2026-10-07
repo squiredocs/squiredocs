@@ -363,43 +363,65 @@ force_unmount_in_node() {
   local p="$1"
   minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo umount -l $(shq "$p")" </dev/null >/dev/null 2>&1 || true
   COLLAB_DC_MOUNT_TABLE_STALE=1
-  COLLAB_DC_NODE_UNREADABLE_STALE=1
+  COLLAB_DC_NODE_READ_STALE=1
 }
 
-# 9p mounts in the node that root can't read, one per line, fetched once per CLI
-# run (refetched alongside the mount table after a remount). A mount can have a
-# table entry AND a live serving process and still be dead: when macOS deletes
-# and recreates the host directory (it does this to TemporaryItems), the 9p
-# server's handle points at the old inode and every access fails with
-# ESERVERFAULT ("Unknown error 526"). Probed as root via sudo — see
-# mount_live_in_node for why the unprivileged ssh user can't probe. One ssh
-# round-trip covers every mount.
-node_unreadable_mounts() {
-  if [[ -z "${COLLAB_DC_NODE_UNREADABLE+x}" || "${COLLAB_DC_NODE_UNREADABLE_STALE:-0}" == 1 ]]; then
-    local script='mount -t 9p | sed -n "s/^.* on \(.*\) type 9p .*/\1/p" | while IFS= read -r p; do ls -A "$p" >/dev/null 2>&1 || printf "%s\n" "$p"; done'
-    # minikube ssh allocates a pty, so lines come back CRLF; strip the CR or the
-    # exact-line match in mount_unreadable_in_node never hits.
-    COLLAB_DC_NODE_UNREADABLE="$(minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo sh -c $(shq "$script")" </dev/null 2>/dev/null | tr -d '\r' || true)"
-    COLLAB_DC_NODE_UNREADABLE_STALE=0
+# Can the NODE actually read each mount point? Fetched in one `minikube ssh`
+# round-trip per CLI run, like node_mount_table. Set COLLAB_DC_NODE_READ_STALE=1 to
+# force a refetch after remounting.
+#
+# This is the third failure mode, and the one the other two checks miss
+# completely: a mount can be listed in the node's table with its host process
+# still alive, yet return EIO ("Unknown error 526") on every access — the 9p
+# export goes bad and never recovers on its own. mount_healthy called that state
+# healthy, so ensure_host_mounts never remounted it, while the pod saw EIO on
+# everything under the path including files created seconds ago.
+#
+# `sudo` because the mounts are made --uid 0 --gid 0 and `minikube ssh` lands as
+# the unprivileged `docker` user (see mount_live_in_node).
+#
+# stat, NOT a listing: a directory with thousands of entries overflows 9p's
+# readdir and fails while the mount is perfectly usable for opening files by
+# path — which is all a dragged-in path needs. Probing with `ls` would classify
+# that working mount as broken and remount it on every single invocation.
+node_read_table() {
+  if [[ -z "${COLLAB_DC_NODE_READ+x}" || "${COLLAB_DC_NODE_READ_STALE:-0}" == 1 ]]; then
+    local script="" p q
+    while IFS= read -r p; do
+      [[ -z "$p" ]] && continue
+      q="$(shq "$p")"
+      script+="if sudo stat -c %i ${q} >/dev/null 2>&1; then r=ok; else r=fail; fi"$'\n'
+      script+="printf '%s\t%s\n' \"\$r\" ${q}"$'\n'
+    done < <(all_mount_paths)
+    if [[ -z "$script" ]]; then
+      COLLAB_DC_NODE_READ=""
+    else
+      # </dev/null for the same reason as node_mount_table: called from read loops.
+      COLLAB_DC_NODE_READ="$(minikube -p "$COLLAB_DC_CONTEXT" ssh -- "$script" </dev/null 2>/dev/null | tr -d '\r' || true)"
+    fi
+    COLLAB_DC_NODE_READ_STALE=0
   fi
-  printf '%s' "$COLLAB_DC_NODE_UNREADABLE"
+  printf '%s' "$COLLAB_DC_NODE_READ"
 }
 
-# True when the node has a mount entry for this path but can't read through it.
-mount_unreadable_in_node() {
-  local p="$1"
-  mount_live_in_node "$p" && grep -qxF "$p" <<<"$(node_unreadable_mounts)"
+# True when the node can read this mount point. Falls back to a direct probe for
+# a path outside the batched set, so a caller passing an unrelated path can't be
+# told "unreadable" just because it wasn't in all_mount_paths.
+node_can_read() {
+  local p="$1" table; table="$(node_read_table)"
+  grep -qxF "$(printf 'ok\t%s' "$p")"   <<<"$table" && return 0
+  grep -qxF "$(printf 'fail\t%s' "$p")" <<<"$table" && return 1
+  minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo stat -c %i $(shq "$p")" </dev/null >/dev/null 2>&1
 }
 
 # A path is only healthy when the node has a mount entry, a host process is
-# still serving it, AND the node can actually read through it. Each check alone
-# misses a failure mode: a process without a mount (the classic post-reboot
-# orphan), a mount without a process (a stale entry that returns EIO on every
-# access), and a mount whose server lost its directory (node_unreadable_mounts).
+# still serving it, AND the node can actually read through it. Each check misses
+# a failure mode the others catch: a process without a mount (the classic
+# post-reboot orphan), a mount without a process (stale entry, EIO on access),
+# and a mount with both that has gone bad anyway (EIO despite looking perfect).
 mount_healthy() {
   local p="$1"
-  mount_live_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]] \
-    && ! mount_unreadable_in_node "$p"
+  mount_live_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]] && node_can_read "$p"
 }
 
 # Start a `minikube mount host:host` for one path, replacing any orphan first.
@@ -412,6 +434,8 @@ start_host_mount() {
   # </dev/null for the same reason as node_mount_table: called from a read loop.
   minikube -p "$COLLAB_DC_CONTEXT" mount --uid 0 --gid 0 "${p}:${p}" </dev/null >/dev/null 2>&1 &
   disown || true
+  COLLAB_DC_MOUNT_TABLE_STALE=1
+  COLLAB_DC_NODE_READ_STALE=1
 }
 
 # Host paths currently served by a `minikube mount` process, one per line.
@@ -450,7 +474,6 @@ reap_nested_mounts() {
         reap_orphan_mount "$a"
         minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo umount $(shq "$a")" </dev/null >/dev/null 2>&1 || true
         COLLAB_DC_MOUNT_TABLE_STALE=1
-        COLLAB_DC_NODE_UNREADABLE_STALE=1
         break
       fi
     done
@@ -535,9 +558,7 @@ ensure_host_mounts() {
     if mount_healthy "$p"; then
       echo "  ok: $p"
     else
-      if mount_unreadable_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]]; then
-        echo "  stale (served, but the node can't read it — the host dir was likely recreated): $p — remounting..."
-      elif mount_live_in_node "$p"; then
+      if mount_live_in_node "$p"; then
         echo "  stale (mount entry with no serving process — reads fail with EIO): $p — remounting..."
       elif [[ -n "$(mount_host_pids "$p")" ]]; then
         echo "  stale (orphaned mount process, node mount is gone): $p — remounting..."
@@ -560,7 +581,7 @@ ensure_host_mounts() {
   while (( tries < 15 )); do
     sleep 1
     COLLAB_DC_MOUNT_TABLE_STALE=1
-    COLLAB_DC_NODE_UNREADABLE_STALE=1
+    COLLAB_DC_NODE_READ_STALE=1
     pending=()
     for p in "${started[@]}"; do
       mount_healthy "$p" || pending+=( "$p" )
@@ -753,33 +774,75 @@ pod_path_for() {
 # entries) overflows 9p's readdir and fails with "Unknown error 526" while the
 # mount is perfectly healthy for opening files — which is all a dragged-in path
 # needs. Counting entries reported that working mount as broken.
+# Up to $2 entry names (basenames) from a host directory, NUL-delimited.
+#
+# `find -print0` read with `read -d ''` rather than `ls`: entry names can contain
+# spaces and even newlines (the screenshot dir is full of "Screenshot 2026-08-10
+# at 3.17.16 PM.png"), and find streams lazily, so sampling five entries out of a
+# directory with thousands costs only the first five.
+host_sample_entries() {
+  local dir="$1" max="${2:-5}" full n=0
+  while IFS= read -r -d '' full; do
+    printf '%s\0' "${full##*/}"
+    n=$((n + 1))
+    (( n >= max )) && break
+  done < <(find "$dir" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+  return 0
+}
+
 pod_mount_view() {
   local pod="$1" host_path="$2" pod_path="$3" rc=0
 
-  # Distinguish three outcomes inside the pod, because they need different
-  # fixes and a plain entry count conflates them:
-  #   3 = the path can't be read at all. A 9p mount gone bad returns EIO
-  #       ("Unknown error 526") on every access while still looking mounted —
-  #       the kubelet even refuses to start a container on it. Needs a remount.
-  #   4 = readable but empty. The pod bound the path before the mount existed.
-  #       Needs a pod rebind, not a remount.
-  #   0 = content visible.
-  kc exec "$pod" -- sh -c 'out=$(ls -A "$1" 2>/dev/null) || exit 3; [ -n "$out" ] || exit 4; exit 0' \
-     _ "$pod_path" >/dev/null 2>&1 || rc=$?
+  # Sample a few entries the host actually has, then ask the pod to resolve them
+  # BY PATH. Never readdir — see the note above; `ls -A` in here is what made
+  # `shell` recreate the pod every time against a mount that opened files fine.
+  local -a probes=()
+  local e
+  while IFS= read -r -d '' e; do probes+=( "$e" ); done < <(host_sample_entries "$host_path" 5)
+
+  if (( ${#probes[@]} == 0 )); then
+    # Nothing on the host to look for. The mount can still be bad rather than
+    # merely empty, so confirm the pod can at least stat the mount point.
+    if kc exec "$pod" -- sh -c '[ -d "$1" ]' _ "$pod_path" >/dev/null 2>&1; then
+      printf 'ok (host dir is empty)'
+      return 0
+    fi
+    printf 'UNREADABLE (the pod cannot stat it — not bound to a live mount)'
+    return 3
+  fi
+
+  # Three outcomes, because they need different fixes:
+  #   0 = at least one host entry resolves in the pod. The mount works for
+  #       opening files, which is all a dragged-in path needs.
+  #   4 = the mount point is there but none of the host's entries are. The pod
+  #       bound the path before the mount existed. Needs a pod rebind.
+  #   3 = the pod can't even stat the mount point. A 9p export gone bad returns
+  #       EIO on every access while still looking mounted. Needs a REMOUNT — a
+  #       pod rebind cannot fix this one.
+  kc exec "$pod" -- sh -c '
+    d=$1; shift
+    for name; do [ -e "$d/$name" ] && exit 0; done
+    [ -d "$d" ] && exit 4
+    exit 3
+  ' _ "$pod_path" "${probes[@]}" >/dev/null 2>&1 || rc=$?
 
   case "$rc" in
     0) printf 'ok'; return 0 ;;
-    3) printf 'UNREADABLE (mount is bad — reads return EIO; needs a remount)'; return 1 ;;
+    3) printf 'UNREADABLE (reads fail with EIO — not bound to a live mount)'; return 3 ;;
     4)
-      # Empty is only a fault if the host has something to show.
-      if [[ -z "$(ls -A "$host_path" 2>/dev/null | head -1 || true)" ]]; then
-        printf 'ok (host dir is empty)'
-        return 0
-      fi
-      printf 'EMPTY IN POD (host has content; the pod bound this path before the mount existed)'
-      return 1
+      # The sample can go stale under us: TemporaryItems churns constantly, and
+      # every entry we picked may legitimately be gone by now. Re-check the host
+      # before calling this a fault — otherwise a race triggers a pod recreate.
+      for e in "${probes[@]}"; do
+        [[ -e "$host_path/$e" ]] && {
+          printf 'EMPTY IN POD (host has content; the pod bound this path before the mount existed)'
+          return 4
+        }
+      done
+      printf 'ok (host entries vanished mid-probe; nothing to compare)'
+      return 0
       ;;
-    *) printf 'UNKNOWN (could not probe the pod)'; return 1 ;;
+    *) printf 'UNKNOWN (could not probe the pod)'; return 3 ;;
   esac
 }
 
@@ -795,53 +858,119 @@ pod_mount_is_readonly() {
   [[ "$ro" == "true" ]]
 }
 
-# True when the pod can't see one or more of its host mounts. Happens whenever
-# the pod started while a mount was down — after a reboot the kubelet often
-# recreates the pod before the mounts are back. mountPropagation re-delivers a
-# mount that simply reappeared, but NOT one that was unmounted and remounted
-# underneath a running container, so this has to be checked rather than assumed.
+# Which of its host mounts can the pod not see? Happens whenever the pod started
+# while a mount was down — after a reboot the kubelet often recreates the pod
+# before the mounts are back. mountPropagation re-delivers a mount that simply
+# reappeared, but NOT one that was unmounted and remounted underneath a running
+# container, so this has to be checked rather than assumed.
+#
 # Judged only against paths the pod actually DECLARES a volumeMount for. A
 # desired path the pod never declared isn't a broken mount — it's a stale pod
 # spec, which a rebind can't fix and which would otherwise make every `shell`
 # trigger another pointless restart.
 #
-# Paths the node itself can't serve are skipped too: the pod's view of those is
-# broken no matter how it's bound, so a recreate can't fix them — it would only
-# kill whatever is running in the pod, and then fire again on the next `shell`.
-pod_is_blind_to_mounts() {
-  local pod="$1" p
-  [[ -z "$pod" ]] && return 1
+# Splits the faults into the two groups that need DIFFERENT fixes, printed as
+# "rebind<TAB>path" / "remount<TAB>path".
+#
+# Only the first group justifies recreating the pod: the node reads the path
+# fine, so the mount is live and it's the pod's bind that is stale. When the NODE
+# can't read it either, the mount itself is broken — recreating the pod binds it
+# onto the same broken mount and changes nothing. Conflating the two is what
+# turned `shell` into an unconditional pod-killer: a bad 9p export made the check
+# fail forever, and every invocation "fixed" it with a restart that couldn't.
+pod_mount_faults() {
+  local pod="$1" p rc
+  [[ -z "$pod" ]] && return 0
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
-    mount_healthy "$p" || continue
-    pod_mount_view "$pod" "$p" "$(pod_path_for "$p")" >/dev/null || return 0
+    rc=0
+    pod_mount_view "$pod" "$p" "$(pod_path_for "$p")" >/dev/null || rc=$?
+    (( rc == 0 )) && continue
+    if node_can_read "$p"; then
+      printf 'rebind\t%s\n' "$p"
+    else
+      printf 'remount\t%s\n' "$p"
+    fi
   done < <(pod_declared_mount_paths "$pod")
-  return 1
+  return 0
+}
+
+# Stamp recording the last automatic pod recreate, so a fault that a rebind
+# cannot actually fix can't make every `shell` kill the container. Keyed on the
+# deployment, alongside the mount lock.
+rebind_stamp_file() {
+  local t="${TMPDIR:-/tmp}"
+  printf '%s/devcontainer-rebind.%s.%s.%s' \
+    "${t%/}" "${COLLAB_DC_CONTEXT:-minikube}" "${COLLAB_DC_NAMESPACE:-default}" "${COLLAB_DC_DEPLOYMENT:-pod}"
 }
 
 # Rebind the pod onto the live mounts if it can't see them. Called from the
 # user-facing entry points (up, shell) rather than from the background LaunchAgent:
 # recreating the pod interrupts whatever is running inside it, so it happens when
-# the user is present, not on a timer — and when Claude is running in the pod
-# (likely another terminal's live session), only after the user says yes.
-# Non-interactive callers get a warning instead of a recreate.
+# the user is present, not on a timer.
+#
+# Recreating the pod is destructive — it kills whatever is running inside, which
+# for this sandbox means a dev server and any in-pod Claude session. So it is now
+# the LAST step, taken only for faults it can actually resolve, and never twice
+# in a row for the same unresolved paths.
 ensure_pod_binding() {
-  local pod="$1"
-  pod_is_blind_to_mounts "$pod" || return 0
-  echo
-  echo "The pod can't see some of its host mounts — it was bound before they were (re)mounted."
-  if kc exec "$pod" -- pgrep -x claude >/dev/null 2>&1; then
-    echo "Claude is running in the pod; recreating it would end those sessions."
-    local reply=""
-    if [[ -t 0 ]]; then
-      read -r -p "Recreate the pod now? [y/N] " reply || reply=""
-    fi
-    if [[ ! "$reply" =~ ^[Yy] ]]; then
-      echo "Leaving the pod alone. Run 'collab-devcontainer restart' when it's free."
+  local pod="$1" faults
+  faults="$(pod_mount_faults "$pod")"
+  [[ -z "$faults" ]] && return 0
+
+  local rebind remount
+  rebind="$(awk -F'\t' '$1=="rebind"{print $2}'   <<<"$faults")"
+  remount="$(awk -F'\t' '$1=="remount"{print $2}' <<<"$faults")"
+
+  # A broken mount is repaired at the node, not by touching the pod. ensure_host_mounts
+  # already ran and now checks readability (node_can_read), so reaching here means the
+  # remount didn't take — say so plainly instead of recreating the pod pointlessly.
+  if [[ -n "$remount" ]]; then
+    echo
+    echo "These host mounts are broken at the node (reads fail with EIO):"
+    while IFS= read -r p; do [[ -n "$p" ]] && echo "  $p"; done <<<"$remount"
+    echo "Recreating the pod would NOT fix this — it would bind the same broken mount."
+    echo "Try: collab-devcontainer mounts     (or 'minikube stop && minikube start' if it persists)"
+  fi
+
+  [[ -z "$rebind" ]] && return 0
+
+  # Loop breaker: if the last auto-recreate was for this same set of paths and it
+  # clearly didn't help, don't do it again. Better a missing screenshot dir than
+  # a shell that kills the container on every invocation.
+  local stamp; stamp="$(rebind_stamp_file)"
+  local key; key="$(printf '%s' "$rebind" | sort | md5 -q 2>/dev/null || printf '%s' "$rebind" | sort | md5sum | cut -d' ' -f1)"
+  if [[ -f "$stamp" ]]; then
+    local prev_key prev_at age
+    IFS=$'\t' read -r prev_at prev_key < "$stamp" || true
+    age=$(( $(date +%s) - ${prev_at:-0} ))
+    if [[ "$prev_key" == "$key" ]] && (( age < 900 )); then
       echo
+      echo "The pod still can't see these host mounts after a recent recreate:"
+      while IFS= read -r p; do [[ -n "$p" ]] && echo "  $p"; done <<<"$rebind"
+      echo "Not recreating it again (that would kill whatever is running in the pod)."
+      echo "Inspect with: collab-devcontainer mounts     Force it with: collab-devcontainer restart"
       return 0
     fi
   fi
+  # Even a fixable rebind ends every session in the pod. If Claude is running
+  # there — most likely a live session in another terminal — ask first, and
+  # default to leaving it alone. Non-interactive callers only get the warning.
+  if kc exec "$pod" -- pgrep -x claude >/dev/null 2>&1; then
+    echo
+    echo "The pod can't see these host mounts, but Claude is running in it:"
+    while IFS= read -r p; do [[ -n "$p" ]] && echo "  $p"; done <<<"$rebind"
+    local reply=""
+    [[ -t 0 ]] && { read -r -p "Recreate the pod now (ends those sessions)? [y/N] " reply || reply=""; }
+    if [[ ! "$reply" =~ ^[Yy] ]]; then
+      echo "Leaving the pod alone. Run 'collab-devcontainer restart' when it's free."
+      return 0
+    fi
+  fi
+  printf '%s\t%s\n' "$(date +%s)" "$key" > "$stamp" 2>/dev/null || true
+
+  echo
+  echo "The pod can't see its host mounts — it started before they were up."
   echo "Recreating it so .git and the drag-and-drop dirs resolve..."
   "$COLLAB_DC_TOOL_DIR/bin/collab-devcontainer" restart </dev/null
 }

@@ -167,8 +167,11 @@ A path listed in `rw_paths` but nested inside another mounted path is dropped by
 |---|---|---|
 | Host process alive, node mount gone | The classic post-reboot orphan. `pgrep` finds a healthy-looking process; the pod sees **empty** directories. | remount |
 | Node mount entry present, no serving process | Every read returns `EIO` (`Unknown error 526`). The kubelet refuses to create the container at all — the pod is stuck in `CreateContainerError`. | force-unmount, then remount |
+| Mount entry **and** process both present, but the export has gone bad | Everything looks perfect — table entry, live process — yet every read through the mount returns `EIO`, including files created on the host seconds ago. | force-unmount, then remount |
 
-Because of the first case, liveness is **never** judged by `pgrep` alone: a path counts as healthy only when the node's mount table has an entry *and* a host process is still serving it *and* root in the node can actually read through it. That last check catches a third failure: macOS deletes and recreates `TemporaryItems` on its own, which leaves the 9p server holding a handle to the old directory, so every access fails with `Unknown error 526` (ESERVERFAULT) even though the entry and the process both look fine. The fix is a remount.
+Because of the first case, liveness is **never** judged by `pgrep` alone. Because of the third, it isn't judged by the mount table either: a path counts as healthy only when the node has an entry, a host process is still serving it, **and the node can actually read through it** (one batched `minikube ssh` + `sudo stat` per run — `sudo` because the mounts are `--uid 0 --gid 0` and `minikube ssh` lands as the unprivileged `docker` user).
+
+That third check is deliberately a `stat`, never a directory listing. A directory with thousands of entries overflows 9p's `readdir` and fails with `Unknown error 526` while the mount is perfectly usable for opening files *by path* — which is all a dragged-in path needs. Probing with `ls` classifies that working mount as broken and remounts it on every invocation.
 
 ```sh
 collab-devcontainer mounts                  # heal whatever is down, then report
@@ -183,7 +186,22 @@ The agent only ever touches mounts — it never recreates the pod, since that wo
 
 Mount mutation is serialized with a lock (`$TMPDIR/devcontainer-mounts.<profile>.lock`, stale after 180s) so the agent's tick and a user-run command can't reap each other's freshly-started mounts. The name is keyed on the minikube profile rather than on this tool, because the node's mount table is shared with any sibling devcontainer CLI on the same profile — wft-devcontainer configures the same drop dirs and runs its own agent on the same tick, so a tool-scoped lock would not have interlocked them.
 
-**Pods bind hostPath at creation.** If the pod started while a mount was down, healing the mount isn't always enough — propagation re-delivers a mount that simply reappeared, but not one that was unmounted and remounted under a running container. So `up` and `shell` check whether the pod can actually see its mounts and rebind it (a `restart`) when it can't. That check is why entering the sandbox after a reboot Just Works. A rebind ends every session in the pod, so if Claude is running there (probably in another terminal), `shell`/`up` ask first and default to leaving it alone; without a TTY they only warn. Paths the node itself can't read are left out of the blindness check, because a rebind can't fix those and would fire again on every `shell`.
+**Pods bind hostPath at creation.** If the pod started while a mount was down, healing the mount isn't always enough — propagation re-delivers a mount that simply reappeared, but not one that was unmounted and remounted under a running container. So `up` and `shell` check whether the pod can actually see its mounts and rebind it (a `restart`) when it can't. That check is why entering the sandbox after a reboot Just Works.
+
+Recreating the pod **kills everything running inside it**, so it is the last resort, and it is only taken for faults it can actually fix. Each path the pod can't see is classified by asking the *node*:
+
+| The node… | Meaning | Action |
+|---|---|---|
+| reads the path fine | The mount is live; only the pod's bind is stale. | rebind (a `restart`) |
+| can't read it either | The mount itself is broken. | remount, and say so — **no** pod recreate |
+
+Recreating the pod for the second case is what turned `shell` into an unconditional pod-killer: a bad 9p export made the check fail on every invocation, and each one "fixed" it with a restart that rebound the new pod onto the very same broken mount. A pod recreate can never repair a mount.
+
+As a backstop, an automatic rebind is recorded in `$TMPDIR/devcontainer-rebind.<context>.<namespace>.<deployment>`. If the *same* set of paths is still unseen within 15 minutes of the last automatic recreate, the CLI refuses to recreate again and prints what to run instead — better a missing screenshot dir than a `shell` that kills the container every time. `collab-devcontainer restart` still forces it.
+
+And even a fixable rebind ends every session in the pod, so when Claude is running there (most likely a live session in another terminal), `shell`/`up` ask before recreating and default to leaving the pod alone; without a TTY they only warn.
+
+The pod's view is probed **by path, never by listing**: the CLI samples a few entry names the host actually has and asks the pod to resolve them (`[ -e "$dir/$name" ]`), for the same `readdir` reason as above. If those sampled entries vanish mid-probe — `TemporaryItems` churns constantly — the result is treated as inconclusive rather than as a fault, so a race can't trigger a recreate.
 
 Blindness is judged **only against paths the pod actually declares a volumeMount for**. A desired path the pod never declared isn't a broken mount — it's a stale pod spec, which a rebind can't fix. (`$TMPDIR/TemporaryItems` only exists once a screenshot has been taken, and is gone again after a reboot, so it routinely joins the desired set after the last `up`.) Judging against the desired set instead would make every `shell` trigger another pointless restart, forever. For the same reason `restart` re-applies the manifest before rolling the pod, rather than reusing the existing template.
 
@@ -223,6 +241,7 @@ The compose-based "Reopen in Container" flow doesn't apply (the sandbox is a Kub
 
 - `collab-devcontainer doctor` first — it checks context, services, image, sync, and paths.
 - **Wrong context:** the CLI refuses to act unless your current context is `minikube` (so it can never touch a prod cluster). `kubectl config use-context minikube`.
+- **`shell` keeps recreating the pod:** it should only ever do that once, and only when a rebind will actually help. If you see it more than once, run `collab-devcontainer mounts` — a 9p export that reads `EIO` at the *node* can't be fixed by recreating the pod, and the CLI will now say so and stop rather than restart in a loop. If a remount doesn't clear it, `minikube stop && minikube start`.
 - **Sync dangles after `restart`:** a recreated pod is a new container, so the old Mutagen sync points at a dead ID. `restart` re-creates it automatically; if you recreate the pod by hand, re-run `script/mutagen.sh`.
 - **Port `:5173`/`:3001` already bound:** you can't run `npm run dev` in both this pod and a second app-dev at the same host port. Stop one (`pkill -f 'port-forward.*app-dev'`).
 - **PVC won't bind:** your cluster may lack a default StorageClass — set `storageClassName` in `k8s/claude-pvc.yaml` (e.g. `standard-rwo`).
