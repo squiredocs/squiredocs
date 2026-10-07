@@ -4,7 +4,7 @@
  * Tests the editable name field on the Settings page.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SettingsPage from '../SettingsPage';
 
@@ -173,5 +173,63 @@ describe('SettingsPage', () => {
     await user.clear(input);
 
     expect(screen.getByText('Save')).toBeDisabled();
+  });
+});
+
+describe('SettingsPage — instance-specific content (feature 058)', () => {
+  const usage = { allowed: true, creditCents: 1000, usedCents: 100, remainingCents: 900, extraCreditCents: 0 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete window.__SQUIRE_INSTANCE__;
+  });
+
+  function withUsage(u) {
+    mockApi.get.mockImplementation((url) => (url === '/api/usage'
+      ? Promise.resolve({ data: u })
+      : Promise.reject(new Error('not available'))));
+  }
+
+  it('shows and copies the MCP URL as this origin + /mcp', () => {
+    // The shared test setup replaces window.location with a plain object.
+    const savedOrigin = window.location.origin;
+    window.location.origin = 'http://localhost:3910';
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      render(<SettingsPage onNavigateHome={() => {}} user={testUser} />);
+      expect(screen.getByText('http://localhost:3910/mcp')).toBeInTheDocument();
+      expect(screen.queryByText('https://squiredocs.com/mcp')).toBeNull();
+      fireEvent.click(screen.getByText('Copy'));
+      expect(writeText).toHaveBeenCalledWith('http://localhost:3910/mcp');
+    } finally {
+      window.location.origin = savedOrigin;
+    }
+  });
+
+  it('hides the usage meter and beta note when not hosted', async () => {
+    withUsage(usage);
+    render(<SettingsPage onNavigateHome={() => {}} user={testUser} />);
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/usage'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('AI Usage')).toBeNull();
+    expect(screen.queryByText(/public beta/)).toBeNull();
+  });
+
+  it('hides them when hosted but usage is notApplicable', async () => {
+    window.__SQUIRE_INSTANCE__ = { hosted: true };
+    withUsage({ ...usage, notApplicable: true });
+    render(<SettingsPage onNavigateHome={() => {}} user={testUser} />);
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/usage'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('AI Usage')).toBeNull();
+  });
+
+  it('shows them when hosted', async () => {
+    window.__SQUIRE_INSTANCE__ = { hosted: true };
+    withUsage(usage);
+    render(<SettingsPage onNavigateHome={() => {}} user={testUser} />);
+    expect(await screen.findByText('AI Usage')).toBeInTheDocument();
+    expect(screen.getByText(/public beta/)).toBeInTheDocument();
   });
 });
