@@ -82,7 +82,7 @@ Replace the SDD-only section with four use cases. SDD becomes the first, not the
 
 **Section: Run it on your machine** (message 4)
 
-> Tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.
+> With Docker installed, tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.
 >
 > `curl -fsSL https://squiredocs.com/install.sh | sh`
 >
@@ -111,7 +111,7 @@ The two current free columns ("Unlimited Docs" and "Bring your own key") merge i
 - "Can we run Squire Docs ourselves?" becomes: "Yes. Squire Docs is open source under the MIT license. Install it with one command, or follow the self-host guide. If you want us to run a dedicated instance for you in the cloud region of your choice, email contact@squiredocs.com."
 - New: "Is the hosted version the same software?" Answer: "Yes. squiredocs.com runs the same code as the public repository."
 - New: "Where can a managed instance run?" Answer: "In the cloud region you choose, including EU regions. Your documents, database, and backups stay in that region, which helps you meet data residency and sovereignty requirements. Email contact@squiredocs.com to discuss your region."
-- New: "Do I need an API key to self-host?" Answer: "No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add a key to turn on the built-in assistant and semantic search."
+- New: "Do I need an API key to self-host?" Answer: "No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add your own key in Settings to turn on the built-in assistant. Semantic search turns on when the server has a Google AI key."
 - "Will Squire Docs stay free?" keeps its current answer for hosted, and adds that the open source project is MIT licensed.
 
 ## Proposed copy: about page
