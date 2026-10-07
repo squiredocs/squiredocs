@@ -62,6 +62,24 @@ You can also add Squire Docs to Kiro by hand, without the Power: add it to the `
 
 Kiro hot-reloads the file when you save it and walks you through the OAuth sign-in in your browser on first use, with no client IDs or secrets to set by hand. Squire Docs pairs naturally with Kiro's spec-driven workflow: keep the spec Kiro plans and implements against as a living Squire Docs document your team edits together, and every change Kiro makes is attributed and reversible alongside everyone else's.
 
+### Codex
+
+For OpenAI's Codex, add the server and sign in from a terminal:
+
+```
+codex mcp add squire --url https://squiredocs.com/mcp
+codex mcp login squire
+```
+
+`codex mcp login` opens the OAuth sign-in in your browser, and Codex registers itself with Squire Docs automatically, so there is no client ID to set. The Codex CLI, the Codex IDE extension, and the ChatGPT desktop app share this configuration, which lives in `~/.codex/config.toml`. You can also add the server there by hand:
+
+```toml
+[mcp_servers.squire]
+url = "https://squiredocs.com/mcp"
+```
+
+On a machine without a browser, use an API token instead of OAuth: store an `sk_sqd_` token (see [Authentication](#authentication)) in an environment variable and name that variable with `bearer_token_env_var = "SQUIRE_DOCS_TOKEN"` in the same `[mcp_servers.squire]` block. For a self-hosted instance, use that instance's endpoint in place of the hosted one: `http://localhost:3910/mcp` with the default port (see [Self-hosting](/documentation/self-hosting)).
+
 For any MCP-native client, point it at the endpoint above. The client's built-in OAuth discovery handles the rest through the standard chain, so you do not need to configure client IDs, secrets, or extra URLs by hand.
 
 The agent-facing instructions live at [/agents.md](/agents.md), which agents can read directly.
