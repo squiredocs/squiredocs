@@ -2,7 +2,7 @@
 slug: appearance
 title: Appearance
 description: The Light, Dark, and System theme settings in Squire Docs, and how they affect the app and your documents.
-order: 11
+order: 12
 ---
 
 Squire Docs has a theme control in the user profile menu with three settings. This page covers what each does.

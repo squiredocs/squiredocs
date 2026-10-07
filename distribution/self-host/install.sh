@@ -19,7 +19,7 @@
 #
 # Environment:
 #   SQUIRE_INSTALL_ASSET_URL  base URL the four release files are downloaded from
-#                             (default https://github.com/<REPOSITORY>/releases/download/v<version>).
+#                             (default https://github.com/$REPOSITORY/releases/download/v<version>).
 #                             CI points it at assets built in the same run. It changes nothing else.
 #   SQUIRE_PORT               host port (default 3910), as in compose.yml
 #
