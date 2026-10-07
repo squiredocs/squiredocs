@@ -63,3 +63,6 @@ distribution/.mcp-publisher-key
 # feature 032 registry DNS setup artifacts (Sam-op, not source; key is secret)
 distribution/route53-txt-upsert.json
 dump.rdb
+
+# Local self-host data directory (feature 058: secrets.json, images/)
+/.squire-data/

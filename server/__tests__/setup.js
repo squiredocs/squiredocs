@@ -29,3 +29,31 @@ process.env.DATABASE_URL = getTestDatabaseUrl();
 // require-time by server/redis.js, which is loaded later by the test file, so
 // setting it here (setupFilesAfterEnv) is early enough.
 process.env.REDIS_DB = String(getWorkerId());
+
+// Feature 058: normalize the instance configuration every suite starts from.
+// The app-dev pod sets SQUIRE_HOSTED=true (RBD-058-28) and may carry S3 and
+// SES variables; a suite must never inherit them by accident, or it would test
+// the hosted branch while claiming to test the default, or write image bytes
+// to a real bucket. A suite that needs hosted behavior sets SQUIRE_HOSTED
+// itself before requiring modules (and calls _resetInstanceConfigForTests).
+for (const name of [
+  'SQUIRE_HOSTED', 'APP_URL', 'STORAGE_DRIVER', 'S3_ENDPOINT', 'MIGRATE_ON_BOOT',
+  'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM',
+]) {
+  delete process.env[name];
+}
+// Each worker (and each test-file process) gets its own throwaway data
+// directory, so a suite that forgets to mock image storage writes local-driver
+// bytes here, never to /data or another worker's files (RBD-058-19).
+{
+  const os = require('os');
+  const squireDataDir = path.join(os.tmpdir(), `squire-test-data-w${getWorkerId()}-${process.pid}`);
+  fs.mkdirSync(squireDataDir, { recursive: true });
+  process.env.SQUIRE_DATA_DIR = squireDataDir;
+  // afterAll rather than process.on('exit'): Jest hands each test file a fresh
+  // process proxy, so an exit listener per file would pile up in one worker.
+  // Files in a worker run serially, and the next file's setup recreates it.
+  afterAll(() => {
+    try { fs.rmSync(squireDataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+}
