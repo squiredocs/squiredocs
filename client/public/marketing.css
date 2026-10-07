@@ -732,6 +732,14 @@
   color: #1f2937;
 }
 
+/* GitHub and Self-host header links (feature 062): hidden where the nav would
+   wrap; the footer carries both links at every width (RBD-062-18, RBD-062-21). */
+@media (max-width: 960px) {
+  .landing-nav-link-wide {
+    display: none;
+  }
+}
+
 /* Trust strip */
 .landing-trust-strip {
   background: #f9fafb;
