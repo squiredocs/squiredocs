@@ -17,7 +17,7 @@ const { SNAPSHOT_TOOLS } = require('./chat-staleness');
 const { getProviderConfig } = require('./ai-providers');
 const documents = require('../documents');
 const documentImages = require('../document-images');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const documentService = require('../document-service');
 const { buildYjsNode } = require('../mcp/yjs/node-builder');
 const { parseAppImageUrl } = require('../image-url');
@@ -32,7 +32,7 @@ const { stripUiOnlyDiffFields } = require('../mcp/diff-utils');
  * as { error } so the model can recover.
  */
 async function insertChatImage({ args = {}, messageImages, chatDocGuid, userId, agentName }) {
-  if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
+  if (!imageStorage.isEnabled()) return { error: 'Image storage is not configured.' };
   const docGuid = args.docGuid || chatDocGuid;
   if (!docGuid) return { error: 'No target document. Specify docGuid.' };
   if (!messageImages.length) {
@@ -220,7 +220,7 @@ function buildWebTools(providerName, provider) {
  *   - view_svg_blocks: rasterize the doc's SVG blocks and show the rendered
  *     results to the model (vision) — lets the agent see what it (or a
  *     collaborator) drew.
- * All run in-process against s3Images / documentImages / agentPresence.
+ * All run in-process against imageStorage / documentImages / agentPresence.
  *
  * @param {object} agentToken - { userId, agentName }
  * @param {object} ctx - { messageImages, messageMarkdown, docGuid }
@@ -301,7 +301,7 @@ function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [],
     }),
     execute: async (args = {}) => {
       try {
-        if (!s3Images.isEnabled()) return { error: 'Image storage is not configured.' };
+        if (!imageStorage.isEnabled()) return { error: 'Image storage is not configured.' };
         let docGuid = args.docGuid || chatDocGuid;
         let imageId = args.imageId;
         const parsed = parseAppImageUrl(imageId);
@@ -331,7 +331,7 @@ function buildImageTools(agentToken, { messageImages = [], messageMarkdown = [],
         return { type: 'error-text', value: output?.error || 'Could not view image.' };
       }
       try {
-        const bytes = await s3Images.getObject(output.s3Key);
+        const bytes = await imageStorage.getObject(output.s3Key);
         return {
           type: 'content',
           value: [

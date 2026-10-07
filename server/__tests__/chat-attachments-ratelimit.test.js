@@ -11,7 +11,8 @@ process.env.RL_FORCE_MEMORY = '1';  // per-process memory limiter (no Redis dep)
 process.env.RL_UPLOAD_PER_MIN = '2'; // tiny budget so the 3rd request is over
 
 // Mock S3 so no bucket is touched.
-jest.mock('../s3-images', () => ({
+jest.mock('../image-storage', () => ({
+  kind: 's3',
   isEnabled: () => true,
   putObject: jest.fn(async () => {}),
   getObject: jest.fn(async (key) => Buffer.from('BYTES::' + key)),

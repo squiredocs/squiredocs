@@ -613,8 +613,8 @@ describe('sync-push route (mode=sync)', () => {
 
   test('external image src degrades to a link when storage is disabled; itemized as degraded', async () => {
     // Force the storage-disabled policy path deterministically (no network).
-    const s3Images = require('../../server/s3-images');
-    const spy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(false);
+    const imageStorage = require('../../server/image-storage');
+    const spy = jest.spyOn(imageStorage, 'isEnabled').mockReturnValue(false);
     try {
       const { docId, clock, body } = await seedDoc('# Doc\n\nintro');
       const res = await put(docId, fileFor(docId, clock,

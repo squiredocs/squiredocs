@@ -16,6 +16,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { ensureDir } = require('../fs-ensure-dir');
 
 const SECRET_NAMES = Object.freeze([
   'ACCESS_TOKEN_SECRET',
@@ -73,21 +74,6 @@ function writeError(dir, err) {
     'must be writable by the app user (uid 100). For a bind mount run ' +
     `\`chown -R 100:101 ${dir}\`.`
   );
-}
-
-/**
- * mkdir -p without { recursive: true }: Node's recursive mkdir spins forever
- * on some pseudo filesystems (seen under /proc), and a boot must fail, not hang.
- */
-function ensureDir(dir) {
-  try {
-    fs.mkdirSync(dir, { mode: 0o750 });
-  } catch (err) {
-    if (err.code === 'EEXIST') return;
-    if (err.code !== 'ENOENT' || path.dirname(dir) === dir) throw err;
-    ensureDir(path.dirname(dir));
-    try { fs.mkdirSync(dir, { mode: 0o750 }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
-  }
 }
 
 /** Write `obj` to a fresh temp file in `dir` (mode 0600, fsynced). Returns its path. */

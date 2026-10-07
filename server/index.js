@@ -89,7 +89,7 @@ const collabGuardrail = require('./collab-guardrail');
 const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const documentImages = require('./document-images');
-const s3Images = require('./s3-images');
+const imageStorage = require('./image-storage');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
 // The identity leaf (features 040/043). Zero-require — safe to import anywhere.
@@ -147,6 +147,7 @@ const spaces = require('./spaces');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
+const { createDocumentImagesRouter } = require('./api/document-images-routes');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
@@ -223,7 +224,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.googleadservices.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       // S3 image origin(s) added so the browser can load presigned document-image URLs.
-      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com", ...s3Images.cspImageSources()],
+      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com", ...imageStorage.cspImageSources()],
       connectSrc: ["'self'", "ws:", "wss:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.google.com", "https://googleads.g.doubleclick.net"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -916,15 +917,13 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
     // Delete Yjs data
     await persistenceProvider.clearDocument(docId);
 
-    // Delete the document's images from S3 (DB rows cascade with the document).
-    // Best-effort: a failure here shouldn't block document deletion.
+    // Delete the document's image bytes from image storage (S3 or the local
+    // driver; DB rows cascade with the document). Best-effort: a failure here
+    // shouldn't block document deletion.
     try {
-      if (s3Images.isEnabled()) {
-        const imageKeys = await documentImages.listKeysForDoc(docId);
-        await s3Images.deleteObjects(imageKeys);
-      }
+      await documentImages.deleteImageBytesForDoc(docId);
     } catch (cleanupError) {
-      console.error('Error deleting document images from S3:', cleanupError);
+      console.error('Error deleting document images from image storage:', cleanupError);
       notifyException(cleanupError, { req, source: 'api' });
     }
 
@@ -942,71 +941,11 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
   }
 });
 
-// API: Upload an image for a document (editor or owner)
-// Body: { filename, mimeType, dataBase64 }. Bytes go to S3; only metadata is stored in PG.
-app.post('/api/docs/:docId/images', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
-  try {
-    const { docId } = req.params;
-    const userId = req.user.userId;
-
-    if (!s3Images.isEnabled()) {
-      return res.status(503).json({ error: 'Image storage is not configured' });
-    }
-
-    // Uploading is an edit — require editor-or-better
-    if (!(await documents.canEdit(docId, userId))) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const { filename = null, mimeType, dataBase64 } = req.body || {};
-    if (!mimeType || !dataBase64) {
-      return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
-    }
-
-    const result = await documentImages.storeImage({
-      docId, uploaderId: userId, data: Buffer.from(dataBase64, 'base64'), mimeType, filename,
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    // storeImage tags validation errors with a status (400/413).
-    if (error.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error('Error uploading document image:', error);
-    notifyException(error, { req, source: 'api' });
-    res.status(500).json({ error: 'Failed to upload image' });
-  }
-});
-
-// API: Resolve a document image to a short-lived presigned S3 URL (viewer-or-better).
-// Returns { url } rather than bytes so images load directly from S3.
-app.get('/api/docs/:docId/images/:imageId', requireAuth, async (req, res) => {
-  try {
-    const { docId, imageId } = req.params;
-    const userId = req.user.userId;
-
-    if (!s3Images.isEnabled()) {
-      return res.status(503).json({ error: 'Image storage is not configured' });
-    }
-
-    if (!(await documents.hasAccess(docId, userId))) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const image = await documentImages.getImage(imageId, docId);
-    if (!image) {
-      return res.status(404).json({ error: 'Image not found' });
-    }
-
-    const url = await s3Images.getSignedGetUrl(image.s3_key);
-    res.set('Cache-Control', 'no-store');
-    res.json({ url });
-  } catch (error) {
-    console.error('Error resolving document image:', error);
-    notifyException(error, { req, source: 'api' });
-    res.status(500).json({ error: 'Failed to resolve image' });
-  }
-});
+// Document image upload, resolve, and raw byte routes (feature 058: moved
+// into server/api/document-images-routes.js so tests mount the production
+// router; the upload route keeps its own 20mb JSON parser, and the global
+// parser above still skips that path).
+app.use(createDocumentImagesRouter({ documents, documentImages, storage: imageStorage, notifyException }));
 
 // API: Search registered users for the share autocomplete
 app.get('/api/users/search', requireAuth, async (req, res) => {

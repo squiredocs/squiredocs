@@ -10,7 +10,7 @@
  */
 
 // Mock S3 so image storage exercises the DB path without real object storage.
-jest.mock('../../../s3-images', () => ({
+jest.mock('../../../image-storage', () => ({
   isEnabled: jest.fn(() => true),
   putObject: jest.fn(async () => {}),
   getObject: jest.fn(async () => Buffer.alloc(0)),

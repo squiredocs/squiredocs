@@ -36,7 +36,7 @@ const https = require('https');
 const path = require('path');
 const Y = require('yjs');
 const documentImages = require('./document-images');
-const s3Images = require('./s3-images');
+const imageStorage = require('./image-storage');
 const { isAppImageUrl } = require('./image-url');
 const { findByNodeName } = require('./mcp/sandbox/helpers');
 
@@ -516,7 +516,7 @@ async function rehostImagesInFragment(target, ctx, opts = {}) {
   const ordered = [...groups.values()];
 
   // Storage off ⇒ nothing can be rehosted; degrade everything, fetch nothing.
-  const storageEnabled = s3Images.isEnabled();
+  const storageEnabled = imageStorage.isEnabled();
   if (!storageEnabled) {
     for (const { src, nodes } of ordered) {
       degraded.push({ src: reportSrc(src), reason: 'storage-disabled' });

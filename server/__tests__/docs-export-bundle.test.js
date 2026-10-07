@@ -8,7 +8,7 @@
  * structural-validity check of the archive).
  */
 
-jest.mock('../s3-images', () => ({
+jest.mock('../image-storage', () => ({
   isEnabled: jest.fn(() => true),
   getObject: jest.fn(),
 }));
@@ -20,7 +20,7 @@ const express = require('express');
 const Y = require('yjs');
 const documents = require('../documents');
 const documentImages = require('../document-images');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { generateAccessToken } = require('../auth/jwt');
 const { createExportRouter, slugifyDocTitle } = require('../api/docs-export');
 const { parseFrontmatter } = require('../../shared/markdown/frontmatter');
@@ -142,8 +142,8 @@ describe('API: GET /api/docs/:docId/export?format=bundle', () => {
   beforeEach(async () => {
     docId = crypto.randomUUID();
     docCreated = false;
-    s3Images.isEnabled.mockReturnValue(true);
-    s3Images.getObject.mockImplementation(async (key) => Buffer.from(`bytes-of:${key}`));
+    imageStorage.isEnabled.mockReturnValue(true);
+    imageStorage.getObject.mockImplementation(async (key) => Buffer.from(`bytes-of:${key}`));
   });
 
   afterEach(async () => {
@@ -285,7 +285,7 @@ describe('API: GET /api/docs/:docId/export?format=bundle', () => {
     const bad = crypto.randomUUID();
     await seedImageRow(good);
     await seedImageRow(bad);
-    s3Images.getObject.mockImplementation(async (key) => {
+    imageStorage.getObject.mockImplementation(async (key) => {
       if (key.includes(bad)) throw new Error('NoSuchKey');
       return Buffer.from(`bytes-of:${key}`);
     });
@@ -319,7 +319,7 @@ describe('API: GET /api/docs/:docId/export?format=bundle', () => {
   test('storage disabled: valid bundle with zero assets, refs untouched', async () => {
     const img = crypto.randomUUID();
     await seedImageRow(img);
-    s3Images.isEnabled.mockReturnValue(false);
+    imageStorage.isEnabled.mockReturnValue(false);
     await seedDoc('No Storage', [imageUrl(docId, img)]);
 
     const res = await fetchBundle();

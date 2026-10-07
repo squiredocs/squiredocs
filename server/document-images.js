@@ -2,11 +2,11 @@
  * Document images data module — metadata for images embedded in documents.
  *
  * Rows map an image id to its owning document and S3 object. Bytes live in S3
- * (see server/s3-images.js); this table is the source of truth for permission
+ * (see server/image-storage/); this table is the source of truth for permission
  * scoping (image belongs to a doc) and cleanup.
  */
 const { randomUUID } = require('crypto');
-const s3Images = require('./s3-images');
+const imageStorage = require('./image-storage');
 const { imageUrl } = require('./image-url');
 
 // Upload policy, shared by the HTTP upload route and the insert_image chat tool.
@@ -82,7 +82,7 @@ async function storeImage({ docId, uploaderId, data, mimeType, filename = null }
   const id = randomUUID();
   const s3Key = `doc-images/${docId}/${id}`;
   // Upload bytes first so the metadata row never points at a missing object.
-  await s3Images.putObject({ key: s3Key, body: data, contentType: mimeType });
+  await imageStorage.putObject({ key: s3Key, body: data, contentType: mimeType });
   await createImage({ id, docId, uploaderId, mimeType, filename, byteSize: data.length, s3Key });
 
   return { id, url: imageUrl(docId, id) };
@@ -110,7 +110,7 @@ async function copyImage({ sourceImageId, sourceDocId, targetDocId, uploaderId }
   const id = randomUUID();
   const s3Key = `doc-images/${targetDocId}/${id}`;
   // Copy bytes first so the metadata row never points at a missing object.
-  await s3Images.copyObject(source.s3_key, s3Key);
+  await imageStorage.copyObject(source.s3_key, s3Key);
   await createImage({
     id,
     docId: targetDocId,
@@ -158,6 +158,19 @@ async function listKeysForDoc(docId) {
   return result.rows.map((r) => r.s3_key);
 }
 
+/**
+ * Delete a document's image bytes from image storage (S3 or the local
+ * driver). Called by document deletion before the rows cascade away; a no-op
+ * when storage is not enabled.
+ * @param {string} docId - Document UUID
+ * @returns {Promise<void>}
+ */
+async function deleteImageBytesForDoc(docId) {
+  if (!imageStorage.isEnabled()) return;
+  const keys = await listKeysForDoc(docId);
+  await imageStorage.deleteObjects(keys);
+}
+
 module.exports = {
   init,
   createImage,
@@ -165,6 +178,7 @@ module.exports = {
   copyImage,
   getImage,
   listKeysForDoc,
+  deleteImageBytesForDoc,
   ALLOWED_IMAGE_MIME_TYPES,
   MAX_IMAGE_BYTES,
 };

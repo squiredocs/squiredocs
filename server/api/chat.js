@@ -10,7 +10,7 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const rateLimit = require('../rate-limit');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { createAgentTokenPair } = require('../mcp/auth/agent-token-factory');
 const { buildBaseUrl } = require('../url');
 const chatTools = require('./chat-tools');
@@ -495,7 +495,7 @@ async function inlineDataUrls(modelMessages, userId) {
       if ((part.type !== 'file' && part.type !== 'image') || typeof part.data !== 'string') continue;
       if (part.data.startsWith(ATTACHMENT_SCHEME)) {
         const key = attachmentKeyForUser(part.data, userId);
-        part.data = await s3Images.getObject(key);
+        part.data = await imageStorage.getObject(key);
       } else if (part.data.startsWith('data:')) {
         const m = part.data.match(/^data:[^;]+;base64,(.+)$/s);
         if (m) part.data = Buffer.from(m[1], 'base64');
@@ -539,7 +539,7 @@ async function extractMessageImages(message, userId) {
     if (typeof src !== 'string') continue;
     if (src.startsWith(ATTACHMENT_SCHEME)) {
       const key = attachmentKeyForUser(src, userId); // throws 403 if not owner
-      const bytes = await s3Images.getObject(key);
+      const bytes = await imageStorage.getObject(key);
       images.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: bytes.toString('base64') });
       continue;
     }
@@ -568,7 +568,7 @@ async function extractMessageMarkdown(message, userId) {
     if (typeof src !== 'string') continue;
     if (src.startsWith(ATTACHMENT_SCHEME)) {
       const key = attachmentKeyForUser(src, userId); // throws 403 if not owner
-      const bytes = await s3Images.getObject(key);
+      const bytes = await imageStorage.getObject(key);
       files.push({ filename: part.filename || null, mediaType: part.mediaType, dataBase64: bytes.toString('base64') });
       continue;
     }

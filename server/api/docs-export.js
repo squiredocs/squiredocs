@@ -24,7 +24,7 @@ const { requireAuth } = require('../auth');
 const rateLimit = require('../rate-limit');
 const documents = require('../documents');
 const documentImages = require('../document-images');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { toMarkdown, buildFrontmatter } = require('../mcp/yjs/serialization');
 const versionHistory = require('../version-history');
 const { resolveForRows } = require('../resupply-resolution');
@@ -166,12 +166,12 @@ async function collectBundleAssets(markdown, docId, docSlug) {
 
   let rewritten = markdown;
   for (const imageId of ids) {
-    if (!s3Images.isEnabled()) continue;
+    if (!imageStorage.isEnabled()) continue;
     const row = await documentImages.getImage(imageId, docId);
     if (!row) continue;
     let data;
     try {
-      data = await s3Images.getObject(row.s3_key);
+      data = await imageStorage.getObject(row.s3_key);
     } catch {
       continue; // per-image skip; reference keeps its app URL
     }
@@ -319,6 +319,7 @@ function createExportRouter(persistence) {
 
 module.exports = {
   createExportRouter,
+  collectBundleAssets,
   sanitizeFilename,
   slugifyDocTitle,
 };

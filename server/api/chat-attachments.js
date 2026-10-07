@@ -1,7 +1,8 @@
 /**
  * Chat attachment upload API (feature 010, US3).
  *
- * POST /api/chat/attachments — store one attachment's bytes in S3 so the chat
+ * POST /api/chat/attachments — store one attachment's bytes in image storage
+ * (S3 or the local driver, feature 058) so the chat
  * body carries a short reference (`attachment:<key>`) instead of inline base64,
  * closing the large-body OOM window on /api/chat (FR-016/017). Accepts the
  * image types plus text/markdown (a dropped .md file — imported into a document
@@ -19,10 +20,14 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { requireAuth } = require('../auth');
+// Straight from the middleware module (not the ../auth barrel) so suites that
+// stub the barrel's requireAuth still get a real raw-route guard.
+const { requireAuthOrCookie } = require('../auth/middleware');
 const rateLimit = require('../rate-limit');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_BYTES } = require('../document-images');
 const { notifyException } = require('../exception-notifier');
+const { sendRawImage } = require('./raw-image');
 
 // Generous body cap for a single 15MB image carried as base64 (~33% overhead).
 const ATTACHMENT_BODY_LIMIT = process.env.CHAT_ATTACHMENT_LIMIT || '25mb';
@@ -62,7 +67,7 @@ function createChatAttachmentsRouter() {
   // parsing the large body.
   router.post('/api/chat/attachments', requireAuth, rateLimit.perUser('upload'), parseBody, async (req, res) => {
     // S3 unconfigured → explicit, graceful 503 (FR-019).
-    if (!s3Images.isEnabled()) {
+    if (!imageStorage.isEnabled()) {
       return res.status(503).json({ error: 'Image storage is not configured' });
     }
 
@@ -103,7 +108,7 @@ function createChatAttachmentsRouter() {
 
       const key = `chat-attachments/${req.user.userId}/${randomUUID()}`;
       // Upload bytes; on success return the opaque reference the chat body sends.
-      await s3Images.putObject({ key, body: bytes, contentType: mime });
+      await imageStorage.putObject({ key, body: bytes, contentType: mime });
 
       return res.status(201).json({
         reference: `attachment:${key}`,
@@ -118,14 +123,15 @@ function createChatAttachmentsRouter() {
   });
 
   // GET /api/chat/attachments/resolve?ref=attachment:<key> — resolve an uploaded
-  // attachment reference to a short-lived presigned S3 URL so the transcript can
-  // display it. A bare `<img src>` can't carry the Bearer token and the stored
+  // attachment reference to a URL the transcript can display: a short-lived
+  // presigned S3 URL, or with the local driver the relative raw route below
+  // (feature 058, FR-018). A bare `<img src>` can't carry the Bearer token and the stored
   // reference isn't a browsable URL, so the client resolves it here first
   // (mirrors the document-image path: GET .../images/:id → { url }). Ownership is
   // enforced by the userId encoded in the key (FR-016), so a user can only
   // resolve attachments they uploaded.
   router.get('/api/chat/attachments/resolve', requireAuth, async (req, res) => {
-    if (!s3Images.isEnabled()) {
+    if (!imageStorage.isEnabled()) {
       return res.status(503).json({ error: 'Image storage is not configured' });
     }
     const key = attachmentKeyForUser(req.query?.ref, req.user.userId);
@@ -133,7 +139,9 @@ function createChatAttachmentsRouter() {
       return res.status(400).json({ error: 'Invalid or inaccessible attachment reference' });
     }
     try {
-      const url = await s3Images.getSignedGetUrl(key);
+      const url = imageStorage.kind === 'local'
+        ? `/api/chat/attachments/raw?ref=${encodeURIComponent(req.query.ref)}`
+        : await imageStorage.getSignedGetUrl(key);
       res.set('Cache-Control', 'no-store');
       return res.json({ url });
     } catch (err) {
@@ -143,7 +151,37 @@ function createChatAttachmentsRouter() {
     }
   });
 
+  // GET /api/chat/attachments/raw?ref=attachment:<key> — stream an attachment's
+  // bytes (feature 058, FR-018, contracts/http-routes.md). Authenticates with the
+  // Authorization header or the accessToken session cookie, because a browser
+  // <img> sends cookies only (RBD-058-20). The ownership rule is the resolve
+  // route's: the key must be chat-attachments/<own userId>/<uuid>. Only stored
+  // image types are served; a markdown attachment is a 404 here.
+  router.get('/api/chat/attachments/raw', requireAuthOrCookie, async (req, res) => {
+    const key = attachmentKeyForUser(req.query?.ref, req.user.userId);
+    if (!key) {
+      return res.status(400).json({ error: 'Invalid or inaccessible attachment reference' });
+    }
+    if (!imageStorage.isEnabled()) {
+      return res.status(503).json({ error: 'Image storage is not configured' });
+    }
+    try {
+      const { body, contentType } = await imageStorage.readObject(key);
+      if (!ALLOWED_IMAGE_MIME_TYPES.includes(contentType)) {
+        return res.status(404).json({ error: 'Attachment not found' });
+      }
+      return sendRawImage(res, { body, contentType });
+    } catch (err) {
+      if (err && (err.code === 'NoSuchKey' || err.name === 'NoSuchKey')) {
+        return res.status(404).json({ error: 'Attachment not found' });
+      }
+      console.error('[ChatAttachments] raw read failed:', err);
+      notifyException(err, { req, source: 'chat-attachments' });
+      return res.status(500).json({ error: 'Failed to read attachment' });
+    }
+  });
+
   return router;
 }
 
-module.exports = { createChatAttachmentsRouter };
+module.exports = { createChatAttachmentsRouter, attachmentKeyForUser };

@@ -41,7 +41,7 @@ jest.mock('../app-settings', () => ({ getSharedDefaultModel: jest.fn(() => 'shar
 jest.mock('../../mcp/auth/agent-token-factory', () => ({ createAgentTokenPair: jest.fn(() => ({ token: 't' })) }));
 jest.mock('../../url', () => ({ buildBaseUrl: jest.fn(() => 'http://test') }));
 jest.mock('../../crypto', () => ({ decrypt: jest.fn() }));
-jest.mock('../../s3-images', () => ({}));
+jest.mock('../../image-storage', () => ({}));
 jest.mock('../../documents', () => ({ getDocument: jest.fn(), hasAccess: jest.fn(async () => false) }));
 
 // A resolved shared model (provider anthropic, vision-capable so no image swaps).
