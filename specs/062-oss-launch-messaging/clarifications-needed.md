@@ -348,3 +348,92 @@ read, edit, and correct."
 
 **Rationale**: Derived from the design's about H1 and body and the pricing
 table so the meta text and the page agree. Each passes the copy rules.
+
+---
+
+## RBD-062-16 - Which "MIT" mentions must link to the repository
+
+**Question**: FR-037 says every "MIT" mention that is a license statement must
+link to `https://github.com/squiredocs`. A scan cannot tell a license statement
+from any other use, and the about page's meta description (RBD-062-15) says
+"MIT licensed" inside an attribute, where a link is impossible.
+
+**Why it matters**: Without a mechanical reading, the link half of FR-037 is
+review-only and can regress silently.
+
+**Default chosen** (plan phase): Every case-sensitive, word-bounded "MIT" in
+the page body (after `<head>` and HTML comments are removed) must sit inside an
+`<a href="https://github.com/squiredocs">` element. The checker removes those
+anchors' contents and then requires zero remaining body "MIT" tokens. "MIT" in
+`<head>` meta text is exempt. Each of landing, pricing, and about must still
+contain at least one "MIT".
+
+**Rationale**: On these pages every body use of "MIT" is a license statement
+(trust line, FAQ, the added "stay free" sentence, "Why open source"), so
+"every body MIT is linked" is the literal reading and is testable.
+
+---
+
+## RBD-062-17 - Secondary button and install-command presentation
+
+**Question**: The spec says reuse existing button classes, but landing and
+about have no secondary button style, and no marketing page styles a code
+element for the install command.
+
+**Why it matters**: D8 needs "Run it yourself" visibly secondary, and an
+unstyled `curl` line in body text is hard to read and overflows on phones.
+
+**Default chosen** (plan phase): Copy the existing `.landing-btn.outline` rule
+and its hover rule from `pricing.html`'s inline styles into
+`client/public/marketing.css`, and use it for every "Run it yourself" button
+(primary stays `.landing-btn.google`). Add one `.landing-install-cmd` rule
+(monospace, light gray background from the existing palette, rounded corners,
+`overflow-x: auto`) for a `<pre><code>` block. No copy-to-clipboard button.
+
+**Rationale**: `.outline` has shipped on the live pricing page, so it is an
+existing component. A clipboard button needs JavaScript the pages do not have
+and the design does not ask for. `marketing.css` is outside the color-token lint
+(`client/src/**/*.css` only).
+
+---
+
+## RBD-062-18 - Header nav width with two more links
+
+**Question**: Adding "GitHub" and "Self-host" makes six text links plus two
+buttons. Below 480px the existing CSS already hides all `.landing-nav-link`
+elements, but between 481px and 768px the row may wrap or overflow.
+
+**Why it matters**: A broken header on tablets undercuts the launch, and the
+spec says no layout regressions beyond copy.
+
+**Default chosen** (plan phase): The new links use `class="landing-nav-link"`
+so they hide below 480px with the others. The implementer checks 481px to
+768px; if the row wraps or overflows, the two new links get an extra class
+(`landing-nav-link-wide`) hidden below 768px in `marketing.css`. The footer
+carries both links at every width (FR-027), so nothing becomes unreachable.
+
+**Rationale**: Smallest change that keeps the header intact without
+restructuring the nav into a menu, which the design does not ask for.
+
+---
+
+## RBD-062-19 - About page "Open to any model or agent" card opening
+
+**Question**: The card currently opens "A built-in agent on Anthropic's Claude
+models". Keep it, or reword?
+
+**Why it matters**: The built-in assistant needs a key, so a fresh self-hosted
+instance has none, and the design drops built-in AI as a lead message.
+Leading with it on the about page contradicts both.
+
+**Default chosen** (analyze follow-up, orchestrator): Reword the card to lead
+with connecting any MCP agent (Claude Code, Codex, Cursor, Kiro, Claude
+Desktop) and bringing your own key from Anthropic, Google (Gemini), OpenAI,
+z.ai (GLM), or OpenRouter. The hosted built-in assistant may follow as a
+second sentence scoped to squiredocs.com. Provider order matches FR-017
+(analyze LOW: FR-012 order aligned to it).
+
+**Rationale**: Keeps every claim true on both hosted and self-hosted, and
+matches supporting message 5 in the design.
+
+RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)
