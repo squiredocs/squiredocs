@@ -30,7 +30,7 @@ Status: proposed 2026-10-07. Nothing here is built.
 This is the flow the design is built around. The developer types something like "set up Squire Docs locally" into Claude Code (or another agent with a shell).
 
 1. The agent reads `AGENTS.md` at the repository root (or the "Running locally" section at the top of the README), which gives it the exact commands below.
-2. The agent downloads `compose.yml` and runs `docker compose up -d --wait`. The command returns when every container reports healthy.
+2. The agent downloads `compose.yml` and the `./squire` wrapper and runs `docker compose up -d --wait`. The command returns when every container reports healthy.
 3. The agent runs `docker compose exec app squire doctor --json` and checks that it reports `ok: true`.
 4. The agent runs `docker compose exec app squire claim-link --name "<name>" --email "<email>"`, using the developer's git identity as defaults, and prints the link on its own line.
 5. The developer clicks the link. The claim page shows the prefilled name and email, they click Continue, and they are signed in as the instance owner with a welcome document.
@@ -111,6 +111,8 @@ The image ships a `squire` command, run as `docker compose exec app squire <comm
 - `squire claim-link [--name N] [--email E]` mints a sign-in link for the owner. On an unclaimed instance the link creates the owner. On a claimed instance it signs the owner in.
 - `squire login-link --email E` mints a sign-in link for any existing user. This is the administrator recovery path in team mode.
 - `squire mode` prints the current mode and what changing it would require.
+
+The compose download includes a one-line wrapper, `./squire`, that runs `docker compose exec app squire "$@"` from its own folder. People use it (`./squire claim-link`); agents and AGENTS.md use the full docker command (D10).
 
 Every error message from the CLI names the next action, for example "Port 3910 is in use. Set SQUIRE_PORT in .env and run docker compose up -d again."
 
@@ -226,17 +228,23 @@ Each decision lists the proposed default. None are ratified yet.
 - **D6. No email is needed in local mode.** Proposed: yes. Team-mode invites can be copied as links when SMTP is unset.
 - **D7. A Docker-free install is deferred.** Proposed: yes. An `npx squire-docs` path with embedded Postgres (PGlite supports pgvector) would reach developers without Docker, but it means porting the `pg` pool, advisory locks, and node-pg-migrate to it.
 - **D8. Hosted-only code stays in the repository behind ****`SQUIRE_HOSTED`****.** Proposed: yes. Moving it to a private repository gives a cleaner public tree at the cost of maintaining a split.
+- **D9. The Claude Code plugin stays pointed at the hosted service.** Decided by Sam 2026-10-07. Self-hosters add their instance with `claude mcp add --transport http squire-local http://localhost:3910/mcp`. A plugin setting for the server URL (`user_config`) can be revisited once self-host users ask for it.
+- **D10. A ****`./squire`**** wrapper script ships next to the compose file.** Decided by Sam 2026-10-07. It forwards its arguments to `docker compose exec app squire`, so a person can run `./squire claim-link` without an agent. AGENTS.md keeps the full docker command because it works from any folder.
 
 ## Open questions
 
 - Should the plugin gain a `user_config` setting for its server URL, so plugin users can point it at a local instance instead of adding `squire-local` separately? This needs a test of how `user_config` behaves when the user leaves it blank.
   - I don't understand - I need more info
   - **Claude (10-07): **The Claude Code plugin ships a config file that tells Claude Code where the server is, and today that is always squiredocs.com. So a developer who has the plugin installed and also runs a local instance has two Squire Docs servers in Claude Code, and the agent has to pick the right one. There are two ways to handle it. (a) Leave the plugin pointing at the hosted service only, and have self-hosters add their local server with one command (claude mcp add ... squire-local). (b) Have the plugin ask for a server URL when it is installed (Claude Code calls this user_config), so one plugin can serve both. (b) is tidier but has an untested piece: what happens when someone leaves the URL blank. Recommendation: (a) at launch. Self-hosters already have the repo and AGENTS.md, so they do not need the plugin to get set up. Revisit (b) once there are self-host users asking for it.
+    - a. leave it as is.
+  - **Claude (10-07): **Resolved as D9: option (a).
 - Default port: keep 3001, which matches development and production, or pick a less common port to avoid collisions on developer machines?
   - Pick a less common one
   - **Claude (10-07): **Resolved: the default host port is 3910, which none of the common dev tools use (3000, 3001, 4000, 5000, 5173, 8000, 8080). The container still listens on 3001 internally, so development and production do not change. The doc body is updated.
 - Should `squire claim-link` be runnable from the host without `docker compose exec`, for example as a small script in the repository that wraps it?
   - I'm not sure i need more info
   - **Claude (10-07): **To mint a sign-in link today the command is docker compose exec app squire claim-link, and it has to be run from the folder holding compose.yml. Agents handle that fine. The case it matters for is a person signing back in without their agent, for example after a week away when their session has expired. The option is a tiny ./squire script shipped next to compose.yml that forwards to that command, so a person types ./squire claim-link. A second option: while the instance has no owner, the server also prints a claim link in its startup log, which is what Jupyter does, so docker compose logs app shows it. Recommendation: do both. AGENTS.md keeps the full docker command because it works from anywhere; the README tells people about ./squire.
+    - sure let's add the wrapper
+  - **Claude (10-07): **Resolved as D10: the wrapper is in. The startup-log claim link was not adopted; it stays out unless Sam wants it.
 - Licence and git history handling are decided outside this document but block publishing.
   - ok
