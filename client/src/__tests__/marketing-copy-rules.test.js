@@ -579,3 +579,46 @@ describe('closing band is identical on landing, pricing, and about (FR-028)', ()
     expect(bands[2]).toBe(bands[0]);
   });
 });
+
+// --- Block 5: injected regressions are caught (US5 scenario 2, SC-004) -------
+
+describe('injected regressions are caught on the real pages (US5)', () => {
+  const fixtures = [
+    ['bare "Squire"', 'Design in Squire, then sync.', 'bare-squire'],
+    ['an em dash', `Docs ${EM_DASH} for agents.`, 'em-dash'],
+    ['"honestly"', 'Honestly, it works.', 'honest'],
+    ['"free forever"', 'It is free forever.', 'forever'],
+    ['"pull request"', 'Agent edits arrive as a pull request.', 'pr-framing'],
+    ['"GLM" without "z.ai ("', 'Use GLM or Claude.', 'glm-label'],
+    ['"AGPL"', 'Licensed under the AGPL.', 'other-license'],
+  ];
+  const inject = (html, sentence) => {
+    const anchor = html.includes('</main>') ? '</main>' : '<section class="landing-section cta">';
+    expect(html, 'no injection point').toContain(anchor);
+    return html.replace(anchor, `<p>${sentence}</p>\n${anchor}`);
+  };
+
+  for (const name of ['landing.html', 'pricing.html', 'about.html']) {
+    const page = stripStampedFooter(readPage(name));
+
+    it(`${name} is clean before injection`, () => {
+      expect(findCopyRuleViolations(page, { requireMit: true })).toHaveLength(0);
+    });
+
+    for (const [label, sentence, rule] of fixtures) {
+      it(`${name}: injecting ${label} fires ${rule}`, () => {
+        const vs = findCopyRuleViolations(inject(page, sentence), { requireMit: true });
+        expect(vs.map((v) => v.rule), describeViolations(vs)).toContain(rule);
+      });
+    }
+  }
+
+  it('removing the GitHub link wrappers on pricing fires mit-unlinked (RBD-062-16)', () => {
+    const page = stripStampedFooter(readPage('pricing.html'));
+    const unwrapped = page.replace(
+      new RegExp(`<a href="${GITHUB_ORG_URL}"[^>]*>([\\s\\S]*?)</a>`, 'g'),
+      '$1',
+    );
+    expect(rulesFired(unwrapped, { requireMit: true })).toContain('mit-unlinked');
+  });
+});
