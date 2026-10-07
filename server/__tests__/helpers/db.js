@@ -271,6 +271,69 @@ async function cleanupDocRows(pool, docGuid) {
   await pool.query('DELETE FROM yjs_updates WHERE doc_guid = ANY($1::uuid[])', [guids]);
 }
 
+/**
+ * ── FRESH INSTANCE DATABASE (feature 059, research R15) ──────────────────────
+ *
+ * Some behavior is defined by an EMPTY users table: claiming an instance
+ * (owner creation), the startup-log claim link, `hasOwner`, local-mode
+ * lockdown, owner resolution in the CLI. The worker database accumulates users
+ * from earlier suites on the same worker, and Constitution II forbids
+ * truncating shared tables, so such a suite clones this run's migrated
+ * template into `<worker database>_fresh` and runs against that instead. The
+ * same applies to any suite that writes the fixed `app_settings` key
+ * `instance_owner_user_id`.
+ *
+ * The clone is per worker (workers never share it) and per suite (dropped
+ * WITH (FORCE) first, so a crashed earlier suite cannot leak into this one).
+ *
+ * @returns {Promise<{ pool: import('pg').Pool, name: string, url: string }>}
+ */
+async function createFreshInstanceDb() {
+  const baseUrl = getBaseDatabaseUrl();
+  const baseName = getBaseDatabaseName(baseUrl);
+  const name = `${getWorkerDatabaseName(baseName, getWorkerId())}_fresh`;
+  const template = getTemplateDatabaseName(baseName);
+  const admin = new Pool({ connectionString: deriveDatabaseUrl(baseUrl, 'postgres'), max: 1 });
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${quoteDatabaseIdentifier(name)} WITH (FORCE)`);
+    // CREATE DATABASE ... TEMPLATE fails (55006) while another session is
+    // connected to the template, which can happen for a moment while another
+    // worker clones it. Retry a few times before giving up.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await admin.query(
+          `CREATE DATABASE ${quoteDatabaseIdentifier(name)} TEMPLATE ${quoteDatabaseIdentifier(template)}`
+        );
+        break;
+      } catch (err) {
+        if (err.code !== '55006' || attempt >= 10) throw err;
+        await new Promise((r) => setTimeout(r, 100 * attempt));
+      }
+    }
+  } finally {
+    await admin.end();
+  }
+  const url = deriveDatabaseUrl(baseUrl, name);
+  return { pool: new Pool({ connectionString: url }), name, url };
+}
+
+/**
+ * Close the fresh database's pool and drop it. Call from afterAll.
+ * @param {{ pool: import('pg').Pool, name: string }} handle
+ */
+async function dropFreshInstanceDb(handle) {
+  if (!handle) return;
+  try {
+    await handle.pool.end();
+  } catch { /* already ended */ }
+  const admin = new Pool({ connectionString: deriveDatabaseUrl(getBaseDatabaseUrl(), 'postgres'), max: 1 });
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${quoteDatabaseIdentifier(handle.name)} WITH (FORCE)`);
+  } finally {
+    await admin.end();
+  }
+}
+
 module.exports = {
   TEST_DB_NAME,
   BASE_DB_NAME_PATTERN,
@@ -288,4 +351,6 @@ module.exports = {
   createTestUser,
   cleanupTestUser,
   cleanupDocRows,
+  createFreshInstanceDb,
+  dropFreshInstanceDb,
 };

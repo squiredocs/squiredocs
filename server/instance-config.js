@@ -73,6 +73,19 @@ function resolveAppUrl(env) {
   return { appUrl: originOf(`http://localhost:${port}`, 'PORT'), appUrlSource: 'default' };
 }
 
+const MODES = ['local', 'team'];
+
+/**
+ * Instance mode (feature 059, design D1, research R4). Unset means local;
+ * values are case-sensitive. Anything else stops the boot naming both values.
+ */
+function resolveMode(env) {
+  const raw = read(env, 'SQUIRE_MODE');
+  if (raw === undefined) return 'local';
+  if (MODES.includes(raw)) return raw;
+  throw new ConfigError(`SQUIRE_MODE must be "local" or "team" (got ${JSON.stringify(raw)}).`);
+}
+
 function resolveStorageDriver(env) {
   const raw = read(env, 'STORAGE_DRIVER');
   if (raw === undefined) return read(env, 'S3_IMAGE_BUCKET') ? 's3' : 'local';
@@ -143,6 +156,7 @@ function resolveInstanceConfig(env = process.env) {
   const endpoint = endpointRaw === undefined ? undefined : originOf(endpointRaw, 'S3_ENDPOINT');
 
   return Object.freeze({
+    mode: resolveMode(env),
     appUrl,
     appUrlSource,
     // Verbatim when set (no normalization), so the CORS comparison and the
@@ -192,6 +206,7 @@ function hostedOnly(req, res, next) {
 
 module.exports = {
   ConfigError,
+  MODES,
   SES_DEFAULT_HOST,
   resolveInstanceConfig,
   getInstanceConfig,
