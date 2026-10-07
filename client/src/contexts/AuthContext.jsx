@@ -207,15 +207,18 @@ export function AuthProvider({ children }) {
    * carry it through the Google round-trip (via a short-lived httpOnly
    * cookie). Invalid values silently fall through to the default flow.
    */
-  const login = useCallback(async (returnTo) => {
+  //
+  // Feature 059: the start path comes from the provider registry
+  // (GET /auth/providers); the default keeps every existing caller unchanged.
+  const login = useCallback(async (returnTo, startPath = '/auth/google') => {
     if (BYPASS_AUTH) {
       return await devLogin(returnTo);
     }
     if (typeof returnTo === 'string' && isValidReturnToClient(returnTo)) {
-      window.location.href = `/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+      window.location.href = `${startPath}?returnTo=${encodeURIComponent(returnTo)}`;
       return;
     }
-    window.location.href = '/auth/google';
+    window.location.href = startPath;
   }, [devLogin]);
 
   /**

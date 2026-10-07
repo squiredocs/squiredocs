@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useMobile } from '../hooks/useMobile';
 import { useVisualViewport } from '../hooks/useVisualViewport';
+import useAuthProviders from '../hooks/useAuthProviders';
+import { localInviteNote } from '../utils/localModeInvite';
 import Avatar from './Avatar';
 import './ShareDialog.css';
 
@@ -16,6 +18,7 @@ function XIcon() {
 
 function ShareDialog({ docId, docTitle, isOpen, onClose }) {
   const { api, user: currentUser } = useAuth();
+  const providers = useAuthProviders();
   const isMobile = useMobile();
   const viewport = useVisualViewport();
   const [email, setEmail] = useState('');
@@ -150,7 +153,10 @@ function ShareDialog({ docId, docTitle, isOpen, onClose }) {
         role: shareRole
       });
       if (response.data.invite) {
-        setSuccess(`Invitation sent to ${response.data.invite.email}`);
+        // Feature 059: on a local instance the invite cannot be accepted yet.
+        setSuccess(providers.info?.mode === 'local'
+          ? localInviteNote(response.data.invite.email)
+          : `Invitation sent to ${response.data.invite.email}`);
       } else {
         setSuccess(`Shared with ${response.data.user.name || email}`);
       }

@@ -6,7 +6,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Logo from '../components/Logo';
+import { CLAIM_COMMAND } from '../components/LoginPage';
+import useAuthProviders from '../hooks/useAuthProviders';
 import '../components/LoginPage.css';
+
+const GOOGLE_PROVIDER = { id: 'google', label: 'Google', startPath: '/auth/google' };
 
 const SCOPE_DESCRIPTIONS = {
   'documents:read': {
@@ -141,16 +145,31 @@ function ConsentCard({
  * copy can be reviewed without a real OAuth request. Transparency (grant +
  * revocation) is PRIMARY; the value reminder is SECONDARY.
  */
-export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = '#', bare = false }) {
+//
+// Feature 059 (FR-018, RBD-059-9): the lead, the grant tail, and the action come
+// from the instance's provider. Team mode with Google renders exactly the
+// pre-059 copy (pinned by LoginPage.baseline.test.jsx); `localMode` replaces
+// the action with the sign-in-link instruction and names no provider.
+export function FirstRunConsent({
+  agentName = 'Your agent',
+  scopes = [],
+  href = '#',
+  bare = false,
+  provider = GOOGLE_PROVIDER,
+  localMode = false,
+}) {
   const grant = scopes.includes('documents:write')
     ? 'read, create, edit, and delete the documents in your Squire Docs account'
     : 'read the documents in your Squire Docs account';
+  const providerAccount = provider.label === 'Google' ? 'Google Account' : `${provider.label} account`;
   return (
     <AuthorizeShell bare={bare}>
       <h2 className="login-headline">Connect to Squire Docs</h2>
 
       <p className="authorize-firstrun-lead">
-        Sign in to Squire Docs with your Google Account to connect {agentName}.
+        {localMode
+          ? <>Sign in to this Squire Docs instance to connect {agentName}.</>
+          : <>Sign in to Squire Docs with your {providerAccount} to connect {agentName}.</>}
       </p>
 
       {/* Value reminder (the hook). */}
@@ -167,17 +186,31 @@ export function FirstRunConsent({ agentName = 'Your agent', scopes = [], href = 
           so the user reads exactly what they are granting right before acting. */}
       <div className="authorize-firstrun-grant">
         <p className="authorize-firstrun-grant-lead">
-          This grants {agentName} access to your Squire Docs account — not your
-          Google account. Once connected, it will be able to {grant}.
+          {localMode ? (
+            <>This grants {agentName} access to your Squire Docs account. Once connected, it will be able to {grant}.</>
+          ) : (
+            <>
+              This grants {agentName} access to your Squire Docs account — not your
+              {' '}{provider.label} account. Once connected, it will be able to {grant}.
+            </>
+          )}
         </p>
         <p className="authorize-firstrun-revoke">
           You can revoke this access anytime in Settings &rarr; AI Agent Access.
         </p>
       </div>
 
-      <a href={href} className="login-button google-button authorize-signin-link">
-        Continue with Google
-      </a>
+      {localMode ? (
+        <div className="login-local">
+          <p>This instance signs in with a one-time link. Run:</p>
+          <code className="login-local-command">{CLAIM_COMMAND}</code>
+          <p>Open the link it prints, then come back to {agentName} and try again; it reopens this page.</p>
+        </div>
+      ) : (
+        <a href={href} className={`login-button ${provider.id}-button authorize-signin-link`}>
+          Continue with {provider.label}
+        </a>
+      )}
     </AuthorizeShell>
   );
 }
@@ -188,6 +221,8 @@ export function AuthorizePreview() {
   return (
     <div className="authorize-preview-stack">
       <FirstRunConsent bare agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
+      {/* Feature 059: the local-mode first-run surface (no provider). */}
+      <FirstRunConsent bare localMode agentName="Claude Code" scopes={['documents:read', 'documents:write']} />
       <ConsentCard
         bare
         agentName="Claude Code"
@@ -206,6 +241,7 @@ export function AuthorizePreview() {
 
 export default function AuthorizePage() {
   const { user, isAuthenticated, loading: authLoading, api } = useAuth();
+  const { status: providersStatus, info: providerInfo } = useAuthProviders();
 
   const [agentInfo, setAgentInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -323,9 +359,22 @@ export default function AuthorizePage() {
     // first-run user sees (no separate ConsentCard). Rendered via the shared
     // FirstRunConsent component (also used by /authorize-preview). "Continue
     // with Google" goes STRAIGHT to Google (no /login hop, FR-001/C1).
+    // Feature 059: the action and its start path come from the provider
+    // registry; a local instance shows the sign-in-link instruction instead.
+    if (providersStatus === 'loading') {
+      return (
+        <AuthorizeShell>
+          <p className="authorize-loading-text">Loading...</p>
+        </AuthorizeShell>
+      );
+    }
     const who = agentInfo?.name || 'Your agent';
-    const href = `/auth/google?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-    return <FirstRunConsent agentName={who} scopes={scopes} href={href} />;
+    if (providerInfo.mode === 'local' || providerInfo.providers.length === 0) {
+      return <FirstRunConsent agentName={who} scopes={scopes} localMode />;
+    }
+    const provider = providerInfo.providers[0];
+    const href = `${provider.startPath}?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    return <FirstRunConsent agentName={who} scopes={scopes} href={href} provider={provider} />;
   }
 
   if (success) {

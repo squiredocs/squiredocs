@@ -970,7 +970,9 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                                         ? 'Agent OAuth'
                                         : adoption.onboarding.signupSource === 'browser'
                                           ? 'Browser'
-                                          : '—'}
+                                          : adoption.onboarding.signupSource === 'signin_link'
+                                            ? 'Sign-in link'
+                                            : '—'}
                                     </dd>
                                     <dt>Signed up</dt>
                                     <dd>{formatDate(adoption.onboarding.createdAt)}</dd>

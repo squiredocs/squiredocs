@@ -608,6 +608,13 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     expect(within(onboarding).getByText('Browser')).toBeInTheDocument();
   });
 
+  it('feature 059: labels the signin_link signup source "Sign-in link"', async () => {
+    mockWith({ ...emptyPayload, onboarding: { ...emptyPayload.onboarding, signupSource: 'signin_link' } });
+    await expandRow();
+    const onboarding = await sectionFor('Onboarding');
+    expect(within(onboarding).getByText('Sign-in link')).toBeInTheDocument();
+  });
+
   it('a failed adoption fetch degrades to a note and leaves the other panels intact', async () => {
     mockWith(null);
     await expandRow();
