@@ -62,6 +62,12 @@ spec:
               value: "3001"
             - name: NODE_ENV
               value: development
+            # Feature 058 (RBD-058-28): development mirrors the hosted service
+            # (marketing pages, analytics shell, credits, admin emails). Takes
+            # effect on the next sandbox `up`; never restart from inside the
+            # pod. Unset it in a shell to exercise self-host mode.
+            - name: SQUIRE_HOSTED
+              value: "true"
             # The pod is an isolated sandbox, so let Claude Code run
             # `--dangerously-skip-permissions` despite running as root. Inherited
             # by every `kubectl exec` shell, so no per-shell export needed.
