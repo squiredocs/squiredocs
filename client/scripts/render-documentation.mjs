@@ -13,8 +13,11 @@
  *   validatePages(pages)                       -> string[] (errors; empty = OK)
  *   slugify(text)                              -> anchor id
  *   renderBody(markdown)                       -> HTML string (html:false)
- *   renderPage({ page, allPages, canonicalOrigin }) -> full HTML document
- *   render404({ allPages, canonicalOrigin })   -> full 404 HTML document
+ *   renderPage({ page, allPages, canonicalOrigin, variant }) -> full HTML document
+ *   render404({ allPages, canonicalOrigin, variant })   -> full 404 HTML document
+ *   keepSelfHostedHref(href), filterNavHtml(html), filterFooter(html),
+ *   renderVariantBody(bodyHtml, variant), ORIGIN_SENTINEL, HOSTED_ONLY_PATHS
+ *                                               -> the self-hosted variant (feature 060)
  *   findTerminologyViolations(text)            -> string[] (matched phrases)
  *
  * Design ground truth: design/product-documentation-site.md. Contracts:
@@ -316,33 +319,140 @@ ${items}
       </aside>`;
 }
 
+// --- The self-hosted variant (feature 060, FR-030 to FR-033) ---------------
+//
+// variant 'hosted' (the default) is today's output, byte for byte (golden
+// hashes in client/src/__tests__/fixtures/documentation-hosted-golden.json).
+// variant 'self-hosted' is what a not-hosted instance serves: no Google tag,
+// no canonical or og:url, header and footer links filtered by one href rule
+// (RBD-060-25), and instance URLs carrying ORIGIN_SENTINEL, which the server
+// replaces with the request's origin (RBD-060-24). The footer is always
+// derived from the one FOOTER by filtering, never a second footer (FR-032).
+
+/** Replaced per request with this instance's origin (server/web-routes.js). */
+export const ORIGIN_SENTINEL = '__SQUIRE_ORIGIN__';
+
+/**
+ * Paths that exist only on the hosted service. Kept in agreement with
+ * server/web-routes.js isHostedOnlyPath by a test; '/blog/...' is covered by
+ * the prefix rule in keepSelfHostedHref.
+ */
+export const HOSTED_ONLY_PATHS = ['/pricing', '/about', '/blog', '/security', '/privacy', '/terms'];
+
+function normalizePath(href) {
+  const bare = String(href).split(/[?#]/)[0];
+  return (bare.toLowerCase().replace(/\/+$/, '') || '/');
+}
+
+function isHostedOnlyHref(href) {
+  const h = String(href);
+  if (!h.startsWith('/') || h.startsWith('//')) return false;
+  const p = normalizePath(h);
+  return HOSTED_ONLY_PATHS.includes(p) || p.startsWith('/blog/');
+}
+
+/**
+ * Whether a self-hosted page keeps a link. Drops mailto links, /signup, and
+ * hosted-only paths; keeps everything else, including hrefs this rule has
+ * never seen, so new links (feature 062's "Self-host") flow through.
+ */
+export function keepSelfHostedHref(href) {
+  const h = String(href || '');
+  if (/^mailto:/i.test(h)) return false;
+  if (h.startsWith('/') && !h.startsWith('//') && normalizePath(h) === '/signup') return false;
+  if (isHostedOnlyHref(h)) return false;
+  return true;
+}
+
+const ANCHOR_LINE_RE = /^[ \t]*<a\b[^>]*?\bhref="([^"]*)"[^>]*>[\s\S]*?<\/a>[ \t]*\n/gm;
+const ANCHOR_RE = /<a\b[^>]*?\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+
+/**
+ * Drop <a> elements whose href fails keepSelfHostedHref. An anchor alone on
+ * its line is removed with the line; any other dropped anchor keeps its text.
+ */
+export function filterNavHtml(html) {
+  return String(html)
+    .replace(ANCHOR_LINE_RE, (m, href) => (keepSelfHostedHref(href) ? m : ''))
+    .replace(ANCHOR_RE, (m, href, text) => (keepSelfHostedHref(href) ? m : text));
+}
+
+/**
+ * Filter a footer: drop <li> items whose link fails keepSelfHostedHref, then
+ * remove any column left with an empty list, then apply filterNavHtml to the
+ * remaining links.
+ */
+export function filterFooter(footerHtml) {
+  const withoutItems = String(footerHtml).replace(
+    /^[ \t]*<li>\s*<a\b[^>]*?\bhref="([^"]*)"[^>]*>[\s\S]*?<\/a>\s*<\/li>[ \t]*\n/gm,
+    (m, href) => (keepSelfHostedHref(href) ? m : ''),
+  );
+  const withoutEmptyColumns = withoutItems.replace(
+    /^[ \t]*<div class="landing-footer-column">\s*(?:<h4>[^<]*<\/h4>\s*)?<ul>\s*<\/ul>\s*<\/div>[ \t]*\n/gm,
+    '',
+  );
+  return filterNavHtml(withoutEmptyColumns);
+}
+
+/**
+ * The body of a self-hosted page: instance URLs (the MCP endpoint and the
+ * REST API) carry ORIGIN_SENTINEL, and links to hosted-only pages become
+ * absolute links to squiredocs.com (their policies describe the hosted
+ * service, RBD-060-8). Distribution URLs, email addresses, and everything
+ * else are unchanged. The hosted variant is returned as is.
+ */
+export function renderVariantBody(bodyHtml, variant = 'hosted') {
+  if (variant !== 'self-hosted') return bodyHtml;
+  return String(bodyHtml)
+    .replace(/https:\/\/squiredocs\.com\/mcp\b/g, `${ORIGIN_SENTINEL}/mcp`)
+    .replace(/https:\/\/squiredocs\.com\/api\//g, `${ORIGIN_SENTINEL}/api/`)
+    .replace(/href="(\/[^"]*)"/g, (m, href) => (isHostedOnlyHref(href) ? `href="${CANONICAL_ORIGIN}${href}"` : m));
+}
+
+function assertVariant(variant) {
+  if (variant !== 'hosted' && variant !== 'self-hosted') {
+    throw new Error(`unknown documentation variant ${JSON.stringify(variant)}`);
+  }
+}
+
 /**
  * Render a complete HTML document for one page.
  *
  * `page` is { slug, title, description, bodyHtml } (bodyHtml already rendered).
  * `allPages` is [{ slug, title, order }] for the sidebar.
+ * `variant` is 'hosted' (default, today's output) or 'self-hosted'.
  */
-export function renderPage({ page, allPages, canonicalOrigin = CANONICAL_ORIGIN }) {
+export function renderPage({ page, allPages, canonicalOrigin = CANONICAL_ORIGIN, variant = 'hosted' }) {
+  assertVariant(variant);
+  const selfHosted = variant === 'self-hosted';
   const canonical = canonicalUrl(page.slug, canonicalOrigin);
   const title = page.title;
   const description = page.description;
   const sidebar = renderSidebar(allPages, page.slug);
   // The 404 page (noindex) gets no canonical or og:url: a canonical pointing
   // at a URL that itself 404s is wrong metadata on every unknown-slug response.
-  const seoTags = page.noindex
-    ? `  <meta name="robots" content="noindex" />`
-    : `  <link rel="canonical" href="${escapeAttr(canonical)}" />
-  <meta property="og:url" content="${escapeAttr(canonical)}" />`;
+  // A self-hosted page never names squiredocs.com as its canonical URL.
+  let seoTags;
+  if (page.noindex) {
+    seoTags = `  <meta name="robots" content="noindex" />\n`;
+  } else if (selfHosted) {
+    seoTags = '';
+  } else {
+    seoTags = `  <link rel="canonical" href="${escapeAttr(canonical)}" />
+  <meta property="og:url" content="${escapeAttr(canonical)}" />\n`;
+  }
+  const googleTag = selfHosted ? '' : `${GOOGLE_TAG}\n`;
+  const header = selfHosted ? filterNavHtml(HEADER) : HEADER;
+  const footer = selfHosted ? filterFooter(FOOTER) : FOOTER;
+  const bodyHtml = renderVariantBody(page.bodyHtml, variant);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-${GOOGLE_TAG}
-  <meta charset="UTF-8" />
+${googleTag}  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeAttr(description)}" />
-${seoTags}
-  <meta property="og:title" content="${escapeAttr(title)}" />
+${seoTags}  <meta property="og:title" content="${escapeAttr(title)}" />
   <meta property="og:description" content="${escapeAttr(description)}" />
   <meta property="og:type" content="website" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -351,15 +461,15 @@ ${seoTags}
 </head>
 <body>
   <div class="documentation-page">
-${HEADER}
+${header}
     <main class="documentation-layout">
 ${sidebar}
       <article class="documentation-content">
         <h1>${escapeHtml(title)}</h1>
-${page.bodyHtml}
+${bodyHtml}
       </article>
     </main>
-${FOOTER}
+${footer}
   </div>
 </body>
 </html>
@@ -370,7 +480,7 @@ ${FOOTER}
  * Render the styled 404 page from the same template (D4 / FR-016). Its body
  * links back to the documentation index.
  */
-export function render404({ allPages, canonicalOrigin = CANONICAL_ORIGIN }) {
+export function render404({ allPages, canonicalOrigin = CANONICAL_ORIGIN, variant = 'hosted' }) {
   const bodyHtml = `        <p>The documentation page you asked for does not exist.</p>
         <p><a href="/documentation">Go to the documentation index</a>.</p>`;
   return renderPage({
@@ -383,5 +493,6 @@ export function render404({ allPages, canonicalOrigin = CANONICAL_ORIGIN }) {
     },
     allPages,
     canonicalOrigin,
+    variant,
   });
 }

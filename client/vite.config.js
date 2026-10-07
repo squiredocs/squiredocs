@@ -8,6 +8,7 @@ import {
   renderBody,
   renderPage,
   render404,
+  ORIGIN_SENTINEL,
 } from './scripts/render-documentation.mjs';
 import {
   parseFrontmatter as parseBlogFrontmatter,
@@ -68,6 +69,19 @@ function staticPagesPlugin() {
   };
 }
 
+// Feature 060 (FR-033): the documentation variant follows SQUIRE_HOSTED, as
+// production does (hosted pages on the hosted service, the self-hosted variant
+// everywhere else).
+const DOCUMENTATION_VARIANT = SQUIRE_HOSTED ? 'hosted' : 'self-hosted';
+
+// The dev request's origin for the self-hosted variant: the Host header when
+// it is a plain host[:port], else the Vite default. HTML-escaped.
+function devOrigin(req) {
+  const host = String(req.headers.host || '');
+  const safe = /^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/.test(host) ? host : 'localhost:5173';
+  return `http://${safe}`.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Serve the product documentation pages in dev by rendering the markdown
 // sources on request (feature 007, FR-019). This mirrors production routing:
 // same index redirect, trailing-slash redirect, unknown-slug 404, and
@@ -121,10 +135,17 @@ function documentationPagesPlugin() {
         }));
         const bySlug = new Map(valid.map((p) => [p.frontmatter.slug, p]));
 
+        // Feature 060 (FR-033): the self-hosted variant names the dev
+        // server's own origin, validated and escaped like the server does.
+        const withOrigin = (html) =>
+          DOCUMENTATION_VARIANT === 'self-hosted'
+            ? html.split(ORIGIN_SENTINEL).join(devOrigin(req))
+            : html;
+
         const send404 = () => {
           res.statusCode = 404;
           res.setHeader('Content-Type', 'text/html');
-          res.end(render404({ allPages }));
+          res.end(withOrigin(render404({ allPages, variant: DOCUMENTATION_VARIANT })));
         };
 
         const servePage = (page) => {
@@ -136,7 +157,7 @@ function documentationPagesPlugin() {
           }
           res.setHeader('Content-Type', 'text/html');
           res.end(
-            renderPage({
+            withOrigin(renderPage({
               page: {
                 slug: page.frontmatter.slug,
                 title: page.frontmatter.title,
@@ -144,7 +165,8 @@ function documentationPagesPlugin() {
                 bodyHtml: renderBody(page.body),
               },
               allPages,
-            })
+              variant: DOCUMENTATION_VARIANT,
+            }))
           );
         };
 

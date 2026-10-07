@@ -5,7 +5,9 @@
  * Reads documentation/*.md at the repo root, validates the whole page set,
  * enforces the terminology gate, renders every page plus a 404 page through the
  * shared render module, and writes client/dist/documentation/<slug>.html,
- * index.html, and 404.html.
+ * index.html, and 404.html, plus the self-hosted variant of each under
+ * client/dist/documentation/_self-hosted/ (feature 060), which not-hosted
+ * instances serve with their own origin filled in.
  *
  * Wired into the client build as `vite build && node
  * scripts/build-documentation.mjs`, so it runs after Vite has emptied dist.
@@ -24,6 +26,7 @@ import {
   renderPage,
   render404,
   findTerminologyViolations,
+  ORIGIN_SENTINEL,
 } from './render-documentation.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -128,10 +131,62 @@ export function build({ srcDir = DOCS_SRC_DIR, outDir = OUT_DIR } = {}) {
   // Styled 404 page (D4 / FR-016).
   fs.writeFileSync(path.join(outDir, '404.html'), render404({ allPages }), 'utf8');
 
+  // The self-hosted variant (feature 060, FR-030 to FR-032), served by
+  // not-hosted instances from _self-hosted/. The nested directory is never
+  // addressable by URL (nested /documentation paths are the 404).
+  const variantDir = path.join(outDir, SELF_HOSTED_SUBDIR);
+  fs.mkdirSync(variantDir, { recursive: true });
+  for (const p of pages) {
+    const html = renderPage({
+      page: {
+        slug: p.frontmatter.slug,
+        title: p.frontmatter.title,
+        description: p.frontmatter.description,
+        bodyHtml: renderBody(p.body),
+      },
+      allPages,
+      variant: 'self-hosted',
+    });
+    fs.writeFileSync(path.join(variantDir, `${p.frontmatter.slug}.html`), html, 'utf8');
+  }
+  fs.writeFileSync(path.join(variantDir, '404.html'), render404({ allPages, variant: 'self-hosted' }), 'utf8');
+
+  const outputErrors = checkBuildOutput(outDir);
+  if (outputErrors.length > 0) {
+    fail(outputErrors);
+  }
+
   console.log(
-    `build-documentation — OK: wrote ${pages.length} page(s) + 404.html to ${path.relative(process.cwd(), outDir)}`
+    `build-documentation — OK: wrote ${pages.length} page(s) + 404.html to ${path.relative(process.cwd(), outDir)} ` +
+      `and the self-hosted variant to ${path.relative(process.cwd(), variantDir)}`
   );
-  return { count: pages.length, outDir };
+  return { count: pages.length, outDir, variantDir };
+}
+
+export const SELF_HOSTED_SUBDIR = '_self-hosted';
+
+/**
+ * Check the written output (contracts/documentation-variant.md "Build
+ * output"): no hosted page carries the origin sentinel, and no self-hosted
+ * page carries the Google tag, a canonical URL, or og:url. Returns errors.
+ */
+export function checkBuildOutput(outDir) {
+  const errors = [];
+  const htmlFiles = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.html')) : []);
+  for (const f of htmlFiles(outDir)) {
+    const html = fs.readFileSync(path.join(outDir, f), 'utf8');
+    if (html.includes(ORIGIN_SENTINEL)) errors.push(`documentation/${f}: hosted page contains ${ORIGIN_SENTINEL}`);
+  }
+  const variantDir = path.join(outDir, SELF_HOSTED_SUBDIR);
+  const variantFiles = htmlFiles(variantDir);
+  if (variantFiles.length === 0) errors.push(`documentation/${SELF_HOSTED_SUBDIR}: no self-hosted pages were written`);
+  for (const f of variantFiles) {
+    const html = fs.readFileSync(path.join(variantDir, f), 'utf8');
+    for (const banned of ['googletagmanager', 'rel="canonical"', 'og:url']) {
+      if (html.includes(banned)) errors.push(`documentation/${SELF_HOSTED_SUBDIR}/${f}: self-hosted page contains ${banned}`);
+    }
+  }
+  return errors;
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
