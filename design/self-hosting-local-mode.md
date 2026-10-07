@@ -29,15 +29,14 @@ Status: ratified by Sam 2026-10-07. Nothing here is built yet.
 
 This is the flow the design is built around. The developer types something like "set up Squire Docs locally" into Claude Code (or another agent with a shell).
 
-1. The agent reads `AGENTS.md` at the repository root (or the "Running locally" section at the top of the README), which gives it the exact commands below.
-2. The agent downloads `compose.yml` and the `./squire` wrapper and runs `docker compose up -d --wait`. The command returns when every container reports healthy.
-3. The agent runs `docker compose exec app squire doctor --json` and checks that it reports `ok: true`.
-4. The agent runs `docker compose exec app squire claim-link --name "<name>" --email "<email>"`, using the developer's git identity as defaults, and prints the link on its own line.
-5. The developer clicks the link. The claim page shows the prefilled name and email, they click Continue, and they are signed in as the instance owner with a welcome document.
-6. The agent runs `claude mcp add --transport http squire-local http://localhost:3910/mcp` and makes its first tool call. Claude Code opens the authorization page, which already has the owner's session, so it shows the consent card. The developer clicks Approve.
-7. The agent syncs a spec from the repository and hands back the document URL, as `/squire:onboard` does against the hosted service today.
+1. The agent fetches `https://squiredocs.com/self-host.md`, the setup instructions written for agents. It finds that URL from the README on GitHub, the documentation site, or squiredocs.com, and the plugin's onboarding skill points there too (D9). No clone of the repository is involved.
+2. The agent runs the install script, filling the name and email from the developer's git identity: `curl -fsSL https://squiredocs.com/install.sh | sh -s -- --name "<name>" --email "<email>"`. The script creates a `squire-docs` folder, downloads the release files, starts the stack, and waits until every container is healthy.
+3. The script runs `squire doctor`, then mints a claim link and prints it on its own line. The agent relays the link bare, with nothing appended.
+4. The developer clicks the link. The claim page shows the prefilled name and email, they click Continue, and they are signed in as the instance owner with a welcome document.
+5. The agent runs `claude mcp add --transport http squire-local http://localhost:3910/mcp` and makes its first tool call. Claude Code opens the authorization page, which already has the owner's session, so it shows the consent card. The developer clicks Approve.
+6. The agent syncs a spec from the developer's own project and hands back the document URL, as `/squire:onboard` does against the hosted service today.
 
-The developer clicks twice (Continue, Approve) and types nothing except the original request.
+The developer clicks twice (Continue, Approve) and types nothing except the original request. The install script is a convenience, not a requirement: `self-host.md` also lists the commands it runs, so an agent or person who prefers not to pipe a script into a shell can run them by hand.
 
 ## Instance modes
 
@@ -102,6 +101,28 @@ The core loop (the editor, version history, sharing, and the MCP surface) needs 
 ### Images and upgrades
 
 Images are published to GHCR as multi-architecture (amd64 and arm64) builds with semver tags plus `latest`. `isolated-vm` is a native module, so CI builds and smoke-tests both architectures. `compose.yml` reads the tag from `SQUIRE_VERSION`. Upgrading is `docker compose pull && docker compose up -d --wait`; migrations run on boot.
+
+### Release files and the install script
+
+Every GitHub release publishes `compose.yml`, the `squire` wrapper, `.env.example`, and a `SHA256SUMS` file as release assets, each pinned to that release's image tag. Nobody needs the source tree to run Squire Docs; cloning the repository is for contributors.
+
+`https://squiredocs.com/install.sh` is a POSIX `sh` script that does what a person would otherwise do by hand:
+
+1. Checks that `docker compose version` reports v2 and that the Docker daemon is running, and stops with a message naming the fix if not.
+2. Creates the install folder (`./squire-docs` by default, or `--dir`). If the folder already holds an installation, it stops and prints the upgrade command instead of overwriting anything.
+3. Downloads the release files for the latest release (or `--version`), verifies them against `SHA256SUMS`, and writes `.env` with `SQUIRE_VERSION` set to that release.
+4. Runs `docker compose up -d --wait`, then `./squire doctor`.
+5. Runs `./squire claim-link`, passing `--name` and `--email` through, and prints the link on its own line as the last line of output.
+
+The script never prompts, so an agent can run it unattended, and it exits non-zero with a specific message at the first failure. It is served from squiredocs.com so the URL stays short and stable, and the same file is in the repository at `distribution/self-host/install.sh` for anyone who wants to read it first. `self-host.md` lists the equivalent commands for people who would rather not pipe a script into a shell:
+
+```
+mkdir squire-docs && cd squire-docs
+curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/compose.yml
+curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/squire && chmod +x squire
+docker compose up -d --wait
+./squire claim-link
+```
 
 ## The squire CLI
 
@@ -170,15 +191,15 @@ The welcome document is seeded on the owner's first sign-in, as today. Its templ
 
 ## Agent-facing documentation
 
-`AGENTS.md` at the repository root is written for an agent to execute, not for a person to read. It contains:
+`https://squiredocs.com/self-host.md` is written for an agent to execute, not for a person to read. It sits next to the existing `https://squiredocs.com/agents.md`, which agents already read for the hosted service. The same file is kept in the repository as `AGENTS.md` and is published from there, so there is one source. It contains:
 
 - A prerequisite check: `docker compose version` must report v2.
-- The try-out path as numbered commands, each with its success condition.
+- The install command, and the equivalent manual commands, each with its success condition.
 - The rule for printing the claim link: bare, on its own line, with nothing appended.
 - Recovery steps: get a new sign-in link, change the port, read logs, upgrade.
 - A warning that `docker compose down -v` deletes every document, and that `docker compose down` (without `-v`) is the safe way to stop.
 
-The README's first section repeats the short version for people, and the documentation site gets a self-hosting page.
+The README on GitHub opens with the install command for people and links to `self-host.md` for agents. The documentation site gets a self-hosting page.
 
 ## Changes to existing behavior
 
@@ -214,7 +235,7 @@ Proposed pipeline features, in order:
 
 1. **Self-host configuration foundation.** `APP_URL`, cookie flag, generated secrets, migrations on boot, local image storage, generic SMTP, `SQUIRE_HOSTED`, welcome template URLs. No user-visible change on the hosted service.
 2. **Identity and local mode.** A `user_identities` table keyed by issuer and subject (Google rows backfilled), the provider registry and `GET /auth/providers`, `SQUIRE_MODE`, sign-in links, the `squire` CLI, and the sign-in and consent pages rendered from providers. Adds a migration.
-3. **Distribution.** `compose.yml`, the GHCR multi-arch image, `AGENTS.md`, the README section, the documentation page, the `onboard.md` self-host branch, and a CI job that plays the agent: boot the stack, run `doctor`, redeem a claim link, and drive the OAuth chain with the existing `test/first-run/oauth-chain-driver.mjs` (which needs a sign-in-link leg in place of the dev faucet).
+3. **Distribution.** `compose.yml`, the `squire` wrapper, and `SHA256SUMS` as release assets; the GHCR multi-arch image; `install.sh` and `self-host.md` served from squiredocs.com and kept in the repository; the README section and the documentation page; the `onboard.md` pointer to `self-host.md`; and a CI job that plays the agent: run the install script against the freshly built image, redeem the claim link it prints, and drive the OAuth chain with the existing `test/first-run/oauth-chain-driver.mjs` (which needs a sign-in-link leg in place of the dev faucet).
 4. **Team mode.** Generic OIDC, local passwords, `SIGNUP_MODE`, and the verified-email invite rule, per the Authentication and Sharing amendment. Can follow launch.
 
 Build step 2 also replaces the Google-only user creation. Today `users.google_id` is `NOT NULL UNIQUE` (`migrations/003_create_users_table.js`), `findOrCreateUser` upserts `ON CONFLICT (google_id)`, and `completePostAuth` takes a Google-shaped profile. Step 2 makes `google_id` nullable (kept for the hosted service's existing rows until a later cleanup), resolves users through `user_identities`, and changes `completePostAuth` to accept an already-resolved user so every sign-in method shares it.
@@ -235,9 +256,10 @@ All decisions below were ratified by Sam on 2026-10-07.
 - **D6. No email is needed in local mode.** Ratified by Sam 2026-10-07. Team-mode invites can be copied as links when SMTP is unset.
 - **D7. A Docker-free install is deferred.** Ratified by Sam 2026-10-07. An `npx squire-docs` path with embedded Postgres (PGlite supports pgvector) would reach developers without Docker, but it means porting the `pg` pool, advisory locks, and node-pg-migrate to it.
 - **D8. Hosted-only code stays in the repository behind ****`SQUIRE_HOSTED`****.** Ratified by Sam 2026-10-07. Moving it to a private repository gives a cleaner public tree at the cost of maintaining a split.
-- **D9. The Claude Code plugin stays pointed at the hosted service.** Decided by Sam 2026-10-07. Self-hosters add their instance with `claude mcp add --transport http squire-local http://localhost:3910/mcp`. A plugin setting for the server URL (`user_config`) can be revisited once self-host users ask for it.
+- **D9. The Claude Code plugin stays pointed at the hosted service.** Decided by Sam 2026-10-07. Self-hosters add their instance with `claude mcp add --transport http squire-local http://localhost:3910/mcp`. A plugin setting for the server URL (`user_config`) can be revisited once self-host users ask for it. Amended 2026-10-07: self-hosters do not have the repository, so the plugin's onboarding skill gains one instruction: when the user asks for a local instance, fetch https://squiredocs.com/self-host.md and follow it. The plugin's own server entry is unchanged.
 - **D10. A ****`./squire`**** wrapper script ships next to the compose file.** Decided by Sam 2026-10-07. It forwards its arguments to `docker compose exec app squire`, so a person can run `./squire claim-link` without an agent. AGENTS.md keeps the full docker command because it works from any folder.
 - **D11. An unclaimed local instance prints a claim link in its startup log.** Decided by Sam 2026-10-07. See Sign-in links.
+- **D12. Setup does not require cloning the repository, and an install script ships at launch.** Decided by Sam 2026-10-07. Instructions live at `squiredocs.com/self-host.md`, the files come from GitHub release assets, and `squiredocs.com/install.sh` runs the whole setup in one command, with the manual commands documented alongside it.
 
 ## Open questions
 
