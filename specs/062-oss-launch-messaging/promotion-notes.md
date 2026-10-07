@@ -137,7 +137,7 @@ phases append here.
   rebases onto main after 060, resolves `site-footer.mjs` by keeping,
   trimming, or dropping the isolated footer commit ("Change the footer tagline
   and add a Self-host footer link (overlaps feature 060)") and re-running
-  `npm run sync:footer`, repoints the GitHub links and `GITHUB_ORG_URL` in
+  `npm run sync:footer`, repoints the GitHub links and `GITHUB_REPO_URL` in
   `client/scripts/check-copy-rules.mjs` if the repository name is decided
   (D4), re-runs quickstart.md section 1, and merges.
 

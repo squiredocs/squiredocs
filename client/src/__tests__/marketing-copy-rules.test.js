@@ -13,7 +13,7 @@
  *   footer, nav, closing band       - shared elements (US4, FR-026 to FR-029)
  *   injected regressions are caught - fixtures inserted into the real pages (US5)
  *
- * The repository URL is GITHUB_ORG_URL from the checker (D4): repointing it is
+ * The repository URL is GITHUB_REPO_URL from the checker (D4): repointing it is
  * a one-line change here and in the pages.
  */
 import { describe, it, expect } from 'vitest';
@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  GITHUB_ORG_URL,
+  GITHUB_REPO_URL,
   COPY_RULES,
   stripStampedFooter,
   stripHtmlComments,
@@ -73,7 +73,7 @@ describe('checker catches each rule (US5, SC-004)', () => {
   }
 
   it('flags an unlinked body "MIT" as mit-unlinked', () => {
-    const text = `<p>It is MIT licensed.</p><a href="${GITHUB_ORG_URL}">MIT</a>`;
+    const text = `<p>It is MIT licensed.</p><a href="${GITHUB_REPO_URL}">MIT</a>`;
     expect(rulesFired(text, { requireMit: true })).toContain('mit-unlinked');
   });
 
@@ -85,7 +85,7 @@ describe('checker catches each rule (US5, SC-004)', () => {
     ['"every"', '<p>Every edit is attributed, every time.</p>'],
     ['"Squire Docs"', '<p>Squire Docs is open source.</p>'],
     ['squiredocs.com', '<a href="https://squiredocs.com/install.sh">squiredocs.com</a>'],
-    ['github.com/squiredocs', `<a href="${GITHUB_ORG_URL}">github.com/squiredocs</a>`],
+    ['github.com/squiredocs', `<a href="${GITHUB_REPO_URL}">github.com/squiredocs</a>`],
     ['"z.ai (GLM)"', '<p>Anthropic, OpenAI, z.ai (GLM), or OpenRouter.</p>'],
     ['an &mdash; inside an HTML comment', '<!-- a marker &mdash; and — here --><p>Clean.</p>'],
     ['"a dedicated instance" in lowercase prose (RBD-062-20)', '<p>We run a dedicated instance for you.</p>'],
@@ -110,14 +110,14 @@ describe('checker catches each rule (US5, SC-004)', () => {
   });
 
   it('passes a linked "MIT license" with requireMit', () => {
-    const text = `<p>Open source under the <a href="${GITHUB_ORG_URL}">MIT license</a>.</p>`;
+    const text = `<p>Open source under the <a href="${GITHUB_REPO_URL}">MIT license</a>.</p>`;
     const vs = findCopyRuleViolations(text, { requireMit: true });
     expect(vs, describeViolations(vs)).toHaveLength(0);
   });
 
   it('exempts "MIT" in <head> meta text when the body MIT is linked', () => {
     const text = `<html><head><meta name="description" content="Open source, MIT licensed." /></head>
-      <body><p><a href="${GITHUB_ORG_URL}">MIT licensed</a></p></body></html>`;
+      <body><p><a href="${GITHUB_REPO_URL}">MIT licensed</a></p></body></html>`;
     const vs = findCopyRuleViolations(text, { requireMit: true });
     expect(vs, describeViolations(vs)).toHaveLength(0);
   });
@@ -246,7 +246,7 @@ describe('landing launch copy (US1, FR-001 to FR-013, FR-028)', () => {
       ['Open source (MIT)', 'Every edit attributed and reversible', 'Your docs sync to markdown'],
       'trust strip',
     );
-    expect(strip).toMatch(new RegExp(`<a href="${GITHUB_ORG_URL}"[^>]*>Open source \\(MIT\\)</a>`));
+    expect(strip).toMatch(new RegExp(`<a href="${GITHUB_REPO_URL}"[^>]*>Open source \\(MIT\\)</a>`));
     expect(strip).not.toMatch(/Anthropic|Google|encrypted/);
   });
 
@@ -291,7 +291,7 @@ describe('landing launch copy (US1, FR-001 to FR-013, FR-028)', () => {
     );
     expect(html).toContain('<code>curl -fsSL https://squiredocs.com/install.sh | sh</code>');
     expect(html).toMatch(new RegExp(`<a href="${SELF_HOST_URL}"[^>]*>Read the self-host guide</a>`));
-    expect(html).toMatch(new RegExp(`<a href="${GITHUB_ORG_URL}"[^>]*>View on GitHub</a>`));
+    expect(html).toMatch(new RegExp(`<a href="${GITHUB_REPO_URL}"[^>]*>View on GitHub</a>`));
   });
 
   it('section 5 lists the four use cases; spec-driven only in the first (FR-011)', () => {
@@ -405,7 +405,7 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
     expect(text(run)).toBe(
       'Yes. Squire Docs is open source under the MIT license. Install it with one command, or follow the self-host guide. If you want us to run a dedicated instance for you in the cloud region of your choice, email contact@squiredocs.com.',
     );
-    expect(run).toContain(`<a href="${GITHUB_ORG_URL}">MIT license</a>`);
+    expect(run).toContain(`<a href="${GITHUB_REPO_URL}">MIT license</a>`);
     expect(run).toContain(`<a href="${SELF_HOST_URL}">self-host guide</a>`);
     expect(text(answer('Is the hosted version the same software?'))).toBe(
       'Yes. squiredocs.com runs the same code as the public repository.',
@@ -418,7 +418,7 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
     );
     const stay = answer('Will Squire Docs stay free?');
     expect(stay).toContain('and your documents export as markdown at any time.');
-    expect(stay).toContain(`The open source project is <a href="${GITHUB_ORG_URL}">MIT licensed</a>.`);
+    expect(stay).toContain(`The open source project is <a href="${GITHUB_REPO_URL}">MIT licensed</a>.`);
   });
 
   it('old plan names are gone (FR-014)', () => {
@@ -468,7 +468,7 @@ describe('about launch copy (US3, FR-021 to FR-025, FR-028)', () => {
     const why = prose.split('<p>').find((p) => p.includes('Why open source'));
     expect(why, 'no "Why open source" paragraph').toBeTruthy();
     expect(why).toContain('inspect, run, and keep');
-    expect(why).toMatch(new RegExp(`<a href="${GITHUB_ORG_URL}">MIT licensed</a>`));
+    expect(why).toMatch(new RegExp(`<a href="${GITHUB_REPO_URL}">MIT licensed</a>`));
     expect(why).toContain('same code');
     expect(why).toContain('21st Harmonic');
   });
@@ -524,7 +524,7 @@ describe('footer is the single source (FR-026, FR-027, SC-003)', () => {
     expectInOrder(
       FOOTER,
       [
-        `<li><a href="${GITHUB_ORG_URL}">GitHub</a></li>`,
+        `<li><a href="${GITHUB_REPO_URL}">GitHub</a></li>`,
         `<li><a href="${SELF_HOST_URL}">Self-host</a></li>`,
       ],
       'footer Product column',
@@ -561,7 +561,7 @@ describe('header nav (FR-029, RBD-062-2)', () => {
         nav,
         [
           'href="/blog" class="landing-nav-link',
-          `<a href="${GITHUB_ORG_URL}" class="landing-nav-link`,
+          `<a href="${GITHUB_REPO_URL}" class="landing-nav-link`,
           `<a href="${SELF_HOST_URL}" class="landing-nav-link`,
           'href="/login"',
         ],
@@ -620,7 +620,7 @@ describe('injected regressions are caught on the real pages (US5)', () => {
   it('removing the GitHub link wrappers on pricing fires mit-unlinked (RBD-062-16)', () => {
     const page = stripStampedFooter(readPage('pricing.html'));
     const unwrapped = page.replace(
-      new RegExp(`<a href="${GITHUB_ORG_URL}"[^>]*>([\\s\\S]*?)</a>`, 'g'),
+      new RegExp(`<a href="${GITHUB_REPO_URL}"[^>]*>([\\s\\S]*?)</a>`, 'g'),
       '$1',
     );
     expect(rulesFired(unwrapped, { requireMit: true })).toContain('mit-unlinked');

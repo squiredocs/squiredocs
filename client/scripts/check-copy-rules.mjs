@@ -6,7 +6,7 @@
  * Vitest suite (src/__tests__/marketing-copy-rules.test.js) can run every rule
  * against fixtures and against the real pages.
  *
- *   GITHUB_ORG_URL                               -> the repository link target (D4)
+ *   GITHUB_REPO_URL                               -> the repository link target (D4)
  *   COPY_RULES                                   -> [{ id, fr, patterns: RegExp[] }]
  *   stripStampedFooter(html)                     -> html without the site-footer block
  *   stripHtmlComments(text)                      -> text without <!-- ... --> comments
@@ -18,11 +18,11 @@
  * such as the footer sync comment are not copy.
  *
  * Repository URL repoint (D4): when the repository name is decided, change
- * GITHUB_ORG_URL here and every GitHub link in the pages and site-footer.mjs in
+ * GITHUB_REPO_URL here and every GitHub link in the pages and site-footer.mjs in
  * the same change. The MIT link rule (RBD-062-16) reads this constant.
  */
 
-export const GITHUB_ORG_URL = 'https://github.com/squiredocs';
+export const GITHUB_REPO_URL = 'https://github.com/squiredocs/squiredocs';
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -108,7 +108,7 @@ function collect(re, text, rule, out, offset = 0) {
 /**
  * Return every copy-rule violation in text as { rule, match, index }.
  * With requireMit, the text must name MIT at least once (D3, FR-037), and
- * every body "MIT" (outside <head>) must sit inside a link to GITHUB_ORG_URL
+ * every body "MIT" (outside <head>) must sit inside a link to GITHUB_REPO_URL
  * (RBD-062-16).
  */
 export function findCopyRuleViolations(text, { requireMit = false } = {}) {
@@ -134,7 +134,7 @@ export function findCopyRuleViolations(text, { requireMit = false } = {}) {
       out.push({ rule: 'mit-missing', match: '', index: -1 });
     }
     const body = s.replace(/<head\b[\s\S]*?<\/head>/i, '');
-    const linkRe = new RegExp(`<a\\s+href="${escapeRe(GITHUB_ORG_URL)}"[^>]*>[\\s\\S]*?<\\/a>`, 'g');
+    const linkRe = new RegExp(`<a\\s+href="${escapeRe(GITHUB_REPO_URL)}"[^>]*>[\\s\\S]*?<\\/a>`, 'g');
     const unlinked = body.replace(linkRe, '');
     collect(/\bMIT\b/g, unlinked, 'mit-unlinked', out);
   }
