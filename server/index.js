@@ -1650,11 +1650,15 @@ const server = app.listen(PORT, async () => {
   // Feature 059 (D11, FR-036): an unclaimed local instance prints a claim
   // link in a marked block. Runs BEFORE markInitialized so the link is in the
   // log by the time /ready turns 200 (`docker compose up --wait` returns after
-  // it). Swallows its own errors; never blocks readiness.
+  // it). Swallows its own errors; never blocks readiness. The block is
+  // written straight to stdout, not through the structured-logging console
+  // shim, so `docker compose logs app` shows it as plain lines with the link
+  // alone on its own line (a JSON log line would escape the newlines). It is
+  // only ever printed by a local instance with no users.
   await require('./auth/signin-links').maybeLogStartupClaimLink({
     pool: persistenceProvider.getPool(),
     mode: instanceConfig.mode,
-    log: console,
+    log: { log: (text) => process.stdout.write(`${text}\n`), error: console.error },
   });
 
   lifecycle.markInitialized();
