@@ -1,0 +1,403 @@
+# Release: build the Squire Docs image for amd64 and arm64, smoke-test both,
+# play the agent against the amd64 candidate, and only then publish the GHCR
+# manifest and the GitHub release with its four assets (feature 060,
+# contracts/release-workflow.md, research R7 to R9).
+#
+# Triggers: a pushed v* tag, or a manual dispatch. A dispatch from a branch
+# runs every gate with version 0.0.0-ci.<run> and never publishes. A failure
+# anywhere publishes nothing. The hosted deploy (script/build-and-deploy-aws.sh)
+# is independent of this workflow (RBD-060-19).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish (only when dispatched on a v* tag)'
+        type: boolean
+        default: false
+      allow_single_arch:
+        description: 'Allow publishing amd64 only when the arm64 leg is skipped'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      image: ${{ steps.release.outputs.image }}
+      publish: ${{ steps.gates.outputs.publish }}
+      arm64: ${{ steps.gates.outputs.arm64 }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate the tag and the repository name
+        id: release
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          else
+            TAG="v0.0.0-ci.$RUN_NUMBER"
+          fi
+          # Fails on a non-semver tag, the <org>/<repo> placeholder, or a
+          # REPOSITORY that differs from this repository.
+          node distribution/self-host/release.mjs validate --tag "$TAG" --github-repository "$GITHUB_REPOSITORY" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Decide publish and arm64
+        id: gates
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          publish=false
+          case "$REF_NAME" in
+            v*)
+              if [ "$REF_TYPE" = "tag" ] && { [ "$EVENT" = "push" ] || [ "$INPUT_PUBLISH" = "true" ]; }; then
+                publish=true
+              fi
+              ;;
+          esac
+          if [ "$publish" = "false" ]; then
+            if [ "$REF_TYPE" != "tag" ]; then
+              echo "Dispatch from a branch never publishes: not a release run; nothing published." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Not a release run (dispatched without publish); nothing published." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          if [ "$REPO_PRIVATE" = "false" ]; then
+            arm64=true
+          else
+            arm64=false
+            echo "The arm64 leg was skipped: GitHub's arm64 runners are not available to private repositories." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "arm64=$arm64" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp the release assets
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node distribution/self-host/release.mjs stamp --version "$VERSION" --out assets
+          (cd assets && sha256sum -c SHA256SUMS)
+
+      - name: Upload the assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          path: assets/
+          if-no-files-found: error
+
+  build-amd64:
+    runs-on: ubuntu-latest
+    needs: validate
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download the assets
+        uses: actions/download-artifact@v4
+        with:
+          name: assets
+          path: assets
+
+      - name: Build the image (linux/amd64)
+        run: |
+          docker buildx build --platform linux/amd64 --load \
+            --label "org.opencontainers.image.source=https://github.com/${IMAGE#ghcr.io/}" \
+            -t "$IMAGE:$VERSION" .
+
+      - name: Smoke - start the stack with the release compose.yml
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cp assets/compose.yml "$RUNNER_TEMP/smoke/compose.yml"
+          printf 'SQUIRE_VERSION=%s\n' "$VERSION" > "$RUNNER_TEMP/smoke/.env"
+          cd "$RUNNER_TEMP/smoke" && docker compose up -d --wait --wait-timeout 300
+
+      - name: Smoke - squire doctor --json (no -T, no terminal)
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          docker compose exec app squire doctor --json > doctor.json
+          node -e "const t=require('fs').readFileSync('doctor.json','utf8'); const d=JSON.parse(t); if (d.ok!==true) { console.error(t); process.exit(1); }"
+
+      - name: Smoke - the agent-script sandbox runs (isolated-vm 1+1)
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          out=$(docker compose exec -T app node -e "const ivm=require('isolated-vm'); const i=new ivm.Isolate({memoryLimit:16}); console.log(i.createContextSync().evalSync('1+1'))")
+          test "$out" = "2"
+
+      - name: Smoke - served files equal the repository files
+        run: |
+          curl -fsS http://127.0.0.1:3910/self-host.md | cmp - AGENTS.md
+          curl -fsS http://127.0.0.1:3910/install.sh | cmp - distribution/self-host/install.sh
+
+      - name: Smoke - logs and teardown
+        if: always()
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          docker compose logs app || true
+          docker compose down -v || true
+
+      - name: Save the tested image
+        run: docker save "$IMAGE:$VERSION" -o image-amd64.tar
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-amd64
+          path: image-amd64.tar
+          retention-days: 3
+          if-no-files-found: error
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: validate
+    if: needs.validate.outputs.arm64 == 'true'
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download the assets
+        uses: actions/download-artifact@v4
+        with:
+          name: assets
+          path: assets
+
+      - name: Build the image (linux/arm64)
+        run: |
+          docker buildx build --platform linux/arm64 --load \
+            --label "org.opencontainers.image.source=https://github.com/${IMAGE#ghcr.io/}" \
+            -t "$IMAGE:$VERSION" .
+
+      - name: Smoke - start the stack with the release compose.yml
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cp assets/compose.yml "$RUNNER_TEMP/smoke/compose.yml"
+          printf 'SQUIRE_VERSION=%s\n' "$VERSION" > "$RUNNER_TEMP/smoke/.env"
+          cd "$RUNNER_TEMP/smoke" && docker compose up -d --wait --wait-timeout 300
+
+      - name: Smoke - squire doctor --json (no -T, no terminal)
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          docker compose exec app squire doctor --json > doctor.json
+          node -e "const t=require('fs').readFileSync('doctor.json','utf8'); const d=JSON.parse(t); if (d.ok!==true) { console.error(t); process.exit(1); }"
+
+      - name: Smoke - the agent-script sandbox runs (isolated-vm 1+1)
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          out=$(docker compose exec -T app node -e "const ivm=require('isolated-vm'); const i=new ivm.Isolate({memoryLimit:16}); console.log(i.createContextSync().evalSync('1+1'))")
+          test "$out" = "2"
+
+      - name: Smoke - served files equal the repository files
+        run: |
+          curl -fsS http://127.0.0.1:3910/self-host.md | cmp - AGENTS.md
+          curl -fsS http://127.0.0.1:3910/install.sh | cmp - distribution/self-host/install.sh
+
+      - name: Smoke - logs and teardown
+        if: always()
+        working-directory: ${{ runner.temp }}/smoke
+        run: |
+          docker compose logs app || true
+          docker compose down -v || true
+
+      - name: Save the tested image
+        run: docker save "$IMAGE:$VERSION" -o image-arm64.tar
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-arm64
+          path: image-arm64.tar
+          retention-days: 3
+          if-no-files-found: error
+
+  agent:
+    runs-on: ubuntu-latest
+    needs: [validate, build-amd64]
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Choose the install folder
+        run: echo "INSTALL_DIR=$RUNNER_TEMP/squire-docs" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download the image
+        uses: actions/download-artifact@v4
+        with:
+          name: image-amd64
+
+      - name: Download the assets
+        uses: actions/download-artifact@v4
+        with:
+          name: assets
+          path: assets
+
+      # Loaded under its release tag, so compose's default pull policy
+      # (missing) never contacts a registry (RBD-060-6).
+      - name: Load the candidate image
+        run: docker load -i image-amd64.tar
+
+      - name: Serve the assets locally
+        run: |
+          python3 -m http.server 8000 --directory assets > "$RUNNER_TEMP/http.log" 2>&1 &
+          for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS -o /dev/null http://127.0.0.1:8000/SHA256SUMS && exit 0; sleep 1; done
+          exit 1
+
+      - name: Run install.sh as an agent would
+        env:
+          SQUIRE_INSTALL_ASSET_URL: http://127.0.0.1:8000
+        run: |
+          sh distribution/self-host/install.sh --dir "$INSTALL_DIR" --version "$VERSION" \
+            --name "CI Agent" --email "ci-agent@example.com" < /dev/null > link.txt
+          tail -n 1 link.txt | grep -Eq '^http://localhost:3910/claim#[A-Za-z0-9_-]+$'
+
+      - name: Redeem the link and drive the OAuth chain to a tool call and an agent script
+        run: |
+          node test/first-run/oauth-chain-driver.mjs --server http://localhost:3910 \
+            --signin-link "$(tail -n 1 link.txt)" \
+            --expect-name "CI Agent" --expect-email "ci-agent@example.com" --script-check
+
+      - name: Logs and teardown
+        if: always()
+        run: |
+          if [ -f "$INSTALL_DIR/compose.yml" ]; then
+            cd "$INSTALL_DIR"
+            docker compose logs app || true
+            docker compose down -v || true
+          fi
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [validate, build-amd64, build-arm64, agent]
+    if: ${{ always() && needs.validate.result == 'success' && needs.validate.outputs.publish == 'true' }}
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Never succeeds silently with a gate missing (FR-025, SC-004).
+      - name: Check every gate passed
+        env:
+          AMD64: ${{ needs.build-amd64.result }}
+          ARM64: ${{ needs.build-arm64.result }}
+          AGENT: ${{ needs.agent.result }}
+          ALLOW_SINGLE_ARCH: ${{ inputs.allow_single_arch }}
+        run: |
+          if [ "$AMD64" != "success" ]; then echo "build-amd64 did not succeed ($AMD64); nothing published." >&2; exit 1; fi
+          if [ "$AGENT" != "success" ]; then echo "The agent job did not succeed ($AGENT); nothing published." >&2; exit 1; fi
+          if [ "$ARM64" = "success" ]; then
+            echo "ARCHES=amd64 arm64" >> "$GITHUB_ENV"
+          elif [ "$ARM64" = "skipped" ] && [ "$ALLOW_SINGLE_ARCH" = "true" ]; then
+            echo "Publishing amd64 only: the arm64 leg was skipped and allow_single_arch is true." >> "$GITHUB_STEP_SUMMARY"
+            echo "ARCHES=amd64" >> "$GITHUB_ENV"
+          else
+            echo "build-arm64 did not succeed ($ARM64). Make the repository public for arm64 runners, or dispatch with allow_single_arch. Nothing published." >&2
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download the images and assets
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tested bytes are the published bytes (RBD-060-26).
+      - name: Push the tested images under per-arch staging tags
+        run: |
+          for arch in $ARCHES; do
+            docker load -i "artifacts/image-$arch/image-$arch.tar"
+            docker tag "$IMAGE:$VERSION" "$IMAGE:$VERSION-$arch"
+            docker push "$IMAGE:$VERSION-$arch"
+            docker rmi "$IMAGE:$VERSION"
+          done
+
+      - name: Assemble the multi-arch manifest
+        run: |
+          tags="-t $IMAGE:$VERSION"
+          if [ "$PRERELEASE" = "false" ]; then tags="$tags -t $IMAGE:latest"; fi
+          sources=""
+          for arch in $ARCHES; do sources="$sources $IMAGE:$VERSION-$arch"; done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $tags $sources
+
+      - name: Verify the manifest lists exactly the expected platforms
+        run: |
+          docker buildx imagetools inspect --raw "$IMAGE:$VERSION" > index.json
+          expected=$(for arch in $ARCHES; do echo "linux/$arch"; done | sort | tr '\n' ' ')
+          actual=$(node -e "const j=require('./index.json'); console.log((j.manifests||[]).map(m=>m.platform.os+'/'+m.platform.architecture).filter(p=>p!=='unknown/unknown').sort().join('\n'))" | tr '\n' ' ')
+          echo "expected: $expected; actual: $actual"
+          test "$expected" = "$actual"
+
+      - name: Create the GitHub release
+        run: |
+          flags=""
+          if [ "$PRERELEASE" = "true" ]; then flags="--prerelease"; fi
+          # shellcheck disable=SC2086
+          gh release create "v$VERSION" artifacts/assets/compose.yml artifacts/assets/squire \
+            artifacts/assets/env.example artifacts/assets/SHA256SUMS \
+            --title "Squire Docs $VERSION" \
+            --notes "Install: curl -fsSL https://squiredocs.com/install.sh | sh -s -- --version $VERSION. Image: $IMAGE:$VERSION." \
+            $flags
+
+      - name: Verify the release asset names
+        run: |
+          names=$(gh release view "v$VERSION" --json assets --jq '[.assets[].name] | sort | join(",")')
+          echo "assets: $names"
+          test "$names" = "SHA256SUMS,compose.yml,env.example,squire"
