@@ -34,7 +34,7 @@ This is the flow the design is built around. The developer types something like 
 3. The agent runs `docker compose exec app squire doctor --json` and checks that it reports `ok: true`.
 4. The agent runs `docker compose exec app squire claim-link --name "<name>" --email "<email>"`, using the developer's git identity as defaults, and prints the link on its own line.
 5. The developer clicks the link. The claim page shows the prefilled name and email, they click Continue, and they are signed in as the instance owner with a welcome document.
-6. The agent runs `claude mcp add --transport http squire-local http://localhost:3001/mcp` and makes its first tool call. Claude Code opens the authorization page, which already has the owner's session, so it shows the consent card. The developer clicks Approve.
+6. The agent runs `claude mcp add --transport http squire-local http://localhost:3910/mcp` and makes its first tool call. Claude Code opens the authorization page, which already has the owner's session, so it shows the consent card. The developer clicks Approve.
 7. The agent syncs a spec from the repository and hands back the document URL, as `/squire:onboard` does against the hosted service today.
 
 The developer clicks twice (Continue, Approve) and types nothing except the original request.
@@ -73,9 +73,9 @@ Moving from local to team mode is a configuration change and a restart. The owne
 
 Each service has a health check. `app` waits on `service_healthy` for both dependencies. Its own health check is `/ready`, which reports Postgres and Redis reachability and stays 503 until startup finishes, so `docker compose up --wait` returns only when the app can serve requests. The Dockerfile's `HEALTHCHECK` changes from `/health` to `/ready` so the image behaves the same outside compose. The Postgres check is `pg_isready -h 127.0.0.1`: without `-h` it uses the Unix socket, which answers while the image's first-run initialization server is still running, before Postgres accepts TCP connections, and the app's migration step would then fail to connect.
 
-Data lives in three named volumes: `squire-data` (generated secrets and local image storage), `postgres-data`, and `redis-data`. The app port is published on `127.0.0.1:${SQUIRE_PORT:-3001}`, so it is not reachable from other machines unless the user changes the binding.
+Data lives in three named volumes: `squire-data` (generated secrets and local image storage), `postgres-data`, and `redis-data`. The app port is published on `127.0.0.1:${SQUIRE_PORT:-3910}` (the container still listens on 3001; only the host port changes), so it is not reachable from other machines unless the user changes the binding.
 
-`.env` is optional. `.env.example` lists every setting with its default. The only setting a try-out user might need is `SQUIRE_PORT`, if 3001 is taken.
+`.env` is optional. `.env.example` lists every setting with its default. The only setting a try-out user might need is `SQUIRE_PORT`, if 3910 is taken.
 
 ### Zero-configuration boot
 
@@ -112,7 +112,7 @@ The image ships a `squire` command, run as `docker compose exec app squire <comm
 - `squire login-link --email E` mints a sign-in link for any existing user. This is the administrator recovery path in team mode.
 - `squire mode` prints the current mode and what changing it would require.
 
-Every error message from the CLI names the next action, for example "Port 3001 is in use. Set SQUIRE_PORT in .env and run docker compose up -d again."
+Every error message from the CLI names the next action, for example "Port 3910 is in use. Set SQUIRE_PORT in .env and run docker compose up -d again."
 
 ## Sign-in links
 
@@ -135,7 +135,7 @@ Sessions after sign-in are the existing JWT cookies, unchanged. `POST /auth/refr
 
 The agent connects with the existing MCP OAuth 2.1 flow, the same as against the hosted service:
 
-- `claude mcp add --transport http squire http://localhost:3001/mcp` registers the server. The first tool call triggers discovery, dynamic client registration, and PKCE authorization.
+- `claude mcp add --transport http squire-local http://localhost:3910/mcp` registers the server. The first tool call triggers discovery, dynamic client registration, and PKCE authorization.
 - Claude Code's callback is a localhost URL, which `checkRedirectUri` already accepts for auto-registered clients.
 - Because the owner already has a browser session from the claim link, `/authorize` shows the consent card directly. The owner clicks Approve.
 
@@ -194,7 +194,7 @@ The README's first section repeats the short version for people, and the documen
 ## Security considerations
 
 - **Sign-in links** are single-use, expire in 15 minutes, are stored hashed, travel in the URL fragment, and can only be minted from inside the container.
-- **Local mode exposure.** The default port binding is `127.0.0.1`. Serving plain HTTP on any other address is not supported. The app's Content Security Policy includes `upgrade-insecure-requests` (a Helmet default), so a browser reaching `http://192.168.x.x:3001` upgrades every request and the WebSocket to https, and the app does not load. Browsers exempt localhost from the upgrade, which is why the try-out path works. Anyone exposing an instance beyond their own machine puts a TLS-terminating reverse proxy in front and sets an https `APP_URL`. `squire doctor` reports an error when `APP_URL` is neither localhost nor https.
+- **Local mode exposure.** The default port binding is `127.0.0.1`. Serving plain HTTP on any other address is not supported. The app's Content Security Policy includes `upgrade-insecure-requests` (a Helmet default), so a browser reaching `http://192.168.x.x:3910` upgrades every request and the WebSocket to https, and the app does not load. Browsers exempt localhost from the upgrade, which is why the try-out path works. Anyone exposing an instance beyond their own machine puts a TLS-terminating reverse proxy in front and sets an https `APP_URL`. `squire doctor` reports an error when `APP_URL` is neither localhost nor https.
 - **Pending invites.** Today pending invites convert by email at every sign-in. In local mode nobody but the owner can sign in, so this is safe. In team mode with local passwords, invites must convert only for verified email addresses; that rule belongs to the Authentication and Sharing amendment and must ship before local passwords do.
 - **Development endpoints** stay behind `ENABLE_DEV_ENDPOINTS=1`, which the image never sets.
 - **Generated secrets** are readable by anyone with access to the data volume, the same trust boundary as the database.
@@ -230,6 +230,13 @@ Each decision lists the proposed default. None are ratified yet.
 ## Open questions
 
 - Should the plugin gain a `user_config` setting for its server URL, so plugin users can point it at a local instance instead of adding `squire-local` separately? This needs a test of how `user_config` behaves when the user leaves it blank.
+  - I don't understand - I need more info
+  - **Claude (10-07): **The Claude Code plugin ships a config file that tells Claude Code where the server is, and today that is always squiredocs.com. So a developer who has the plugin installed and also runs a local instance has two Squire Docs servers in Claude Code, and the agent has to pick the right one. There are two ways to handle it. (a) Leave the plugin pointing at the hosted service only, and have self-hosters add their local server with one command (claude mcp add ... squire-local). (b) Have the plugin ask for a server URL when it is installed (Claude Code calls this user_config), so one plugin can serve both. (b) is tidier but has an untested piece: what happens when someone leaves the URL blank. Recommendation: (a) at launch. Self-hosters already have the repo and AGENTS.md, so they do not need the plugin to get set up. Revisit (b) once there are self-host users asking for it.
 - Default port: keep 3001, which matches development and production, or pick a less common port to avoid collisions on developer machines?
+  - Pick a less common one
+  - **Claude (10-07): **Resolved: the default host port is 3910, which none of the common dev tools use (3000, 3001, 4000, 5000, 5173, 8000, 8080). The container still listens on 3001 internally, so development and production do not change. The doc body is updated.
 - Should `squire claim-link` be runnable from the host without `docker compose exec`, for example as a small script in the repository that wraps it?
+  - I'm not sure i need more info
+  - **Claude (10-07): **To mint a sign-in link today the command is docker compose exec app squire claim-link, and it has to be run from the folder holding compose.yml. Agents handle that fine. The case it matters for is a person signing back in without their agent, for example after a week away when their session has expired. The option is a tiny ./squire script shipped next to compose.yml that forwards to that command, so a person types ./squire claim-link. A second option: while the instance has no owner, the server also prints a claim link in its startup log, which is what Jupyter does, so docker compose logs app shows it. Recommendation: do both. AGENTS.md keeps the full docker command because it works from anywhere; the README tells people about ./squire.
 - Licence and git history handling are decided outside this document but block publishing.
+  - ok
