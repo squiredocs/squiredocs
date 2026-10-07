@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Real-time collaborative rich text editor using Yjs and TipTap",
   "main": "server/index.js",
+  "bin": {
+    "squire": "bin/squire.js"
+  },
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",

@@ -62,6 +62,11 @@ spec:
               value: "3001"
             - name: NODE_ENV
               value: development
+            # Feature 059 (RBD-059-1): development signs in like the hosted
+            # service (team mode). Set SQUIRE_MODE=local in a shell to exercise
+            # local mode. Takes effect on the next sandbox `up`.
+            - name: SQUIRE_MODE
+              value: team
             # Feature 058 (RBD-058-28): development mirrors the hosted service
             # (marketing pages, analytics shell, credits, admin emails). Takes
             # effect on the next sandbox `up`; never restart from inside the

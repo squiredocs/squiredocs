@@ -43,6 +43,12 @@ telemetry.start();
 // ... Every module reads the same memoized object (RBD-058-16).
 const { getInstanceConfig } = require('./instance-config');
 const instanceConfig = getInstanceConfig();
+
+// --- Instance mode and sign-in providers (feature 059) ------------------------
+// Logs the one mode line (and, in local mode, any provider configured but
+// inactive), or, on a team instance with no sign-in provider, logs the FATAL
+// line and exits 1 before anything listens (FR-020 to FR-023).
+require('./auth/providers').assertBootable({ log: console, exit: process.exit });
 (function logInstanceConfig() {
   if (instanceConfig.insecureRemoteHttp) {
     console.warn(
@@ -1641,6 +1647,16 @@ const server = app.listen(PORT, async () => {
   // Startup finished — mark the process ready so GET /ready flips 503 → 200
   // (feature 010, US4/scenario 4). Redis pub/sub init failure does not block
   // readiness (RD-4: Postgres gates, cache is reported-not-gating).
+  // Feature 059 (D11, FR-036): an unclaimed local instance prints a claim
+  // link in a marked block. Runs BEFORE markInitialized so the link is in the
+  // log by the time /ready turns 200 (`docker compose up --wait` returns after
+  // it). Swallows its own errors; never blocks readiness.
+  await require('./auth/signin-links').maybeLogStartupClaimLink({
+    pool: persistenceProvider.getPool(),
+    mode: instanceConfig.mode,
+    log: console,
+  });
+
   lifecycle.markInitialized();
 });
 

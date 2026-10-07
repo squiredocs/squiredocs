@@ -624,6 +624,7 @@ async function deleteAllSyntheticUsers() {
 
 module.exports = {
   init,
+  getPool: ensurePool,
   SYNTHETIC,
   isSyntheticEmail,
   GOOGLE_ISSUER,

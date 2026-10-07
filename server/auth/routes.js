@@ -630,6 +630,10 @@ router.post('/prod-reset-selftest-account', hostedOnly, requireAdmin, async (req
   }
 });
 
+// Feature 059: GET /providers and the sign-in link peek/redeem endpoints.
+// Mounted on this router so they inherit the per-IP /auth limiter (FR-035).
+router.use(require('./signin-link-routes').createSigninLinkRouter({ getClientUrl }));
+
 module.exports = router;
 module.exports.getClientUrl = getClientUrl;
 module.exports.isValidReturnTo = isValidReturnTo;
