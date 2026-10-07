@@ -183,7 +183,7 @@ function expectClosingBand(html, label) {
 // --- Block 2: scanned sources are clean ---------------------------------------
 
 describe('scanned sources are clean (FR-030 to FR-038)', () => {
-  for (const name of ['landing.html', 'pricing.html']) {
+  for (const name of ['landing.html', 'pricing.html', 'about.html']) {
     it(`${name} has no copy-rule violations`, () => {
       const vs = findCopyRuleViolations(stripStampedFooter(readPage(name)), { requireMit: true });
       expect(vs, vs.map((v) => `${name}: ${v.rule} "${v.match}"`).join('\n')).toHaveLength(0);
@@ -419,5 +419,79 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
 
   it('closing band (FR-028)', () => {
     expectClosingBand(html, 'pricing.html');
+  });
+});
+
+describe('about launch copy (US3, FR-021 to FR-025, FR-028)', () => {
+  const html = readPage('about.html');
+
+  it('title and meta text (FR-021, RBD-062-15)', () => {
+    expect(titleOf(html)).toBe('About | Squire Docs');
+    expect(metaContent(html, 'property', 'og:title')).toBe('About | Squire Docs');
+    expect(metaContent(html, 'name', 'description')).toBe(
+      'Coding agents write plans, specs, and reports. Squire Docs gives that work a shared, attributed document your team edits with the agent. Open source, MIT licensed, built by 21st Harmonic.',
+    );
+    expect(metaContent(html, 'property', 'og:description')).toBe(
+      'Why Squire Docs exists: a shared document for the work your agents do, with every change attributed. Open source under the MIT license.',
+    );
+    const head = html.match(/<head>[\s\S]*<\/head>/)[0];
+    for (const s of ['copy-paste', 'chat tab', 'engineering leaders']) expect(head).not.toContain(s);
+  });
+
+  it('hero H1 and subline (FR-021)', () => {
+    const hero = block(html, '<section class="about-hero">');
+    expect(text(block(hero, '<h1', '</h1>').replace(/<br\s*\/?>/g, ' '))).toBe(
+      'Agents do real work now. They need somewhere to put it.',
+    );
+    expect(text(block(hero, '<p', '</p>'))).toBe(
+      'Squire Docs gives the work your agents do a shared document your team can read, edit, and correct.',
+    );
+  });
+
+  it('prose opens with the agent problem and has a "Why open source" paragraph (FR-022, FR-023)', () => {
+    const prose = block(html, '<div class="about-prose">', '</section>');
+    expect(prose).toContain(
+      "<p>Coding agents write plans, specs, and reports, and most of it ends up in a terminal scrollback or a scratch file nobody else can see. Squire Docs gives that work a shared document: you and your team read it, edit it, and correct it while the agent is still working, and every change keeps its author.</p>",
+    );
+    expect(html).not.toContain('You know the ritual');
+    expect(html).not.toContain('engineering leaders');
+    const why = prose.split('<p>').find((p) => p.includes('Why open source'));
+    expect(why, 'no "Why open source" paragraph').toBeTruthy();
+    expect(why).toContain('inspect, run, and keep');
+    expect(why).toMatch(new RegExp(`<a href="${GITHUB_ORG_URL}">MIT licensed</a>`));
+    expect(why).toContain('same code');
+    expect(why).toContain('21st Harmonic');
+  });
+
+  it('four "What we believe" cards with the launch wording (FR-024, RBD-062-6, RBD-062-19)', () => {
+    const grid = block(html, '<div class="about-principles-grid">', '</section>');
+    const cards = grid.split('<div class="landing-usecase-card">').slice(1);
+    expect(cards).toHaveLength(4);
+    const card = (h) => {
+      const c = cards.find((x) => x.includes(`<h3>${h}</h3>`));
+      expect(c, `card "${h}" missing`).toBeTruthy();
+      return text(c.slice(c.indexOf('<p>'), c.indexOf('</p>') + 4));
+    };
+    card('The document is the interface');
+    expect(card('Agent work is accountable work')).toBe(
+      'Each edit is attributed to whoever made it, human or agent, and can be undone through version history.',
+    );
+    const open = card('Open to any model or agent');
+    expect(open).toContain('z.ai (GLM)');
+    expect(open).toContain('Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter');
+    expect(open.startsWith('A built-in agent')).toBe(false);
+    expect(open).toMatch(/^Connect/);
+    expect(card('Trust by design')).toBe('Your docs, your infrastructure: open source, markdown export, and self-hosting.');
+    expect(grid).not.toMatch(/Google sign-in/);
+  });
+
+  it('keeps the "Who\'s behind it" section and contact card (FR-025)', () => {
+    expect(html).toContain("<h2 class=\"landing-section-title\">Who's behind it</h2>");
+    expect(html).toContain('<div class="about-contact-card">');
+    expect(html).toContain('<a href="mailto:contact@squiredocs.com" class="landing-btn primary">contact@squiredocs.com</a>');
+  });
+
+  it('closing band (FR-028)', () => {
+    expectClosingBand(html, 'about.html');
   });
 });

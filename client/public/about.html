@@ -13,9 +13,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>About | Squire Docs</title>
-  <meta name="description" content="Squire Docs is where engineering teams and their AI agents write specs together. Built by engineering leaders who wanted a better way to move from high-level thinking to finished plans." />
+  <meta name="description" content="Coding agents write plans, specs, and reports. Squire Docs gives that work a shared, attributed document your team edits with the agent. Open source, MIT licensed, built by 21st Harmonic." />
   <meta property="og:title" content="About | Squire Docs" />
-  <meta property="og:description" content="Why we built Squire Docs: design docs and specs a team and its coding agents write together, with every edit accountable." />
+  <meta property="og:description" content="Why Squire Docs exists: a shared document for the work your agents do, with every change attributed. Open source under the MIT license." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://squiredocs.com/about" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -74,6 +74,15 @@
       line-height: 1.75;
       margin: 0 0 1.25rem;
       text-align: left;
+    }
+
+    .about-prose a {
+      color: #7c3aed;
+      text-decoration: none;
+    }
+
+    .about-prose a:hover {
+      text-decoration: underline;
     }
 
     .about-principles-grid {
@@ -144,17 +153,15 @@
 
     <!-- Hero -->
     <section class="about-hero">
-      <h1>AI belongs in the document,<br>not in a chat tab</h1>
-      <p>Squire Docs exists to end the copy-paste loop between your editor and your AI.</p>
+      <h1>Agents do real work now.<br>They need somewhere to put it.</h1>
+      <p>Squire Docs gives the work your agents do a shared document your team can read, edit, and correct.</p>
     </section>
 
     <!-- The problem -->
     <section class="landing-section">
       <div class="about-prose">
-        <p>You know the ritual. Copy a paragraph into a chatbot. Explain what you want. Copy the answer back. Fix the formatting it mangled. Lose track of what changed. Repeat, until you're not sure which version is the real one anymore.</p>
-        <p>The AI is good. The workflow is broken. Your document lives in one place and your AI lives in another, and you spend your writing time being the courier between them.</p>
-        <p>Squire Docs puts the AI inside the page. It drafts, edits, and researches right where you're working: formatting intact, every change tracked, nothing lost in transit.</p>
-        <p>Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to finished plans: design docs, ADRs, and specs that a team and its coding agents can write together. Connect Claude Code, Kiro, Codex, or Claude Desktop over MCP, and your agent reads and updates the same document your team is editing, every change attributed. We use it the same way you would.</p>
+        <p>Coding agents write plans, specs, and reports, and most of it ends up in a terminal scrollback or a scratch file nobody else can see. Squire Docs gives that work a shared document: you and your team read it, edit it, and correct it while the agent is still working, and every change keeps its author.</p>
+        <p><strong>Why open source.</strong> The tool that holds your team's specs and your agents' work should be one you can inspect, run, and keep. Squire Docs is <a href="https://github.com/squiredocs">MIT licensed</a>, and the hosted service at squiredocs.com runs the same code. For teams that want one, 21st Harmonic offers <a href="/pricing">managed instances</a>.</p>
       </div>
     </section>
 
@@ -169,15 +176,15 @@
           </div>
           <div class="landing-usecase-card">
             <h3>Agent work is accountable work</h3>
-            <p>Each edit is attributed to whoever made it, human or AI, and reversible through version history. Agent output gets reviewed like a collaborator's work, never pasted over anonymously.</p>
+            <p>Each edit is attributed to whoever made it, human or agent, and can be undone through version history.</p>
           </div>
           <div class="landing-usecase-card">
             <h3>Open to any model or agent</h3>
-            <p>A built-in agent on Anthropic's Claude models, your own key from Anthropic, Google (Gemini), OpenAI, z.ai, or OpenRouter, or external agents like Claude Code, Kiro, Codex, and Claude Desktop via MCP. No lock-in.</p>
+            <p>Connect any MCP agent, such as Claude Code, Codex, Cursor, Kiro, or Claude Desktop, and bring your own key from Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter. On squiredocs.com, the built-in assistant also comes with monthly AI credits.</p>
           </div>
           <div class="landing-usecase-card">
             <h3>Trust by design</h3>
-            <p>Google sign-in with no password to manage, API keys encrypted at rest, and your documents always yours to export.</p>
+            <p>Your docs, your infrastructure: open source, markdown export, and self-hosting.</p>
           </div>
         </div>
       </div>
@@ -197,18 +204,11 @@
     <!-- Bottom CTA -->
     <section class="landing-section cta">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">Ready to write with your agents?</h2>
+        <h2 class="landing-section-title">Start writing with your agents.</h2>
         <div class="landing-signup-card">
-          <p class="landing-signup-subtext">Free. No Setup. Sign in with Google.</p>
-          <a href="/signup" class="landing-btn google">
-            <svg class="google-icon" width="20" height="20" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Start free
-          </a>
+          <p class="landing-signup-subtext">Free. Open source. Run it yourself or use ours.</p>
+          <a href="/signup" class="landing-btn google">Start free</a>
+          <a href="/documentation/self-hosting" class="landing-btn outline">Run it yourself</a>
         </div>
         <p class="landing-cta-contact">Questions? <a href="mailto:contact@squiredocs.com">Email us</a>. A human answers.</p>
       </div>
