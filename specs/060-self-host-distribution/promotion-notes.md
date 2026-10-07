@@ -96,3 +96,42 @@ to Sam. Later phases append here.
      design (production uses pg16).
   3. The plugin bundle licenses say "Squire Docs" as the holder; aligned to
      RBD-060-13 in this feature because the bundles are regenerated anyway.
+
+## Plan phase (2026-10-07)
+
+- **No relaxations introduced by the plan.** New defaults are RBD-060-20 to
+  RBD-060-33. No database migration.
+
+- **Spec text the plan deviates from, by recorded default**:
+  1. FR-009 and US1 scenario 1 name the asset `.env.example`; it is published
+     as `env.example` because GitHub renames dot-leading asset names
+     (RBD-060-21). Installed name unchanged.
+  2. FR-005 and RBD-060-1 assumed the release stamps the repository name
+     into every file; `AGENTS.md` and `install.sh` are served from the image,
+     so the name is a repository constant mirrored in four files with a drift
+     test (RBD-060-20).
+  3. FR-014/FR-015's "v2" check is tightened to Compose 2.24 or later
+     (RBD-060-22).
+
+- **Design-doc amendments to request in Squire** (in addition to the spec
+  phase's list): the asset name `env.example` (RBD-060-21); Compose 2.24+ and
+  `env_file` with `required: false`, and the overridable `APP_URL` default
+  (RBD-060-22); the wrapper's conditional `-T` (RBD-060-23); the served
+  files come from the image built from the repository (RBD-060-29).
+
+- **Docker-only checks owed** (cannot run in the pod; all are `release.yml`
+  gates or maintainer runs): both image builds from the unchanged Dockerfile,
+  the per-arch compose smoke, the agent job, the manifest and asset checks,
+  the upgrade check (quickstart Part B step 5), and the hosted deploy
+  (quickstart "Hosted deploy check"). The first real run needs the
+  repository public (arm64) and `REPOSITORY` set.
+
+- **Hosted deploy note**: after the next hosted deploy, check that the edge
+  (CloudFront and the WAF rate rule) passes `/install.sh` and `/self-host.md`
+  with the contract content types; a cached 404 from before the deploy would
+  need an invalidation.
+
+- **Documentation owed** is listed in `plan.md` ("Documentation owed"),
+  superseding the spec phase's shorter list only by adding: `release.mjs`
+  and `REPOSITORY`, `npm run test:self-host`, the dispatch inputs, the
+  Compose 2.24 requirement, and the driver's `--signin-link` leg.

@@ -184,7 +184,7 @@ A visitor to the public repository finds an MIT `LICENSE`, a `CONTRIBUTING.md` t
 
 **Release assets and the image**
 
-- **FR-009**: Every release MUST publish exactly these assets: `compose.yml`, `squire`, `.env.example`, and `SHA256SUMS` (SHA-256 of the other three in `sha256sum` format), with `compose.yml` and `.env.example` pinned to that release's image tag.
+- **FR-009**: Every release MUST publish exactly these assets: `compose.yml`, `squire`, `env.example` (GitHub renames release assets that begin with a period; `install.sh` saves it as `.env.example`, RBD-060-21), and `SHA256SUMS` (SHA-256 of the other three in `sha256sum` format), with `compose.yml` and `env.example` pinned to that release's image tag.
 - **FR-010**: Releases MUST be cut from semver git tags `vX.Y.Z` (with an optional prerelease suffix). The image MUST be tagged `X.Y.Z`; `latest` MUST move only for non-prerelease tags; `SQUIRE_VERSION` values carry no `v` (RBD-060-5).
 - **FR-011**: The image MUST be built for `linux/amd64` and `linux/arm64` and published to GHCR as one multi-architecture manifest. The build MUST use the existing `Dockerfile`; any Dockerfile change MUST keep `script/build-and-deploy-aws.sh` (single-platform arm64 build to ECR) working unchanged.
 - **FR-012**: CI MUST smoke-test the image on both architectures before publishing: the container boots to healthy on `/ready` under the release `compose.yml`, `squire doctor --json` reports `ok: true`, and the agent-script sandbox (the native isolate module) loads and executes a trivial script (RBD-060-4, RBD-060-7).

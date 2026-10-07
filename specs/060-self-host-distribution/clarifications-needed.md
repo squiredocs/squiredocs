@@ -440,3 +440,169 @@ question for Sam.
 **Rationale**: The design's fourth goal is that the hosted service keeps
 running with no behavior change; coupling the two paths at launch adds risk
 for no launch value.
+
+---
+
+# Plan phase (2026-10-07)
+
+All entries below: **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)**.
+Research references are to `research.md`.
+
+## RBD-060-20 - The repository name is a code constant mirrored in four served files
+
+**Question**: RBD-060-1 has the release workflow stamp the name into assets,
+but `AGENTS.md` and `install.sh` are served verbatim from the image (FR-021),
+not from release assets, so a release-time stamp cannot reach them.
+
+**Default chosen**: `REPOSITORY` in `distribution/self-host/release.mjs` is
+the one definition. `AGENTS.md`, `install.sh`, `compose.yml`, and
+`documentation/self-hosting.md` carry it as a literal, and a Docker-free
+drift test fails on any mismatch. Until Sam decides, the value is the literal
+`<org>/<repo>`; `install.sh` refuses to run while it is, and the release
+workflow refuses to publish unless the value has no placeholder and equals the
+lowercased `github.repository` (R1). Setting the name is a find-and-replace
+that the drift test checks.
+
+**Rationale**: Keeps one source of truth and RBD-060-1's refusal, and also
+stops a fork from publishing under the canonical name. A hosted deploy before
+the decision serves runbook text with a visible placeholder and a script that
+refuses cleanly, which nothing links to until 062 lands.
+
+## RBD-060-21 - The settings file is published as the asset `env.example`
+
+**Question**: FR-009 lists the asset `.env.example`, but GitHub renames
+release assets whose names start with a period.
+
+**Default chosen**: The repository file stays `distribution/self-host/.env.example`
+(FR-008). The release asset is `env.example`, `SHA256SUMS` lists it under that
+name, and `install.sh` saves it as `.env.example` in the install folder. The
+publish job fails unless the release's asset names are exactly `compose.yml`,
+`squire`, `env.example`, `SHA256SUMS` (R2). Spec amendment candidate for
+FR-009 and US1 scenario 1.
+
+## RBD-060-22 - Compose 2.24 or later; optional settings reach the container through `env_file`
+
+**Question**: Compose reads `.env` only for interpolation, so keys a
+self-hoster adds to `.env` (assistant keys, SMTP, S3) never reach the app
+unless the compose file passes them.
+
+**Default chosen**: `app.env_file: [{ path: .env, required: false }]`, with
+`environment` (database, Redis, `APP_URL`) taking precedence. `required:
+false` needs Docker Compose 2.24.0 or later, so `install.sh`, `AGENTS.md`,
+and the documentation page require that version and name it in the
+prerequisite message. `APP_URL` is `${APP_URL:-http://localhost:${SQUIRE_PORT:-3910}}`
+so an instance behind a TLS proxy can set an https `APP_URL` in `.env`
+(extends FR-004 without changing its default) (R3). Design amendment
+candidate ("The compose file").
+
+## RBD-060-23 - The wrapper disables the TTY when it is not interactive
+
+**Question**: `docker compose exec` allocates a TTY by default, which merges
+the CLI's stderr into stdout with CRLF line endings; `install.sh` captures
+`./squire claim-link`'s stdout.
+
+**Default chosen**: `./squire` passes `-T` unless both stdin and stdout are
+terminals (R4). `AGENTS.md` keeps D10's `docker compose exec app squire`
+form; the CI smoke runs that form with no terminal and checks stdout is clean.
+If CI shows otherwise, the implement phase adds `-T` to `AGENTS.md` and
+records a design amendment.
+
+## RBD-060-24 - How the self-hosted documentation variant is produced and served
+
+**Question**: The spec leaves the mechanism to the plan (Assumptions) and
+RBD-060-8 asks for the request origin in instance URLs.
+
+**Default chosen**: Built at build time from the same renderer with a
+`variant` option into `client/dist/documentation/_self-hosted/` (never
+addressable by URL), served by not-hosted instances from memory with the
+sentinel `__SQUIRE_ORIGIN__` replaced per request. Only text matching
+`https://squiredocs.com/mcp` and `https://squiredocs.com/api/` is an instance
+URL; distribution URLs (`/install.sh`, `/self-host.md`) and email addresses
+stay. The request origin from `buildBaseUrl(req)` is used only if it parses
+as an http(s) origin, and is HTML-escaped; otherwise `APP_URL` is used (R11).
+
+**Rationale**: Hosted output stays the same code path with the same inputs.
+The `Host` header is client-controlled, so it cannot enter HTML unchecked.
+
+## RBD-060-25 - One href rule filters the self-hosted header, footer, and body links
+
+**Default chosen**: `keepSelfHostedHref` drops `mailto:`, `/signup`, and the
+hosted-only paths (the server's `isHostedOnlyPath` list, checked by a test),
+and keeps every other href, including ones it has never seen, so 062's
+"Self-host" link and tagline pass through. Footer columns left empty are
+removed. The header uses the same rule (leaving Documentation and Sign In).
+Hosted-only body links become absolute `https://squiredocs.com` links.
+
+## RBD-060-26 - Release mechanics: tested bytes are the published bytes
+
+**Default chosen**: Each architecture builds natively, smoke-tests, and saves
+its image as a tarball artifact. The publish job, which runs only after every
+gate and only for a `v*` tag ref (push, or dispatch with `publish: true`),
+loads and pushes those tarballs under `<version>-<arch>` staging tags,
+assembles the manifest, moves `latest` only for non-prereleases, creates the
+release, and verifies the asset names. A dispatch from a branch uses version
+`0.0.0-ci.<run_number>` and never publishes. A single-architecture publish
+needs `allow_single_arch: true`; otherwise a skipped arm64 leg fails the
+publish job with a message (R7).
+
+## RBD-060-27 - The CI agent's auth leg uses the SPA's refresh exchange
+
+**Default chosen**: The driver redeems the link in JSON mode, exchanges the
+refresh cookie at `POST /auth/refresh` for the session Bearer token (as the
+SPA does), checks `GET /auth/providers` reports an owner, and approves
+consent at `POST /mcp/auth/approve`. The agent-script operation is one
+`modify` call that appends a paragraph to the welcome document (R9).
+
+## RBD-060-28 - A `node --test` suite for the Docker-free distribution tests
+
+**Default chosen**: `npm run test:self-host` runs `test/self-host/*.test.mjs`
+(using `dash` when present for POSIX fidelity). `shellcheck` runs when
+installed and is skipped with a notice otherwise; `test.yml` runs it
+explicitly. `npm test` is unchanged (R13).
+
+## RBD-060-29 - Where the served files come from in the image
+
+**Default chosen**: Two additive `COPY` lines in the Dockerfile's runtime
+stage put `AGENTS.md` at `/app/AGENTS.md` and `install.sh` at
+`/app/distribution/self-host/install.sh`. The routes read them from the
+repository-relative path at mount, the same path in development and in the
+image. Because the hosted image is built from the same Dockerfile,
+squiredocs.com serves both after its next deploy (R10).
+
+## RBD-060-30 - Hosted byte identity is proven against recorded hashes
+
+**Default chosen**: The first implementation task records the SHA-256 of
+every hosted documentation page and the 404 as built today. The test compares
+the hosted render (without the new page in the page set) to those hashes;
+`agents-and-mcp` is re-recorded only if the Codex section ships (R12).
+
+## RBD-060-31 - `SHA256SUMS` stays in the install folder
+
+**Question**: US1's independent test expects "the four release files" in the
+folder, while the Install folder entity lists four files without
+`SHA256SUMS`.
+
+**Default chosen**: Keep `SHA256SUMS` in the folder. It names `env.example`
+(RBD-060-21), so a by-hand re-check of `.env.example` needs that name; the
+self-hosting page does not ask users to re-verify.
+
+## RBD-060-32 - The port-conflict message
+
+**Default chosen**: When `docker compose up` fails with "port is already
+allocated" or "address already in use", `install.sh` prints `Port <p> is in
+use. Set SQUIRE_PORT in <dir>/.env and run docker compose up -d --wait
+again.`, following the design's example CLI wording with the install
+folder's path and the `--wait` the rest of the flow uses.
+
+## RBD-060-33 - The manual claim step in `AGENTS.md` uses the full docker form
+
+**Question**: FR-023's list of manual commands includes `./squire claim-link`,
+while its last sentence (and D10) require the full `docker compose exec app
+squire` form in `AGENTS.md`; US2 scenario 1 accepts either.
+
+**Default chosen**: `AGENTS.md` writes the manual claim step as `docker
+compose exec app squire claim-link`, and may mention `./squire claim-link` as
+the short form for people in prose but never as a step an agent runs. The
+`agents-md` test asserts the full form appears in every command line. This
+follows D10 ("AGENTS.md keeps the full docker command because it works from
+any folder"). Spec text amendment candidate for FR-023.
