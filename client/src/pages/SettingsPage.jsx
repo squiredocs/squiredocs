@@ -11,6 +11,7 @@ import UserProfileBadge from '../components/UserProfileBadge';
 import ViewToggleButton from '../components/ViewToggleButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useByok } from '../contexts/ByokContext';
+import { isHosted } from '../instance';
 
 function ByokKeyField({ label, provider, mask, placeholder, byok, onError }) {
   const [input, setInput] = useState('');
@@ -71,6 +72,8 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [usage, setUsage] = useState(null);
+  // This instance's MCP endpoint (feature 058, FR-033).
+  const mcpUrl = `${window.location.origin}/mcp`;
   const [mcpCopied, setMcpCopied] = useState(false);
   const byok = useByok();
   const [byokError, setByokError] = useState(null);
@@ -172,7 +175,10 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
           <section className="settings-section">
             <h2>Squire Docs Assistant</h2>
 
-            {usage && (
+            {/* The signup credit meter and beta note are hosted-service policy
+                (feature 058, FR-025/FR-027); a self-hosted instance reports
+                usage.notApplicable. */}
+            {usage && isHosted() && !usage.notApplicable && (
               <div className="settings-subsection">
                 <h3>AI Usage</h3>
                 <div className="usage-section-content">
@@ -295,11 +301,11 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
             </p>
 
             <div className="mcp-url-row">
-              <code className="mcp-url">https://squiredocs.com/mcp</code>
+              <code className="mcp-url">{mcpUrl}</code>
               <button
                 className="btn-copy-mcp"
                 onClick={() => {
-                  navigator.clipboard.writeText('https://squiredocs.com/mcp');
+                  navigator.clipboard.writeText(mcpUrl);
                   setMcpCopied(true);
                   setTimeout(() => setMcpCopied(false), 2000);
                 }}

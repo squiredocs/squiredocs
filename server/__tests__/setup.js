@@ -36,9 +36,14 @@ process.env.REDIS_DB = String(getWorkerId());
 // the hosted branch while claiming to test the default, or write image bytes
 // to a real bucket. A suite that needs hosted behavior sets SQUIRE_HOSTED
 // itself before requiring modules (and calls _resetInstanceConfigForTests).
+// The app-dev pod also carries real S3 and SES credentials: S3_IMAGE_BUCKET
+// would auto-select the S3 driver (real bucket writes from an unmocked suite)
+// and SES_* would configure real email. Both are dropped too; a suite that
+// wants either sets it explicitly (RBD-058-33).
 for (const name of [
   'SQUIRE_HOSTED', 'APP_URL', 'STORAGE_DRIVER', 'S3_ENDPOINT', 'MIGRATE_ON_BOOT',
   'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM',
+  'S3_IMAGE_BUCKET', 'SES_SMTP_HOST', 'SES_SMTP_USER', 'SES_SMTP_PASS', 'SES_FROM_EMAIL',
 ]) {
   delete process.env[name];
 }

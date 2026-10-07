@@ -110,8 +110,7 @@ const resupplyResolution = require('./resupply-resolution');
 const undoService = require('./undo/undo-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
-const { mountDocumentationRoutes } = require('./documentation-routes');
-const { mountBlogRoutes } = require('./blog-routes');
+const { buildCspDirectives, oldDomainRedirect, mountWebRoutes } = require('./web-routes');
 const { ORIGIN_REDIS, shouldPublishToRedis } = require('./origin');
 // The sync-protocol edit gate (feature 038). Frame classification AND the
 // interceptor that installs it live in one module so there is exactly one
@@ -217,31 +216,19 @@ app.use((req, res, next) => {
 });
 
 // Security headers
+// Feature 058: the directives, the old-domain redirect, and the page routes
+// live in server/web-routes.js, gated on SQUIRE_HOSTED (Google sources and the
+// 301 exist only on the hosted service; img-src carries the S3 origin only for
+// the S3 driver).
 app.use(helmet({
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.googleadservices.com"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      // S3 image origin(s) added so the browser can load presigned document-image URLs.
-      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com", ...imageStorage.cspImageSources()],
-      connectSrc: ["'self'", "ws:", "wss:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.google.com", "https://googleads.g.doubleclick.net"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
-    },
+    directives: buildCspDirectives({ hosted: instanceConfig.hosted, storage: imageStorage }),
   },
   crossOriginEmbedderPolicy: false,
 }));
 
-// Redirect old domains to squiredocs.com
-app.use((req, res, next) => {
-  const host = req.get('host');
-  if (host === 'herodocs.xyz' || host === 'heradocs.com') {
-    return res.redirect(301, `https://squiredocs.com${req.originalUrl}`);
-  }
-  next();
-});
+// Redirect old domains to squiredocs.com (hosted only)
+app.use(oldDomainRedirect);
 
 // Client URL for CORS: CLIENT_URL, else APP_URL (feature 058, FR-010). The two
 // localhost origins below stay allowed for the Vite and direct dev workflows.
@@ -1570,83 +1557,10 @@ app.delete('/api/docs/:docId/versions/:versionId', requireAuth, rateLimit.perUse
   }
 });
 
-// Serve static files and React app (only if build directory exists)
-if (fs.existsSync(clientBuildPath)) {
-  // Serve static marketing pages (matches Vite dev plugin behavior)
-  app.get('/', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'landing.html'));
-  });
-
-  app.get('/pricing', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'pricing.html'));
-  });
-
-  app.get('/about', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'about.html'));
-  });
-
-  app.get('/security', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'security.html'));
-  });
-
-  // Serve the product documentation site (feature 007). Mounted BEFORE
-  // express.static: the static middleware treats dist/documentation as a
-  // directory and would 301 the canonical /documentation to /documentation/
-  // (and serve the trailing-slash form directly), inverting the D1/D2
-  // redirects. Mounted before the app-shell catch-all so an unknown slug
-  // returns a styled 404 instead of falling through to the app (FR-016).
-  // Reads the generated files once at mount time; a missing directory is
-  // handled without crashing (Edge Cases).
-  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
-
-  // Serve the static blog. Mounted BEFORE express.static (same reasoning as the
-  // documentation routes: the static middleware would 301 the canonical /blog to
-  // /blog/ and invert the redirects) and before the app-shell catch-all so an
-  // unknown slug returns a styled 404 instead of falling through to the app.
-  mountBlogRoutes(app, path.join(clientBuildPath, 'blog'));
-
-  app.use(express.static(clientBuildPath, {
-    setHeaders: (res, filePath) => {
-      // marketing.css is render-blocking for the static marketing pages and
-      // isn't fingerprinted; a short TTL avoids a revalidation round trip on
-      // every page view without pinning stale styles for long after a deploy.
-      if (filePath.endsWith('marketing.css')) {
-        res.setHeader('Cache-Control', 'public, max-age=300');
-      }
-      // Root-level blog assets (blog.css, blog-*.svg — exactly what the /blog*
-      // CloudFront path pattern matches) and the self-hosted /vendor/* bundles
-      // are static, edge-cached (edge.tf), and invalidated on every deploy
-      // (script/deploy-aws.sh). Mirror the blog HTML's header (blog-routes.js):
-      // cache hard at the shared edge, short browser max-age so a deploy's
-      // edge invalidation actually reaches readers.
-      const rel = path.relative(clientBuildPath, filePath);
-      if (
-        (rel.startsWith('blog') && !rel.includes(path.sep)) ||
-        rel.startsWith(`vendor${path.sep}`)
-      ) {
-        res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=31536000');
-      }
-    },
-  }));
-
-  // Serve React app for all other routes
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'index.html'));
-  });
-} else {
-  // In development, serve a message if frontend isn't built
-  app.get('*', (req, res) => {
-    res.send(`
-      <html>
-        <body>
-          <h1>Server is running</h1>
-          <p>Please build the client first: <code>cd client && npm run build</code></p>
-          <p>Or run in development mode: <code>npm run dev</code></p>
-        </body>
-      </html>
-    `);
-  });
-}
+// Marketing, legal, and blog pages (hosted only), documentation, static files,
+// /agents.md, and the injected app shell (feature 058, server/web-routes.js).
+// Falls back to a "build the client" page when client/dist is missing.
+mountWebRoutes(app, { clientBuildPath });
 
 // Express error-handling middleware (safety net for unhandled errors)
 app.use((err, req, res, next) => {

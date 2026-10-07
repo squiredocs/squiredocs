@@ -11,6 +11,7 @@
  */
 
 const { MODEL_DEFS } = require('./api/chat-models');
+const { getInstanceConfig } = require('./instance-config');
 
 // Anthropic prompt-caching price multipliers, relative to the base input rate.
 // Cache reads cost 10% of base input; 5-minute-TTL cache writes cost 125%.
@@ -104,6 +105,21 @@ async function checkQuota(userId) {
   const { creditCents, usedCents, extraCreditCents } = result.rows[0];
   const effectiveLimit = creditCents + extraCreditCents;
   const remainingCents = Math.max(0, effectiveLimit - usedCents);
+
+  // Feature 058 (FR-027, RBD-058-3): the monthly signup credit allowance is a
+  // hosted-service policy. A self-hosted instance still runs the query (usage
+  // stays recorded and visible) but never limits on it; notApplicable lets the
+  // Settings meter hide and the credit-limit email can never fire.
+  if (!getInstanceConfig().hosted) {
+    return {
+      allowed: true,
+      notApplicable: true,
+      creditCents,
+      usedCents,
+      remainingCents,
+      extraCreditCents,
+    };
+  }
 
   return {
     allowed: usedCents < effectiveLimit,

@@ -11,7 +11,7 @@
 
 const { MODIFY_DOCUMENTATION } = require('./modify');
 const { COMPARE_DOCUMENTATION } = require('./compare-document-versions');
-const { EXPORT_API_DOCUMENTATION } = require('./export-api');
+const { EXPORT_API_DOCUMENTATION, buildExportApiDocumentation } = require('./export-api');
 
 const SECTION_SEPARATOR = /═{20,}\n(.+)\n═{20,}\n/g;
 
@@ -62,6 +62,24 @@ function buildEntry(documentation) {
 // not just export); export_api remains an accepted alias because agents and
 // older docs still ask for it.
 const restApiEntry = buildEntry(EXPORT_API_DOCUMENTATION);
+const REST_API_TOPICS = new Set(['rest_api', 'export_api']);
+
+// Feature 058 (FR-031): the REST reference is built per base URL so every curl
+// line names the instance the agent is connected to. Small cache: an instance
+// sees a handful of origins (its APP_URL, localhost, an alias).
+const restApiEntriesByBaseUrl = new Map();
+const MAX_CACHED_BASE_URLS = 16;
+
+function restApiEntryFor(baseUrl) {
+  if (!baseUrl) return restApiEntry;
+  let entry = restApiEntriesByBaseUrl.get(baseUrl);
+  if (!entry) {
+    if (restApiEntriesByBaseUrl.size >= MAX_CACHED_BASE_URLS) restApiEntriesByBaseUrl.clear();
+    entry = buildEntry(buildExportApiDocumentation(baseUrl));
+    restApiEntriesByBaseUrl.set(baseUrl, entry);
+  }
+  return entry;
+}
 
 const docs = {
   modify: buildEntry(MODIFY_DOCUMENTATION),
@@ -75,9 +93,11 @@ const DOC_TOPICS = Object.keys(docs);
 /**
  * Get the documentation entry for a tool.
  * @param {string} tool - Tool name (e.g. 'modify')
+ * @param {{ baseUrl?: string }} [opts] - origin the REST reference's URLs use
  * @returns {{full: string, sections: Array, sectionIds: string[]}|null}
  */
-function getDocs(tool) {
+function getDocs(tool, { baseUrl } = {}) {
+  if (REST_API_TOPICS.has(tool)) return restApiEntryFor(baseUrl);
   return docs[tool] || null;
 }
 
@@ -87,8 +107,8 @@ function getDocs(tool) {
  * @param {string} sectionId - Section slug (see sectionIds)
  * @returns {{id: string, title: string, text: string}|null}
  */
-function getSection(tool, sectionId) {
-  const entry = docs[tool];
+function getSection(tool, sectionId, { baseUrl } = {}) {
+  const entry = getDocs(tool, { baseUrl });
   if (!entry) return null;
   return entry.sections.find((s) => s.id === sectionId) || null;
 }
@@ -100,4 +120,5 @@ module.exports = {
   MODIFY_DOCUMENTATION,
   COMPARE_DOCUMENTATION,
   EXPORT_API_DOCUMENTATION,
+  buildExportApiDocumentation,
 };

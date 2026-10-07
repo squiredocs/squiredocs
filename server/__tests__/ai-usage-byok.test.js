@@ -2,6 +2,12 @@
  * AI usage BYOK integration tests
  * Verifies that BYOK usage is recorded correctly and excluded from quota.
  */
+// These assertions describe the hosted service's behavior (feature 058: the
+// production overlay sets SQUIRE_HOSTED=true; the self-hosted branch is covered
+// by hosted-gating.test.js).
+process.env.SQUIRE_HOSTED = 'true';
+require('../instance-config')._resetInstanceConfigForTests();
+
 const aiUsage = require('../ai-usage');
 const { createPool, createTestUser, cleanupTestUser } = require('./helpers/db');
 

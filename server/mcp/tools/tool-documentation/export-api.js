@@ -353,4 +353,19 @@ IMAGE REPORT (both routes, the "images" field):
   After import the stored document contains zero external and zero data: srcs.
 `;
 
-module.exports = { EXPORT_API_DOCUMENTATION };
+// Feature 058 (FR-031): every URL in the recipe names the instance the agent
+// is talking to. The reference text is written against the hosted origin;
+// buildExportApiDocumentation swaps it for the request's base URL.
+const DOCUMENTED_ORIGIN = 'https://squiredocs.com';
+
+/**
+ * The REST reference with every URL built from `baseUrl`.
+ * @param {string} baseUrl - origin, e.g. http://localhost:3910
+ * @returns {string}
+ */
+function buildExportApiDocumentation(baseUrl) {
+  const origin = String(baseUrl || DOCUMENTED_ORIGIN).replace(/\/+$/, '');
+  return EXPORT_API_DOCUMENTATION.split(DOCUMENTED_ORIGIN).join(origin);
+}
+
+module.exports = { EXPORT_API_DOCUMENTATION, buildExportApiDocumentation };

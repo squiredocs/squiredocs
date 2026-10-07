@@ -20,6 +20,8 @@
 // shares the exact same breakpoint.
 const ANTHROPIC_CACHE_CONTROL = { type: 'ephemeral', ttl: '5m' };
 
+const { getInstanceConfig } = require('../instance-config');
+
 // ---------------------------------------------------------------------------
 // Key validation — lightweight, auth-only requests. Return null on success or a
 // human-readable error string on failure.
@@ -99,20 +101,24 @@ function createZaiClient(apiKey) {
 // OpenRouter is an OpenAI-compatible gateway (base URL for its v1 API). Reused by
 // the client factory and key validation below.
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-// OpenRouter's optional app-attribution headers.
-const OPENROUTER_HEADERS = { 'HTTP-Referer': 'https://squiredocs.com', 'X-Title': 'Squire Docs' };
+// OpenRouter's optional app-attribution headers. The referer is this instance's
+// APP_URL (feature 058, FR-030; https://squiredocs.com on the hosted service),
+// built at call time from the instance config.
+function openRouterHeaders() {
+  return { 'HTTP-Referer': getInstanceConfig().appUrl, 'X-Title': 'Squire Docs' };
+}
 
 function createOpenRouterClient(apiKey) {
   const compat = require('@ai-sdk/openai-compatible');
   const provider = compat.createOpenAICompatible({
-    name: 'openrouter', apiKey, baseURL: OPENROUTER_BASE_URL, headers: OPENROUTER_HEADERS,
+    name: 'openrouter', apiKey, baseURL: OPENROUTER_BASE_URL, headers: openRouterHeaders(),
   });
   // The web-search sub-call (buildOpenRouterWebSearch) needs OpenRouter's
   // `url_citation` annotations mapped to `sources`, which @ai-sdk/openai does but
   // @ai-sdk/openai-compatible does not. Stash a dedicated @ai-sdk/openai client
   // built from the same key/base URL for that one call.
   provider.webSearchClient = require('@ai-sdk/openai').createOpenAI({
-    apiKey, baseURL: OPENROUTER_BASE_URL, headers: OPENROUTER_HEADERS,
+    apiKey, baseURL: OPENROUTER_BASE_URL, headers: openRouterHeaders(),
   });
   return provider;
 }
@@ -563,4 +569,4 @@ function classifyProviderError(providerId, err) {
   return cfg.classifyError(err);
 }
 
-module.exports = { PROVIDERS, getProviderConfig, listProviders, hasServerKey, classifyProviderError, ANTHROPIC_CACHE_CONTROL };
+module.exports = { PROVIDERS, getProviderConfig, listProviders, hasServerKey, classifyProviderError, ANTHROPIC_CACHE_CONTROL, openRouterHeaders };

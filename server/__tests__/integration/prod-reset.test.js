@@ -9,6 +9,12 @@ const request = require('supertest');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 
+// The reset is a hosted-only route (feature 058, FR-028): it exists only with
+// SQUIRE_HOSTED=true, which the production overlay sets. The self-hosted 404
+// is covered by hosted-gating.test.js.
+process.env.SQUIRE_HOSTED = 'true';
+require('../../instance-config')._resetInstanceConfigForTests();
+
 jest.mock('../../auth/google', () => ({
   generateAuthUrl: jest.fn(), exchangeCodeForTokens: jest.fn(),
   verifyIdToken: jest.fn(), fetchUserInfo: jest.fn(async () => ({})),

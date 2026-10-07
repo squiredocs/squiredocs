@@ -2,6 +2,7 @@ import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
+import { isHosted } from '../instance';
 import './LoginPage.css';
 
 /**
@@ -105,11 +106,13 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
           )}
         </div>
 
-        <div className="login-legal">
-          <a href="/privacy" className="login-legal-link">Privacy Policy</a>
-          <span className="login-legal-sep" aria-hidden="true">·</span>
-          <a href="/terms" className="login-legal-link">Terms of Service</a>
-        </div>
+        {isHosted() && (
+          <div className="login-legal">
+            <a href="/privacy" className="login-legal-link">Privacy Policy</a>
+            <span className="login-legal-sep" aria-hidden="true">·</span>
+            <a href="/terms" className="login-legal-link">Terms of Service</a>
+          </div>
+        )}
       </div>
     </div>
   );
