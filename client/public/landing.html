@@ -12,15 +12,15 @@
   </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Squire Docs: Collaborative Docs for Spec-Driven Development</title>
-  <meta name="description" content="Collaborative docs for spec-driven development: design docs, ADRs, and specs your engineers, PMs, and coding agents all write together. Two-way markdown sync to your repos, every edit attributed. Write with AI, right in your doc." />
-  <meta property="og:title" content="Squire Docs: Collaborative Docs for Spec-Driven Development" />
-  <meta property="og:description" content="Design docs, ADRs, and specs your engineers, PMs, and coding agents all write together. Two-way markdown sync to your repos, every edit attributed." />
+  <title>Squire Docs: Open Source Collaborative Docs for People and AI Agents</title>
+  <meta name="description" content="Squire Docs is an open source collaborative editor where people and AI agents edit the same documents in real time. Every edit attributed, two-way markdown sync with your repo. Use it free at squiredocs.com or run it yourself." />
+  <meta property="og:title" content="Squire Docs: Open Source Collaborative Docs for People and AI Agents" />
+  <meta property="og:description" content="Open source collaborative docs for people and AI agents." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://squiredocs.com" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Squire Docs: Collaborative Docs for Spec-Driven Development" />
-  <meta name="twitter:description" content="Design docs, ADRs, and specs your engineers, PMs, and coding agents all write together. Two-way markdown sync to your repos, every edit attributed." />
+  <meta name="twitter:title" content="Squire Docs: Open Source Collaborative Docs for People and AI Agents" />
+  <meta name="twitter:description" content="Open source collaborative docs for people and AI agents." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <style>
     /* Critical above-the-fold CSS, inlined so the first paint is styled even
@@ -76,28 +76,14 @@
     <!-- Hero Section -->
     <section class="landing-hero">
       <div class="landing-hero-content">
-        <h1 class="landing-headline">Your specs live in the repo.<br>Your PMs and agents can finally edit them too.</h1>
-        <p class="landing-subheadline">
-          Engineers, PMs, and coding agents all write together.<br>
-          Two-way markdown sync to your repos.<br>
-          Every edit is attributed.
-        </p>
+        <h1 class="landing-headline">Docs your agents can edit with you.</h1>
+        <p class="landing-subheadline">Squire Docs is an open source collaborative editor for people and AI agents. Connect Claude Code, Codex, or any MCP agent, watch its edits land live, and keep everything in sync with markdown in your repo.</p>
         <div class="landing-hero-screenshot">
-          <img src="/hero-screenshot.png" alt="Squire Docs editor with the AI assistant panel open: inline diffs and suggestions, with a live collaborator editing the document" />
+          <img src="/hero-screenshot.png" alt="Squire Docs editor with a live collaborator editing the document, inline diffs, and the assistant panel open" />
         </div>
         <div class="landing-hero-cta">
-          <div class="landing-signup-card">
-            <h3>No setup. Sign in with Google.</h3>
-            <a href="/signup" class="landing-btn google">
-              <svg class="google-icon" width="20" height="20" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Start free
-            </a>
-          </div>
+          <a href="/signup" class="landing-btn google">Start free</a>
+          <a href="/documentation/self-hosting" class="landing-btn outline">Run it yourself</a>
         </div>
       </div>
     </section>
@@ -107,15 +93,9 @@
       <div class="landing-trust-items">
         <div class="landing-trust-item">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z" />
-          </svg>
-          <span>Runs on Anthropic's Claude models</span>
-        </div>
-        <div class="landing-trust-item">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
-          <span>Sign in with Google. No password, no card</span>
+          <span><a href="https://github.com/squiredocs" style="color: inherit;">Open source (MIT)</a></span>
         </div>
         <div class="landing-trust-item">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -123,45 +103,141 @@
             <polyline points="3 2 3 6 7 6" />
             <path d="M12 7v5l3 3" />
           </svg>
-          <span>Every AI edit attributed and reversible</span>
+          <span>Every edit attributed and reversible</span>
         </div>
         <div class="landing-trust-item">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+            <path d="M7.5 7.5h8" stroke-width="1" />
+            <path d="M7.5 12h8" stroke-width="1" />
+            <path d="M7.5 16.5h8" stroke-width="1" />
           </svg>
-          <span>Your API keys encrypted at rest</span>
+          <span>Your docs sync to markdown</span>
         </div>
       </div>
     </div>
 
-    <!-- Works with Your Favorite AI -->
+    <!-- 1. Your agent, live in the document -->
     <section class="landing-section">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Your agent, live in the document</h2>
+        <p class="landing-section-text">Your agent connects over MCP, shows up as a named cursor, and edits the document while you watch. You and the agent can type in the same paragraph at the same time, and both edits survive.</p>
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase-card">
+            <h3>Live presence for people and agents</h3>
+            <p>Every collaborator shows up as a named, colored cursor, including your coding agents.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Edits land as they happen</h3>
+            <p>Watch the agent's changes appear while it works, and correct the draft before it finishes.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Built for simultaneous edits</h3>
+            <p>People and agents edit at the same time and changes merge automatically, with no locks or conflict dialogs.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. See what changed, undo what you don't want -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">See what changed, undo what you don't want</h2>
+        <p class="landing-section-text">Every change, human or agent, is attributed to whoever made it, and each version can be restored. Diff highlighting and version history show you exactly what the agent changed.</p>
+        <div class="landing-feature-screenshot">
+          <img src="/screenshot-versionhistory.png" alt="Version history listing attributed versions, with the changes between two versions highlighted in the document" loading="lazy" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Markdown in, markdown out, synced to your repo -->
+    <section class="landing-section">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Markdown in, markdown out, synced to your repo</h2>
+        <p class="landing-section-text">Import any markdown, export .md, and keep a two-way sync with the files in your repo. A push from the repo merges like an edit from a collaborator who was offline: attribution intact, no conflict dialogs. GFM task lists, tables, and mermaid diagrams render natively.</p>
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase-card">
+            <h3>Bring your markdown in</h3>
+            <p>Paste or import existing .md files and your agent's markdown output. They become collaborative, attributed documents.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Export markdown</h3>
+            <p>Every doc exports as portable .md at any time.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Two-way repo sync</h3>
+            <p>Frontmatter carries each doc's identity, so a spec stays in sync between Squire Docs and your repo. Edit in either place; changes merge cleanly.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Run it on your machine -->
+    <section class="landing-section" style="background: #f9fafb;">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">Run it on your machine</h2>
+        <p class="landing-section-text">Tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.</p>
+        <pre class="landing-install-cmd"><code>curl -fsSL https://squiredocs.com/install.sh | sh</code></pre>
+        <div class="landing-section-links">
+          <a href="/documentation/self-hosting" class="landing-btn outline">Read the self-host guide</a>
+          <a href="https://github.com/squiredocs" class="landing-btn outline">View on GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. What people use it for -->
+    <section class="landing-section">
+      <div class="landing-section-content">
+        <h2 class="landing-section-title">What people use it for</h2>
+        <p class="landing-section-text">Squire Docs holds the documents your agents write and your team reads.</p>
+        <div class="landing-usecases-grid two-col">
+          <div class="landing-usecase-card">
+            <h3>Specs and design docs</h3>
+            <p>For spec-driven development: the spec your team edits and your coding agent implements against, synced to the repo so spec-kit, Kiro, or your own tooling reads the same file.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Agent plans and handoffs</h3>
+            <p>The plan your agent writes before it codes, in a place where you can edit it before saying go, and where the next session (or the next agent) can pick it up.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Research and reports</h3>
+            <p>Long agent output you want to read, mark up, and keep, instead of scrolling a terminal.</p>
+          </div>
+          <div class="landing-usecase-card">
+            <h3>Team knowledge your agents maintain</h3>
+            <p>Runbooks, ADRs, and onboarding docs that agents update as the code changes, with a record of who changed what.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Any agent, any model -->
+    <section class="landing-section" style="background: #f9fafb;">
       <div class="landing-section-content">
         <div class="landing-intro-layout">
           <div class="landing-intro-text">
-            <h2 class="landing-section-title">Connects to your favorite AI</h2>
-            <p class="landing-section-text">Works with any AI agent or model. Use Claude, ChatGPT, Gemini, GLM, or any agent right inside your document.</p>
+            <h2 class="landing-section-title">Any agent, any model</h2>
+            <p class="landing-section-text">Squire Docs works with the agents you already use, and the built-in assistant runs on the provider you choose.</p>
             <div class="landing-steps-grid">
               <div class="landing-step">
                 <div class="landing-step-num">&#10003;</div>
                 <div class="landing-step-body">
-                  <h3>Use any model</h3>
-                  <p>Bring your own key from Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter and use any model you choose.</p>
-                </div>
-              </div>
-              <div class="landing-step">
-                <div class="landing-step-num">&#10003;</div>
-                <div class="landing-step-body">
                   <h3>Connect any agent</h3>
-                  <p>Connect external agents like Claude Code, Kiro, Codex, and Claude Desktop to your documents over MCP. See the <a href="/documentation/agents-and-mcp">Agents &amp; MCP Guide</a> for setup.</p>
+                  <p>Claude Code, Codex, Cursor, Kiro, Claude Desktop, or anything that speaks MCP. See the <a href="/documentation/agents-and-mcp">Agents &amp; MCP Guide</a> for setup.</p>
                 </div>
               </div>
               <div class="landing-step">
                 <div class="landing-step-num">&#10003;</div>
                 <div class="landing-step-body">
-                  <h3>Batteries included</h3>
-                  <p>The built-in AI agent runs on Anthropic models and is ready the moment you open a doc.</p>
+                  <h3>Use any model</h3>
+                  <p>The built-in assistant takes your own key for Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter, and you choose the model.</p>
+                </div>
+              </div>
+              <div class="landing-step">
+                <div class="landing-step-num">&#10003;</div>
+                <div class="landing-step-body">
+                  <h3>AI credits on squiredocs.com</h3>
+                  <p>On the hosted service, every account gets $10 of AI credits a month for the built-in assistant.</p>
                 </div>
               </div>
             </div>
@@ -173,110 +249,14 @@
       </div>
     </section>
 
-    <!-- Repo round-trip -->
-    <section class="landing-section" style="background: #f9fafb;">
-      <div class="landing-section-content">
-        <h2 class="landing-section-title">Syncs markdown with your repo</h2>
-        <p class="landing-section-text">Import any markdown, export .md, and keep a two-way sync with the files in your repo. A push from the repo merges like an edit from a collaborator who was offline: attribution intact, no conflict dialogs. GFM task lists, tables, and mermaid diagrams render natively.</p>
-        <div class="landing-usecases-grid">
-          <div class="landing-usecase-card">
-            <h3>Bring your markdown in</h3>
-            <p>Paste or import existing .md files and your agent's markdown output. They become collaborative, attributed documents.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Export markdown</h3>
-            <p>Every doc exports as portable .md. Your content is always yours and up to date.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Two-way repo sync</h3>
-            <p>Frontmatter carries each doc's identity, so a spec stays in sync between Squire and your repo. Edit in either place; changes merge cleanly.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- For engineering teams -->
-    <section class="landing-section">
-      <div class="landing-section-content">
-        <h2 class="landing-section-title">For spec-driven engineering teams</h2>
-        <p class="landing-section-text">Design docs, ADRs, and specs your whole team writes together, and your coding agents can read and update. Spec-driven development, without the copy-paste.</p>
-        <div class="landing-usecases-grid">
-          <div class="landing-usecase-card">
-            <h3>Specs your agents can read</h3>
-            <p>Connect Claude Code, Kiro, Codex, or Claude Desktop over MCP. Your coding agent reads the design doc and writes back to it. Every edit is attributed; nothing is pasted over anonymously. Kiro's spec-driven workflow is a strong fit: the spec it works from can be a living Squire document your team edits together.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Design docs &amp; ADRs, together</h3>
-            <p>Architects, PMs, and engineers edit the same living spec in real time. The decision and its rationale stay in one place, not scattered across chat threads.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>From idea to implementation</h3>
-            <p>Turn a rough idea into a design doc your team signs off on, then feed the synced markdown straight into Kiro, spec-kit, or whatever spec-driven tooling you run. Design in Squire, sync to the repo, let your agents implement against it. It's the workflow we build Squire with.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Attribution / provenance -->
-    <section class="landing-section" style="background: #f9fafb;">
-      <div class="landing-section-content">
-        <h2 class="landing-section-title">Every edit has an author, even the agent's</h2>
-        <p class="landing-section-text">Human or AI, every change is attributed to whoever made it and reversible through version history. Agent-written content is attributed like a collaborator's work, not pasted over anonymously.</p>
-        <div class="landing-usecases-grid">
-          <div class="landing-usecase-card">
-            <h3>Live presence: humans and agents</h3>
-            <p>Every collaborator shows up as a named, colored cursor, including your coding agents. Watch their edits land in real time.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Built for simultaneous edits</h3>
-            <p>Docs are conflict-free by design. Humans and agents edit concurrently and changes merge automatically: no locks, no conflict dialogs, no lost work.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>A full, attributed history</h3>
-            <p>Every version is named, dated, and credited. The record of how the work took shape lives with the document.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- What you'll write -->
-    <section class="landing-section">
-      <div class="landing-section-content">
-        <h2 class="landing-section-title">Collaborative Docs for Spec-Driven Development</h2>
-        <p class="landing-section-text">The documents that drive how your software gets built — from architecture decisions to the specs your agents execute against.</p>
-        <div class="landing-usecases-grid">
-          <div class="landing-usecase-card">
-            <h3>Design docs &amp; ADRs</h3>
-            <p>Capture architecture decisions and their rationale in one place, with the diagrams inline and every change attributed.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Specs &amp; PRDs</h3>
-            <p>Turn a rough idea into a spec your team signs off on and your coding agents can execute against.</p>
-          </div>
-          <div class="landing-usecase-card">
-            <h3>Plans, reports &amp; memos</h3>
-            <p>Project plans, status updates, and the announcement you keep rewriting. A strong first draft, then make it yours.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Bottom CTA Section -->
     <section class="landing-section cta">
       <div class="landing-section-content">
-        <h2 class="landing-section-title">Ready to write with your agents?</h2>
+        <h2 class="landing-section-title">Start writing with your agents.</h2>
         <div class="landing-signup-card">
-          <p class="landing-signup-subtext">Free. No Setup. Sign in with Google.</p>
-          <a href="/signup" class="landing-btn google">
-            <svg class="google-icon" width="20" height="20" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Start free
-          </a>
+          <p class="landing-signup-subtext">Free. Open source. Run it yourself or use ours.</p>
+          <a href="/signup" class="landing-btn google">Start free</a>
+          <a href="/documentation/self-hosting" class="landing-btn outline">Run it yourself</a>
         </div>
         <p class="landing-cta-contact">Questions? <a href="mailto:contact@squiredocs.com">Email us</a>. A human answers.</p>
       </div>

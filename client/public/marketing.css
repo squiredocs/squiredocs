@@ -188,6 +188,31 @@
   margin: 1.5rem auto;
 }
 
+/* Link row under a section (feature 062: self-host guide and GitHub) */
+.landing-section-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+/* Two stacked buttons in the closing card (feature 062) */
+.landing-signup-card .landing-btn + .landing-btn {
+  margin-top: 0.75rem;
+}
+
+/* Two-column card grid for four items (feature 062: use cases) */
+.landing-usecases-grid.two-col {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 768px) {
+  .landing-usecases-grid.two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Hero Screenshot */
 .landing-hero-screenshot {
   max-width: 1100px;
