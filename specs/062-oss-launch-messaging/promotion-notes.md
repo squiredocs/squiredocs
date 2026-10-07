@@ -44,3 +44,29 @@ phases append here.
   feature touches. The current landing page contains one literal em dash in
   prose (line 247) and bare "Squire" in prose (line 214, "Design in Squire");
   both are removed by the rewrite rather than fixed in place.
+
+## Plan phase (2026-10-07)
+
+- **No relaxations introduced by the plan.** New defaults RBD-062-16 (MIT link
+  rule made mechanical), RBD-062-17 (`.landing-btn.outline` promoted to
+  `marketing.css`, `.landing-install-cmd` added), RBD-062-18 (nav width
+  fallback) are in `clarifications-needed.md`.
+
+- **Footer task is isolated for the 060 rebase.** The tagline and Self-host
+  footer link are one task (T027, its own commit when committed) touching only
+  `client/scripts/site-footer.mjs` plus the `npm run sync:footer` restamp.
+  Because the gate requires 060 merged first, the merge-queue owner rebases this
+  branch onto 060 and keeps, trims, or drops that commit, then re-runs
+  `npm run sync:footer` and `npm run test:client`. The copy-rules test asserts
+  every stamped footer matches `FOOTER`, so a stale restamp fails.
+
+- **Gate checklist for the merge-queue owner** (the "mayor" session): history
+  scrub done; repository public at `https://github.com/squiredocs`; MIT
+  `LICENSE` present; 060 merged and `/documentation/self-hosting` and
+  `/install.sh` resolve on the target environment; Sam has confirmed the
+  unverifiable claims in the spec's Assumptions. Then rebase, run
+  `quickstart.md` section 1, merge.
+
+- **Not run at plan time:** `sync-footer.mjs --check` is not wired into CI and
+  this feature does not add it; the copy-rules test's sync assertion covers the
+  same drift inside `npm run test:client`.
