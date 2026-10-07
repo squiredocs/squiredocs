@@ -437,3 +437,101 @@ second sentence scoped to squiredocs.com. Provider order matches FR-017
 matches supporting message 5 in the design.
 
 RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)
+
+---
+
+## RBD-062-20 - "Dedicated Instance" retired-string match is case-sensitive
+
+**Question**: Research R3 matches every FR-038 retired string
+case-insensitively, but the FR-019 answer that must appear verbatim says "If
+you want us to run a dedicated instance for you". The two conflict.
+
+**Default chosen** (implementation phase): The checker matches the retired
+plan name "Dedicated Instance" case-sensitively; every other retired string
+stays case-insensitive. A fixture asserts the capitalized plan name still
+fires and the lowercase prose passes.
+
+**Rationale**: The rule exists to retire the plan name, which is
+title-cased. The FR-019 sentence is verbatim design copy.
+
+RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)
+
+---
+
+## RBD-062-21 - Header nav breakpoint for the new links is 960px, not 768px
+
+**Question**: RBD-062-18 hides the two new nav links below 768px if the nav
+wraps. Measured with Playwright, the eight-item nav wraps on every page from
+481px up to about 930px (940px on pricing and about, whose active link is
+bold).
+
+**Default chosen** (implementation phase): The two links carry
+`landing-nav-link-wide`, hidden at `max-width: 960px` in `marketing.css`.
+Above 960px they show; at and below it the header behaves exactly as before
+this feature (the six-item nav already wrapped between 481px and about 700px
+on main, which this feature does not change). The footer carries both links
+at every width.
+
+**Rationale**: 768px left the nav wrapping between 769px and 930px, which is
+the regression RBD-062-18 exists to prevent.
+
+RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)
+
+---
+
+## RBD-062-22 - Landing section 1 does not repeat the hero screenshot
+
+**Question**: T009 put `hero-screenshot.png` in landing section 1 inside a
+`landing-intro-layout`, while T007 keeps the same image in the hero directly
+above. The intro layout is built for the tall phone image; a 2908x1866
+landscape screenshot squeezed into it, shown twice within one scroll, reads
+as a mistake.
+
+**Default chosen** (implementation phase): The hero keeps
+`hero-screenshot.png` (a live collaborator editing with inline diffs), which
+sits directly above section 1 and serves as its image. Section 1 is the
+section text plus three cards (named cursors, edits landing live,
+simultaneous edits). No new imagery (D7). The agent-cursor clip remains the
+follow-on from RBD-062-11.
+
+**Rationale**: FR-007's intent (reuse an existing image, add none) holds; the
+duplicate image did not add information.
+
+RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)
+
+---
+
+## RBD-062-23 - Presentation choices the tasks left open
+
+**Default chosen** (implementation phase):
+
+- Landing section 4's two links ("Read the self-host guide", "View on
+  GitHub") render as `landing-btn outline` buttons in a new
+  `.landing-section-links` row, so they read as actions and stay below the
+  primary "Start free" weight (D8).
+- The four use cases use a two-column grid (`.landing-usecases-grid.two-col`,
+  one column below 768px) instead of the three-column grid, which would leave
+  one orphan card.
+- Landing section 6 replaces the removed "Batteries included" step with "AI
+  credits on squiredocs.com: On the hosted service, every account gets $10 of
+  AI credits a month for the built-in assistant." (claim verified: migration
+  1784000000000 sets the 1000-cent default; hosted-only per 058).
+- The Managed instance card's button reads "Email us" and the card
+  description ends at the data-residency sentence instead of repeating
+  "Email us." in the body.
+- In the closing card the two buttons stack full width ("Start free" filled
+  on top, "Run it yourself" outline below) with a new
+  `.landing-signup-card .landing-btn + .landing-btn` spacing rule.
+- The about page's "Why open source" paragraph links "managed instances" to
+  `/pricing`, and `.about-prose a` gets the purple link color the other pages
+  use.
+- The about card "Open to any model or agent" reads: "Connect any MCP agent,
+  such as Claude Code, Codex, Cursor, Kiro, or Claude Desktop, and bring your
+  own key from Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter.
+  On squiredocs.com, the built-in assistant also comes with monthly AI
+  credits." (RBD-062-19).
+
+**Rationale**: Each reuses existing classes and palette, adds no claim that
+is not in the spec's verified list, and keeps D8's weighting.
+
+RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)

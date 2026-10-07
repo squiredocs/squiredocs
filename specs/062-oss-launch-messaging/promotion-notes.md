@@ -70,3 +70,73 @@ phases append here.
 - **Not run at plan time:** `sync-footer.mjs --check` is not wired into CI and
   this feature does not add it; the copy-rules test's sync assertion covers the
   same drift inside `npm run test:client`.
+
+## Implementation phase (2026-10-07)
+
+- **Relaxations.** One: landing section 1 does not repeat the hero screenshot
+  (T009 asked for `hero-screenshot.png` inside the section; the hero directly
+  above already shows it). Recorded as RBD-062-22. New defaults RBD-062-20
+  (case-sensitive "Dedicated Instance" rule, needed so the verbatim FR-019
+  answer passes), RBD-062-21 (nav breakpoint 960px), and RBD-062-23
+  (presentation choices) are in `clarifications-needed.md`.
+
+- **T029 nav result.** With GitHub and Self-host added, the header wrapped to
+  a second row from 481px to about 930px on all four pages. The fallback
+  class `landing-nav-link-wide` now hides the two links at 960px and below;
+  measured afterwards, the header matches main at every width (it already
+  wrapped between 481px and about 700px on main, unchanged here). Above 960px
+  all eight items fit on one row.
+
+- **T035 claims audit.** Every factual sentence on the three pages maps to the
+  spec's verified list, a ratified design decision, or an RBD. Additions
+  checked during implementation: the hosted "$10 of AI credits a month for
+  the built-in assistant" step (verified list); "Keys encrypted at rest" for
+  Self-hosted (RBD-062-8) is backed by the self-hosting design's "Generated
+  secrets" (the entrypoint generates `API_KEY_ENCRYPTION_KEY` on first boot).
+  No claim was added to the "cannot verify" list.
+
+- **T036 style judgment calls.** Kept as design or retained copy: "show you
+  exactly what the agent changed" (design message 2), "instead of scrolling a
+  terminal" (design use case), the about card "The document is the interface"
+  (FR-024 says it may stay; its "not the other way around" is the only
+  not-X-but-Y construction left), and the pricing FAQ "no export fee and no
+  lock-in" (retained answer). Rewritten: the section 6 intro, which first said
+  the built-in assistant "runs on the provider you choose" (not true of the
+  hosted default), now says it "works with five AI providers".
+
+- **Visual pass (T037).** Screenshots of landing, pricing, about at 375, 768,
+  1280px and security and a documentation page at 375 and 1280px, light theme
+  only (the marketing pages have no dark theme). "Start free" is filled dark
+  and "Run it yourself" is an outline button in the hero and the closing card
+  (D8). The install command scrolls inside its block at 375px. The comparison
+  table scrolls inside `.pricing-compare` on phones. Footers show the new
+  tagline and Self-host link, including the documentation page.
+
+- **For Sam before the gate (visual):**
+  1. `screenshot-versionhistory.png`, now shown in landing section 2 per
+     RBD-062-11, is a real capture whose document text and assistant names
+     read "HeroDocs" (an earlier product name). It is legible at desktop width.
+     Replace it with a fresh capture, or drop the image from section 2, before
+     launch.
+  2. The landing H1 wraps "you." onto its own line at 1280px. Copy is fixed by
+     FR-003; a tighter `max-width` on the headline is a possible follow-on.
+
+- **Pre-existing defects noticed, not fixed here:** at 375px every marketing
+  page (and the documentation pages) scrolls horizontally by about 28px
+  because the footer's three link columns do not fit (the same 403px
+  `scrollWidth` on main). The footer is the isolated T027 region and its
+  layout is out of this feature's scope. The 375px header also wraps the
+  "Sign In" and "Sign Up" labels onto two lines, as on main.
+
+- **Hand-off.** The branch `062-oss-launch-messaging` is held unmerged per D5
+  and FR-042. Gate checklist (unchanged from the plan phase): history scrub
+  done; repository public at `https://github.com/squiredocs`; MIT `LICENSE`
+  present; 060 merged and `/documentation/self-hosting` and `/install.sh`
+  resolve on the target environment; Sam has confirmed the unverifiable
+  claims in the spec's Assumptions. At merge time the merge-queue owner
+  rebases onto main after 060, resolves `site-footer.mjs` by keeping,
+  trimming, or dropping the isolated footer commit ("Change the footer tagline
+  and add a Self-host footer link (overlaps feature 060)") and re-running
+  `npm run sync:footer`, repoints the GitHub links and `GITHUB_ORG_URL` in
+  `client/scripts/check-copy-rules.mjs` if the repository name is decided
+  (D4), re-runs quickstart.md section 1, and merges.
