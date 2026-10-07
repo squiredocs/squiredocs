@@ -37,6 +37,29 @@ telemetry.start();
   );
 })();
 
+// --- Instance configuration (feature 058) -------------------------------------
+// Resolved once, here, so `npm run dev` / `npm start` (which bypass the image
+// entrypoint) still fail fast on an invalid APP_URL, STORAGE_DRIVER, SMTP_PORT,
+// ... Every module reads the same memoized object (RBD-058-16).
+const { getInstanceConfig } = require('./instance-config');
+const instanceConfig = getInstanceConfig();
+(function logInstanceConfig() {
+  if (instanceConfig.hostedInvalidValue !== null) {
+    console.warn(`[Config] SQUIRE_HOSTED="${instanceConfig.hostedInvalidValue}" is not true or false; treating as off`);
+  }
+  if (instanceConfig.insecureRemoteHttp) {
+    console.warn(
+      `[Config] APP_URL is http on a non-local host (${new URL(instanceConfig.appUrl).host}). ` +
+      'Serving plain HTTP beyond localhost is not supported; put a TLS-terminating proxy in front and set an https APP_URL.'
+    );
+  }
+  if (!instanceConfig.smtp.from) {
+    console.log('[Email] off (no SMTP_FROM)');
+  } else if (!instanceConfig.smtp.host) {
+    console.warn('[Email] SMTP_FROM is set but SMTP_HOST is not; email is off');
+  }
+})();
+
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');
@@ -219,8 +242,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Client URL for CORS (configurable via env)
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Client URL for CORS: CLIENT_URL, else APP_URL (feature 058, FR-010). The two
+// localhost origins below stay allowed for the Vite and direct dev workflows.
+const CLIENT_URL = instanceConfig.clientUrl;
 
 // CORS configuration - allow credentials for cookies
 const CORS_ALLOWED_ORIGINS = new Set([

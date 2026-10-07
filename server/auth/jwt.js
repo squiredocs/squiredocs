@@ -2,6 +2,7 @@
  * JWT utilities for access and refresh tokens
  */
 const jwt = require('jsonwebtoken');
+const { getInstanceConfig } = require('../instance-config');
 
 // Secrets from environment variables (with fallbacks for development only)
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'dev-access-secret-change-in-production';
@@ -28,21 +29,26 @@ if (AUTH_TEST_MODE) {
   console.log('[JWT] AUTH_TEST_MODE enabled - using short token expiry (access: 30s, refresh: 2m)');
 }
 
-// Cookie configuration
-const isProduction = process.env.NODE_ENV === 'production';
+// Cookie configuration.
+// Feature 058 (FR-011): `Secure` follows APP_URL's scheme, not NODE_ENV, so a
+// plain-http local instance in production mode can still sign in and an https
+// deployment always gets Secure cookies. SameSite keeps its NODE_ENV rule
+// (strict in production for CSRF protection). Both are read at call time.
+function cookieBase() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: getInstanceConfig().cookieSecure,
+    sameSite: isProduction ? 'strict' : 'lax',
+    path: '/',
+  };
+}
 
-const COOKIE_BASE = {
-  httpOnly: true,
-  secure: isProduction,  // Only send over HTTPS in production
-  sameSite: isProduction ? 'strict' : 'lax',  // Strict in production for CSRF protection
-  path: '/',
-};
+// Refresh token cookie lifetime (long-lived)
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
-// Refresh token cookie options (long-lived)
-const COOKIE_OPTIONS = { ...COOKIE_BASE, maxAge: 7 * 24 * 60 * 60 * 1000 };
-
-// Access token cookie options (short-lived, matches token expiry)
-const ACCESS_TOKEN_COOKIE_OPTIONS = { ...COOKIE_BASE, maxAge: AUTH_TEST_MODE ? 30 * 1000 : 15 * 60 * 1000 };
+// Access token cookie lifetime (short-lived, matches token expiry)
+const ACCESS_COOKIE_MAX_AGE = AUTH_TEST_MODE ? 30 * 1000 : 15 * 60 * 1000;
 
 /**
  * Generate access token with user claims
@@ -116,7 +122,7 @@ function verifyRefreshToken(token) {
  * @returns {object} Cookie configuration options
  */
 function getCookieOptions() {
-  return { ...COOKIE_OPTIONS };
+  return { ...cookieBase(), maxAge: REFRESH_COOKIE_MAX_AGE };
 }
 
 /**
@@ -124,7 +130,7 @@ function getCookieOptions() {
  * @returns {object} Cookie configuration options
  */
 function getAccessTokenCookieOptions() {
-  return { ...ACCESS_TOKEN_COOKIE_OPTIONS };
+  return { ...cookieBase(), maxAge: ACCESS_COOKIE_MAX_AGE };
 }
 
 /**
@@ -132,12 +138,7 @@ function getAccessTokenCookieOptions() {
  * @returns {object} Cookie configuration for clearing
  */
 function getClearCookieOptions() {
-  return {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? 'strict' : 'lax',
-    path: '/',
-  };
+  return cookieBase();
 }
 
 /**

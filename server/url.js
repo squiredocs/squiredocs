@@ -11,12 +11,14 @@
  * So we map the known origin host(s) back to the canonical public origin.
  *
  * Both the public origin and the set of internal origin aliases are
- * overridable via env (PUBLIC_ORIGIN / ORIGIN_HOST_ALIASES) but default to
- * production reality, so no deploy config change is required. Hosts that are
+ * overridable via env (PUBLIC_ORIGIN / ORIGIN_HOST_ALIASES). PUBLIC_ORIGIN
+ * defaults to APP_URL (feature 058, FR-013), read at call time from the
+ * instance config, so the alias mapping and a self-hosted origin agree; the
+ * production overlay sets APP_URL=https://squiredocs.com. Hosts that are
  * neither the origin alias nor a squiredocs.com host (local dev, minikube,
- * tests) are returned unchanged.
+ * tests, self-hosted instances) are returned unchanged.
  */
-const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'https://squiredocs.com';
+const { getInstanceConfig } = require('./instance-config');
 
 const ORIGIN_HOST_ALIASES = new Set(
   (process.env.ORIGIN_HOST_ALIASES || 'app.squiredocs.com')
@@ -30,7 +32,7 @@ function buildBaseUrl(req) {
   if (host) {
     // Compare on the bare hostname so a :port suffix never defeats the match.
     const bareHost = host.toLowerCase().split(':')[0];
-    if (ORIGIN_HOST_ALIASES.has(bareHost)) return PUBLIC_ORIGIN;
+    if (ORIGIN_HOST_ALIASES.has(bareHost)) return getInstanceConfig().publicOrigin;
   }
   const protocol = host && host.includes('squiredocs.com') ? 'https' : req.protocol;
   return `${protocol}://${host}`;
