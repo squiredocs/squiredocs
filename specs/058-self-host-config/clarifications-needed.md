@@ -403,3 +403,255 @@ not generated. The README's variable list is corrected in the
 implementation phase (Constitution I).
 
 **Rationale**: The design's list is complete for the code as it stands.
+
+---
+
+# Plan-phase entries (2026-10-07)
+
+Added by the 058 plan agent. All **RATIFIED-BY-DEFAULT (Sam
+pre-authorized, 2026-10-07)**. Technical reasoning is in `research.md`.
+
+---
+
+## RBD-058-18 - APP_URL chain follows the amended design (drops SQUIRE_PORT)
+
+**Question**: RBD-058-1 and FR-009 default `APP_URL` to
+`http://localhost:<SQUIRE_PORT, else PORT, else 3001>`. The design, amended
+the same day, says "defaults to `CLIENT_URL` if set, else
+`http://localhost:<PORT>`" and has `compose.yml` pass `APP_URL` explicitly.
+Which wins?
+
+**Default chosen**: The design (Constitution VI). Chain: `APP_URL`, else
+`CLIENT_URL`, else `http://localhost:<PORT or 3001>`. `SQUIRE_PORT` is not read
+inside the container.
+
+**Rationale**: The design's later text supersedes the spec's; `SQUIRE_PORT` is a
+host-side compose variable and reading it inside the container would only ever
+pick up a value set by mistake. Spec FR-009 and RBD-058-1 need a sync edit.
+
+---
+
+## RBD-058-19 - Storage facade replaces `server/s3-images.js`
+
+**Question**: Keep `server/s3-images.js` as the facade name, or introduce a new
+module?
+
+**Default chosen**: New facade `server/image-storage/index.js` with
+`s3-driver.js` (today's module moved) and `local-driver.js`. The old file is
+deleted, all eight consumers and the 13 `jest.mock` paths move in one task, and
+`server/__tests__/setup.js` points `SQUIRE_DATA_DIR` at a per-worker temp
+directory so a missed mock can never write to `/data` or to another worker's
+files.
+
+**Rationale**: The facade carries every self-hoster's images; a name that says
+S3 would mislead every future reader. Deleting the old path makes a missed
+require fail loudly.
+
+---
+
+## RBD-058-20 - Raw routes accept the session cookie
+
+**Question**: `requireAuth` reads only the `Authorization` header, but an
+`<img src>` sends cookies only. How does the raw route authenticate a browser?
+
+**Default chosen**: New `requireAuthOrCookie`: the header path is identical to
+`requireAuth`; without a header it verifies the `accessToken` cookie through
+`permissions.extractUser`, as the WebSocket upgrade already does. Used only on
+the two raw routes.
+
+**Rationale**: The cookie already exists, is `httpOnly`, `SameSite=Strict` in
+production, and is accepted by the WebSocket path. Query-string tokens would
+leak into logs and `Referer`; a signed-URL scheme is new machinery the design
+did not ask for.
+
+---
+
+## RBD-058-21 - `readObject` and content type for the local driver
+
+**Question**: Chat attachments have no database row holding their content type,
+and `getObject` returns bytes only. How does the attachment raw route know what
+to send?
+
+**Default chosen**: Both drivers gain `readObject(key) -> { body, contentType }`
+and a `kind` property. The local driver stores the content type in
+`images/meta/<key>.json`. Raw routes stream only allow-listed image types and
+set `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: default-src 'none'; sandbox`.
+
+**Rationale**: Smallest addition that keeps the interface driver-neutral; the
+headers keep a same-origin byte route from ever executing stored content
+(Constitution V).
+
+---
+
+## RBD-058-22 - Welcome document beta-credit sentence is hosted-only (found-in-plan)
+
+**Question**: The welcome template's "About Squire Docs" paragraph says it "is
+currently in free public beta, including a $10 AI credit allotment for new
+users". FR-034 gates only the support paragraph.
+
+**Default chosen**: That sentence is included only when hosted; the rest of the
+paragraph stays.
+
+**Rationale**: A self-hosted instance has no beta and, per RBD-058-3, no credit
+allotment. Same principle as RBD-058-12.
+
+---
+
+## RBD-058-23 - Admin sign-up and login emails are gated inside `server/email.js`
+
+**Question**: Gate at the call site in `completePostAuth` or in the email
+functions?
+
+**Default chosen**: `notifyNewUser` and `notifyLogin` return early when not
+hosted. `server/auth/routes.js` is not touched for this.
+
+**Rationale**: Feature 059 rewrites `completePostAuth`; keeping 058 out of it
+avoids a merge conflict and keeps the gate next to the other email rules.
+
+---
+
+## RBD-058-24 - Boot migration lock key and scope
+
+**Question**: Which advisory lock key, and what does it cover?
+
+**Default chosen**: A named constant distinct from node-pg-migrate's internal
+key `7241865325823964`, held on the entrypoint's own connection around the
+whole `script/migrate.js` child process, including its `pgmigrations` dedupe
+pre-step.
+
+**Rationale**: node-pg-migrate takes its own lock on a separate connection in
+the child; the same key would make the child wait forever on its parent. The
+dedupe pre-step runs outside node-pg-migrate's lock today, so wrapping the
+whole script is what makes concurrent boots safe.
+
+---
+
+## RBD-058-25 - Entrypoint environment hygiene
+
+**Question**: Should the entrypoint load `.env`, and may it set
+`DATABASE_URL` for the server?
+
+**Default chosen**: The entrypoint calls `dotenv` first, so a `.env` value
+beats the secrets file. It never writes `DATABASE_URL` into the server's
+environment; it builds its own connection for the lock and lets the migrate
+child build its URL as the Kubernetes Job does.
+
+**Rationale**: dotenv does not override existing variables, so loading it after
+the secrets file would invert the "environment wins" rule for `.env` users.
+`script/setup-db-env.js` does not URL-encode the password; exporting its URL to
+the server could break a password the server's object config handles today.
+
+---
+
+## RBD-058-26 - No generated encryption key during a keyring rotation
+
+**Question**: Should the entrypoint generate `API_KEY_ENCRYPTION_KEY` when
+`API_KEY_ENCRYPTION_KEYS` (the rotation keyring) is set?
+
+**Default chosen**: No. With `API_KEY_ENCRYPTION_KEYS` set, the entrypoint
+neither reads nor generates `API_KEY_ENCRYPTION_KEY`; `server/crypto.js`'s own
+checks decide.
+
+**Rationale**: An operator rotating keys has chosen them explicitly. A
+generated legacy key would turn a clear "key must be set" error into a silent
+wrong-key decrypt failure for untagged values.
+
+---
+
+## RBD-058-27 - Static-file variants of hosted pages and the raw shell
+
+**Question**: `express.static` serves `/landing.html`, `/pricing.html`,
+`/about.html`, `/security.html`, the root blog assets, and `/index.html`
+directly. Do those stay reachable when not hosted?
+
+**Default chosen**: Not hosted: those paths return 404. In every mode
+`express.static` runs with `index: false`, and `/index.html` is routed to the
+injected shell, so no path serves the un-injected file.
+
+**Rationale**: Otherwise the hosted pages leak through their file names, and
+`/index.html` would bypass the instance-config injection.
+
+---
+
+## RBD-058-28 - Development keeps mirroring the hosted service
+
+**Question**: With `SQUIRE_HOSTED` off by default, the Vite dev server and the
+app-dev pod would stop showing the landing page and analytics. Is that wanted?
+
+**Default chosen**: The Vite config injects the shell through the same server
+helper and gates its marketing-page plugin on `SQUIRE_HOSTED`. The app-dev pod
+(`k8s/overlays/minikube/app-dev.yaml` and `devcontainer/k8s/app-dev.yaml`)
+and the minikube `collab-app` set `SQUIRE_HOSTED=true` (the latter also
+`MIGRATE_ON_BOOT=false`). The test setup unsets `SQUIRE_HOSTED`, so suites are
+deterministic whatever the pod sets.
+
+**Rationale**: The dev cluster exists to look like production; flipping one
+variable exercises the self-host path.
+
+---
+
+## RBD-058-29 - Hosted-only routes are skipped per request
+
+**Question**: FR-028 requires the gated endpoints to be indistinguishable from
+unknown routes. Register them conditionally at load, or gate per request?
+
+**Default chosen**: A `hostedOnly` middleware placed first on each gated route
+calls `next('route')` when not hosted, so Express falls through exactly as for
+an unregistered path.
+
+**Rationale**: Same external behavior as conditional registration, and tests
+can toggle the flag without reloading the router modules.
+
+---
+
+## RBD-058-30 - Development default for CLIENT_URL
+
+**Question**: Today `CLIENT_URL` falls back to `http://localhost:5173`. With
+the new chain and neither `APP_URL` nor `CLIENT_URL` set, it becomes
+`http://localhost:3001`. Keep the Vite port as a special case?
+
+**Default chosen**: No special case. `.env.example` keeps
+`CLIENT_URL=http://localhost:5173` for development, the CORS allow-list keeps
+both localhost origins, and development `getClientUrl` still prefers the
+request's `Origin` or `Referer`.
+
+**Rationale**: A production-safe default matters more than a dev convenience
+that `.env` already provides.
+
+---
+
+## RBD-058-31 - Generated secrets and local images with more than one replica
+
+**Question**: Constitution VII forbids single-replica preconditions. Generated
+secrets and local image bytes live on the data volume. What happens with two
+replicas?
+
+**Default chosen**: Replicas are correct when they share `SQUIRE_DATA_DIR` (one
+volume) or when secrets come from the environment and images from
+`STORAGE_DRIVER=s3`, which is the hosted service's configuration. First-boot
+secret creation publishes the file with an exclusive link, so two replicas
+racing on a shared empty volume adopt one set of values. Per-replica private
+volumes are a misconfiguration; README says so. The design's non-goal (no
+documented multi-replica self-host) stands.
+
+**Rationale**: Keeps correctness in shared infrastructure (the volume or S3),
+never in one process, and closes the only race the shared-volume case had.
+
+---
+
+## RBD-058-32 - The entrypoint starts telemetry before anything else (found-in-plan)
+
+**Question**: `server/index.js` starts OpenTelemetry as its first statement
+because the require hooks only instrument modules loaded afterward. The
+entrypoint now runs before it and loads `pg` for the migration lock. Does that
+silently drop Postgres tracing?
+
+**Default chosen**: The entrypoint calls `server/telemetry.js` `start()` right
+after loading `.env`; `start()` is idempotent, so the existing call in
+`server/index.js` becomes a no-op. `server/boot/migrate-lock.js` requires `pg`
+inside the function, so a hosted boot with `MIGRATE_ON_BOOT=false` never loads
+it early anyway.
+
+**Rationale**: Keeps feature 014's "telemetry first" invariant true for every
+boot path; the hosted service's traces and structured boot logs are unchanged.
