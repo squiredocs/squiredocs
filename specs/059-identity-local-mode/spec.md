@@ -79,7 +79,7 @@ A week later the owner's session has expired. They ask their agent for a new lin
 **Acceptance Scenarios**:
 
 1. **Given** a claimed instance, **When** `squire claim-link --name X --email Y` runs, **Then** it prints a link, states that `--name` and `--email` are ignored because the instance already has an owner, and the link signs in the owner.
-2. **Given** that link, **When** it is opened, **Then** the claim page shows no fields, only "Signed in as <owner>" after redemption, and the owner's name and email are unchanged.
+2. **Given** that link, **When** it is opened, **Then** the claim page shows no fields, only "Sign in as <owner name> (<owner email>)" and a Continue button (RBD-059-20); **When** Continue is clicked, **Then** the owner is signed in and lands in the app, and the owner's name and email are unchanged.
 3. **Given** an existing user with email E, **When** `squire login-link --email E` runs and the link is redeemed, **Then** that user is signed in with exactly one `auth_events` row with `event = login`; **When** no user has email E, **Then** the CLI exits non-zero and says there is no account with that email and, if the instance is unclaimed, that `squire claim-link` creates the owner.
 4. **Given** local mode and zero users, **When** startup finishes, **Then** the log contains a clearly marked block with one `${APP_URL}/claim#<token>` link that carries no prefilled name or email, and the claim page opens with empty fields.
 5. **Given** an instance with at least one user, or any team-mode instance, **When** it starts, **Then** no sign-in link is logged.

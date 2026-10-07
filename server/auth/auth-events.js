@@ -59,10 +59,13 @@ function safeEvent(event) {
  * Coerce to the CHECK-constrained channel domain (design gap G-1's adopted
  * default: this records the channel of THIS event).
  * @param {*} signupSource
- * @returns {'browser'|'agent_oauth'}
+ * Feature 059 (RBD-059-6) adds `signin_link`: a sign-in (or owner claim) by a
+ * single-use link minted inside the container.
+ * @returns {'browser'|'agent_oauth'|'signin_link'}
  */
 function safeSignupSource(signupSource) {
-  return signupSource === 'agent_oauth' ? 'agent_oauth' : 'browser';
+  if (signupSource === 'agent_oauth' || signupSource === 'signin_link') return signupSource;
+  return 'browser';
 }
 
 /**
@@ -71,7 +74,7 @@ function safeSignupSource(signupSource) {
  * @param {object} entry
  * @param {string} entry.userId - the authenticating user's UUID
  * @param {'signup'|'login'} entry.event
- * @param {'browser'|'agent_oauth'} [entry.signupSource] - channel of THIS event
+ * @param {'browser'|'agent_oauth'|'signin_link'} [entry.signupSource] - channel of THIS event
  * @param {string|null} [entry.ip] - already validated by authContext()
  * @param {string|null} [entry.userAgent] - already truncated by authContext()
  * @returns {Promise<boolean>} true if the row landed, false if it was swallowed

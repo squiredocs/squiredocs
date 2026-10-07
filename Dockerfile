@@ -57,6 +57,8 @@ COPY --chown=appuser:appgroup server/ ./server/
 COPY --chown=appuser:appgroup shared/ ./shared/
 COPY --chown=appuser:appgroup migrations/ ./migrations/
 COPY --chown=appuser:appgroup script/ ./script/
+# Feature 059: the in-container squire CLI (docker compose exec app squire ...).
+COPY --chown=appuser:appgroup bin/ ./bin/
 
 # Copy built client from builder stage
 COPY --from=client-builder --chown=appuser:appgroup /app/client/dist ./client/dist
@@ -74,6 +76,10 @@ ENV NODE_ENV=production \
 # The data directory, owned by the runtime user so a named volume mounted
 # there is writable on first boot (a fresh named volume copies this ownership).
 RUN mkdir -p /data && chown appuser:appgroup /data && chmod 0750 /data
+
+# Feature 059 (FR-038): put squire on PATH. Root-owned symlink, created before
+# dropping privileges.
+RUN chmod 0755 /app/bin/squire.js && ln -s /app/bin/squire.js /usr/local/bin/squire
 
 # Switch to non-root user
 USER appuser

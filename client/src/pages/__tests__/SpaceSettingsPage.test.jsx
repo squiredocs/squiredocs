@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SpaceSettingsPage from '../SpaceSettingsPage';
+import { stubProviders, LOCAL_PROVIDERS, TEAM_PROVIDERS } from '../../test/providers';
 
 const mockGet = vi.fn();
 const mockPatch = vi.fn();
@@ -180,5 +181,32 @@ describe('SpaceSettingsPage', () => {
     renderPage();
     expect(await screen.findByText('Space not found')).toBeInTheDocument();
     expect(screen.queryByLabelText('Invite by email')).not.toBeInTheDocument();
+  });
+
+  describe('feature 059: local-mode invite note (FR-024)', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    const invite = async () => {
+      mockPost.mockResolvedValue({ data: { invite: { email: 'new@example.com', role: 'viewer' } } });
+      renderPage();
+      await userEvent.type(await screen.findByLabelText('Invite by email'), 'new@example.com');
+      await userEvent.click(screen.getByRole('button', { name: 'Invite' }));
+    };
+
+    it('local mode: a pending invite says it cannot be accepted until team mode', async () => {
+      stubProviders(LOCAL_PROVIDERS);
+      await invite();
+      expect(
+        await screen.findByText(
+          'Invite recorded for new@example.com. This instance is in local mode, so nobody else can sign in to accept it until it moves to team mode.'
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('team mode: the unchanged notice', async () => {
+      stubProviders(TEAM_PROVIDERS);
+      await invite();
+      expect(await screen.findByText('Invited new@example.com.')).toBeInTheDocument();
+    });
   });
 });

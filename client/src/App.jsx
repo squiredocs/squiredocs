@@ -11,6 +11,7 @@ import EditorView from './components/EditorView';
 import AiPanel from './components/AiPanel';
 import LoginPage from './components/LoginPage';
 import AuthorizePage, { AuthorizePreview } from './pages/AuthorizePage';
+import ClaimPage from './pages/ClaimPage';
 import SettingsPage from './pages/SettingsPage';
 import SupportPage from './pages/SupportPage';
 import AdminPage from './pages/AdminPage';
@@ -34,6 +35,10 @@ function parseRoute() {
   }
   if (path === '/authorize') {
     return { view: 'authorize', docGuid: null };
+  }
+  // Feature 059: the sign-in link page (/claim#<token>).
+  if (path === '/claim') {
+    return { view: 'claim', docGuid: null };
   }
 
   // Check for /login or /signup path
@@ -237,6 +242,11 @@ function AppContent() {
   }
   if (route.view === 'terms') {
     return <TermsPage />;
+  }
+  // Feature 059: the claim page reads its token from the fragment and needs
+  // no session, so it renders before the auth-loading gate.
+  if (route.view === 'claim') {
+    return <ClaimPage />;
   }
 
   // Show loading state during auth initialization

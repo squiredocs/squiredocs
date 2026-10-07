@@ -580,3 +580,119 @@ and new code meet, without a sign-in path reading `google_id`. The reverse
 window (a user created by a 059 pod signing in on an old pod during the same
 roll) fails once with `auth_failed` and works after the roll; that is a
 transient that the trigger cannot close and is recorded as a deploy note.
+
+---
+
+# Implement phase (2026-10-07)
+
+Every entry below is **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)**.
+They record where the implementation deviates from the plan, or decides
+something the plan left open.
+
+## RBD-059-25 - The faucet gate moves to a JWT-free module
+
+**Question**: The plan has `providers.js` call `devEndpointsEnabled()` from
+`server/auth/middleware.js`. That file requires `../permissions`, which
+requires both JWT modules, which throw at load time in production when the
+secrets are missing. The CLI loads `providers.js` (`doctor`, `mode`).
+
+**Default chosen**: `devEndpointsEnabled()` moves unchanged to
+`server/auth/dev-endpoints.js` (requires nothing); `middleware.js` imports and
+re-exports it, so every existing importer is unchanged.
+
+**Rationale**: Keeps the single definition and makes FR-038's "safe to load
+without secrets" true; `server/cli/__tests__/safe-require.test.js` pins it.
+
+## RBD-059-26 - The startup claim link prints before `/ready` turns 200, as plain lines
+
+**Question**: 058's notes place the startup-log link after the ready mark;
+059's plan places it just before. Which, and how is it written?
+
+**Default chosen**: Before. `server/index.js` awaits
+`maybeLogStartupClaimLink` inside the `app.listen` callback immediately before
+`lifecycle.markInitialized()`, so `/ready` (and therefore `docker compose up
+--wait` and `squire doctor`) reports ready only once the link is in the log.
+The block is written straight to stdout, bypassing feature 014's structured
+JSON console shim, which otherwise turned it into one JSON line with escaped
+newlines (found in the quickstart walk). Only a local instance with no users
+prints it, so the hosted JSON log stream never sees it.
+
+**Rationale**: The link is the thing a person (or 060's agent) waits for after
+boot; "ready" should mean it is there. The minting is bounded (one indexed
+query and one insert) and its errors are swallowed, so it cannot hold
+readiness hostage.
+
+## RBD-059-27 - `squire doctor --json` names the failing checks
+
+**Question**: `doctor`'s `ok` includes the `/ready` probe, but FR-039 also
+fails it on rules `/ready` does not check (an `APP_URL` that is neither
+loopback nor https). How does a reader tell why `doctor` says no while
+`/ready` says yes?
+
+**Default chosen**: The JSON document carries a top-level `failed` array with
+the names of the failing checks (empty when `ok` is true), alongside the
+per-check `ok` and `message`. SC-006's "`ok` matches `/ready`" holds on a
+healthy instance; any disagreement is named, for example `failed:
+["appUrl"]` with `checks.server.ok: true`.
+
+**Rationale**: One field answers "what is wrong" without the reader diffing
+checks. Pinned in `server/cli/__tests__/doctor.test.js`.
+
+## RBD-059-28 - A claim takes the users lock before it marks its own link used
+
+**Question**: Research R6 orders the claim transaction as: mark the link used,
+then lock `users`, then void the other claim links. Two concurrent claims with
+different links then deadlock (each holds its own link row and waits for the
+lock, and the winner waits for the loser's row to void it).
+
+**Default chosen**: For a claim-kind link the transaction takes `LOCK TABLE
+users IN SHARE ROW EXCLUSIVE MODE` first, then the conditional `UPDATE`. The
+second of two concurrent claims waits on the lock, finds its link voided by the
+first, and is refused with `link_invalid`. Exactly one owner results (pinned in
+`signin-links.test.js`).
+
+**Rationale**: Same guarantees (FR-030, FR-045, single use), no deadlock.
+
+## RBD-059-29 - Users but no administrator is "owner not resolvable"
+
+**Question**: `resolveOwner` returns `no_users` or `ambiguous_admins`. Which
+applies when users exist but none is an administrator (possible on a team
+instance, never after a claim)?
+
+**Default chosen**: `ambiguous_admins`. The CLI message says "no recorded owner
+and not exactly one administrator" and names `squire login-link --email`.
+
+## RBD-059-30 - Route and pool wiring
+
+**Default chosen**: The three new endpoints live in
+`server/auth/signin-link-routes.js` as `createSigninLinkRouter({ getClientUrl
+})`, mounted with `router.use(...)` from `server/auth/routes.js` (so they sit
+behind the `/auth` per-IP limiter), and read the database through a new
+`users.getPool()` export rather than a second `init`. `getClientUrl` is
+exported from `routes.js` for the factory.
+
+## RBD-059-31 - The consent page waits for the provider list; the CLI loads `.env`
+
+**Default chosen**: (a) The unauthenticated `/authorize` state shows the
+existing "Loading..." shell until `GET /auth/providers` settles, so a local
+instance never flashes the Google button; the sign-in page renders its
+headline immediately as the contract says. In team mode the consent action
+uses the first listed provider (Google is the only one in 059). (b)
+`bin/squire.js` loads `.env` with dotenv first, as 058's entrypoint does, then
+`script/setup-db-env.js`, then `resolveSecrets({ generate: false })`; a secrets
+or configuration error there is not fatal in the shim, because every command
+reports configuration errors itself with the setting to fix.
+
+## RBD-059-32 - `token create` revokes a token it could not store
+
+**Default chosen**: The file is opened (exclusive, 0600) before minting, as
+planned. If writing the minted token to the open file then fails, the token is
+revoked and the file removed, so no usable token is ever orphaned.
+
+## RBD-059-33 - README.md and docs/dev.md are left to the orchestrator
+
+**Question**: Tasks T069 and T070 edit `README.md` and `docs/dev.md`; this
+implementation run was told not to edit them.
+
+**Default chosen**: The changes are listed in `promotion-notes.md` ("Implement
+phase, documentation owed") for the merge step to apply.

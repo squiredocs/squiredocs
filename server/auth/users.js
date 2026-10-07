@@ -46,57 +46,186 @@ function ensurePool() {
   return pool;
 }
 
+// Feature 059: issuers user identities are stored under. GOOGLE_ISSUER matches
+// server/auth/google.js (which this module does not require: the CLI loads
+// users.js and must stay free of the Google client).
+const GOOGLE_ISSUER = 'https://accounts.google.com';
+const DEV_ISSUER = 'dev';
+
+const SIGNUP_SOURCES = ['browser', 'agent_oauth', 'signin_link'];
+
+/** Guard a signup source to the CHECK-constrained domain (default browser). */
+function safeSignupSource(signupSource) {
+  return SIGNUP_SOURCES.includes(signupSource) ? signupSource : 'browser';
+}
+
 /**
- * Find or create a user from Google OAuth profile
- * @param {object} profile - User profile from Google
- * @param {string} profile.googleId - Google's unique user ID
- * @param {string} profile.email - User's email
- * @param {string} profile.name - User's display name
- * @param {string} profile.picture - Profile picture URL
- * @param {object} [context] - optional capture context (feature 034)
- * @param {string} [context.signupSource] - 'browser' | 'agent_oauth'
- * @param {string|null} [context.ip] - client IP from authContext(req)
- * @param {string|null} [context.userAgent] - user-agent from authContext(req)
- * @returns {Promise<object>} User record from database
+ * Feature 059 (FR-004, RBD-059-3): an unknown identity whose email already
+ * belongs to an account. Sign-in is refused and nothing is created; there is
+ * no silent linking by email.
  */
-async function findOrCreateUser(
-  { googleId, email, name, picture },
+class AccountExistsError extends Error {
+  constructor(message = 'An account with this email already exists') {
+    super(message);
+    this.name = 'AccountExistsError';
+    this.code = 'account_exists';
+  }
+}
+
+/**
+ * Resolve the user for an identity (issuer, subject), creating both on a first
+ * sign-in. Feature 059, research R1/R2, contracts/identity-and-post-auth.md.
+ *
+ * One transaction:
+ *   1. a transaction-scoped advisory lock on the (issuer, subject) pair, so two
+ *      concurrent first sign-ins for one identity serialize (FR-005, I5) and
+ *      nothing else waits;
+ *   2. lookup by (issuer, subject) ONLY, never by email (FR-004, I1). Found:
+ *      refresh email, name, picture (the columns the old upsert refreshed,
+ *      FR-007, I3) and the identity's last_used_at / email_verified;
+ *   3. unknown pair whose email exists (case-insensitive, RBD-059-17): throw
+ *      AccountExistsError, roll back, create nothing;
+ *   4. otherwise INSERT the user (signup_source, signup_ip, signup_user_agent
+ *      only here, so a returning sign-in never changes them, I2; google_id
+ *      NULL, I4) and the identity.
+ *
+ * Writes no auth_events row and converts no invites (I6): both belong to the
+ * shared post-sign-in path (server/auth/post-auth.js).
+ *
+ * @param {{ issuer: string, subject: string, email: string, name: string,
+ *   picture?: string|null, emailVerified?: boolean }} identity
+ * @param {{ signupSource?: string, ip?: string|null, userAgent?: string|null }} [ctx]
+ * @returns {Promise<object>} the users row plus `isNew`
+ */
+async function resolveIdentityUser(
+  { issuer, subject, email, name, picture = null, emailVerified = undefined },
   { signupSource = 'browser', ip = null, userAgent = null } = {}
 ) {
-  // Feature 029 (FR-012, RBD-10): stamp provenance ONCE at creation. Written
-  // only in the INSERT column list — deliberately NOT in the ON CONFLICT DO
-  // UPDATE SET clause, so a returning user's provenance is never overwritten by
-  // a later login. Guard the value to the CHECK-constrained domain.
-  const source = signupSource === 'agent_oauth' ? 'agent_oauth' : 'browser';
+  const source = safeSignupSource(signupSource);
+  const verified = typeof emailVerified === 'boolean' ? emailVerified : null;
+  const client = await ensurePool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('identity:' || $1 || ':' || $2, 0))",
+      [issuer, subject]
+    );
 
-  // Atomic upsert: insert or update in a single query to prevent race conditions.
-  //
-  // Feature 034 (FR-001): signup_ip / signup_user_agent ride the SAME
-  // write-once mechanism as signup_source — present in the INSERT column list,
-  // absent from ON CONFLICT DO UPDATE SET — so a returning user's signup
-  // capture is never overwritten by a later login through this same path.
-  // Values arrive already validated and truncated by auth-context.js; a null
-  // pair (context omitted) simply stores NULL. This helper appends NO
-  // auth_events row — the single row per authentication is written by
-  // updateLastLogin (RBD-7).
-  const result = await ensurePool().query(
-    `INSERT INTO users (google_id, email, name, picture, token_version, signup_source, signup_ip, signup_user_agent)
-     VALUES ($1, $2, $3, $4, 0, $5, $6, $7)
-     ON CONFLICT (google_id) DO UPDATE
-     SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
-     RETURNING *, (xmax = 0) AS is_new`,
-    [googleId, email, name, picture, source, ip, userAgent]
+    const found = await client.query(
+      'SELECT id, user_id FROM user_identities WHERE issuer = $1 AND subject = $2',
+      [issuer, subject]
+    );
+
+    let user;
+    let isNew;
+    if (found.rows.length > 0) {
+      const identity = found.rows[0];
+      const updated = await client.query(
+        'UPDATE users SET email = $2, name = $3, picture = $4 WHERE id = $1 RETURNING *',
+        [identity.user_id, email, name, picture]
+      );
+      await client.query(
+        `UPDATE user_identities
+            SET last_used_at = now(), email_verified = COALESCE($2, email_verified)
+          WHERE id = $1`,
+        [identity.id, verified]
+      );
+      user = updated.rows[0];
+      isNew = false;
+    } else {
+      const collision = await client.query(
+        'SELECT 1 FROM users WHERE lower(email) = lower($1) LIMIT 1',
+        [email]
+      );
+      if (collision.rows.length > 0) throw new AccountExistsError();
+
+      const inserted = await client.query(
+        `INSERT INTO users (email, name, picture, token_version, signup_source, signup_ip, signup_user_agent)
+         VALUES ($1, $2, $3, 0, $4, $5, $6)
+         RETURNING *`,
+        [email, name, picture, source, ip, userAgent]
+      );
+      user = inserted.rows[0];
+      await client.query(
+        `INSERT INTO user_identities (user_id, issuer, subject, email_verified, last_used_at)
+         VALUES ($1, $2, $3, $4, now())`,
+        [user.id, issuer, subject, verified]
+      );
+      isNew = true;
+    }
+
+    await client.query('COMMIT');
+    user.isNew = isNew;
+    return user;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('resolveIdentityUser rollback failed:', rollbackErr.message);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Create the instance owner inside the claim transaction (feature 059,
+ * FR-030). Only server/auth/signin-links.js calls it, with the client that
+ * holds the users table lock. is_admin true, signup_source signin_link,
+ * google_id NULL, the capture pair from the redeeming request.
+ *
+ * @param {import('pg').PoolClient} client
+ * @param {{ name: string, email: string, ctx?: { ip?: string|null, userAgent?: string|null } }} args
+ * @returns {Promise<object>} the users row
+ */
+async function createOwnerUser(client, { name, email, ctx = {} }) {
+  const { rows } = await client.query(
+    `INSERT INTO users (email, name, picture, token_version, is_admin, signup_source, signup_ip, signup_user_agent)
+     VALUES ($1, $2, NULL, 0, true, 'signin_link', $3, $4)
+     RETURNING *`,
+    [email, name, ctx.ip ?? null, ctx.userAgent ?? null]
   );
+  return rows[0];
+}
 
-  const user = result.rows[0];
-  user.isNew = user.is_new;
-  delete user.is_new;
+/**
+ * Case-insensitive lookup by email (feature 059: `squire login-link`,
+ * `squire token create`). Oldest row first when case variants exist.
+ * @param {{ query: Function }} db
+ * @param {string} email
+ * @returns {Promise<object|null>}
+ */
+async function findUserByEmail(db, email) {
+  const { rows } = await db.query(
+    'SELECT * FROM users WHERE lower(email) = lower($1) ORDER BY created_at LIMIT 1',
+    [email]
+  );
+  return rows[0] || null;
+}
 
-  // Convert any pending share invites addressed to this user's email into real
-  // shares. Runs on every login (not just signup), so invites created after a
-  // user already exists are also picked up the next time they log in.
+/**
+ * @deprecated Test-fixture wrapper only (feature 059, RBD-059-18). No
+ * production route calls it; identity-regression.test.js pins that with a
+ * source check. Sign-in paths call resolveIdentityUser and then the shared
+ * post-sign-in path (server/auth/post-auth.js).
+ *
+ * Keeps its pre-059 contract so the fixture suites that call it stay
+ * unchanged: resolve a Google identity (googleId as the subject), then convert
+ * pending invites. Writes no auth_events row (that is updateLastLogin's).
+ * Rows inserted the old way (with google_id) are found through the identity
+ * the compatibility trigger gave them (RBD-059-24).
+ *
+ * @param {{ googleId: string, email: string, name: string, picture?: string|null }} profile
+ * @param {{ signupSource?: string, ip?: string|null, userAgent?: string|null }} [context]
+ * @returns {Promise<object>} the users row plus `isNew`
+ */
+async function findOrCreateUser({ googleId, email, name, picture }, context = {}) {
+  const user = await resolveIdentityUser(
+    { issuer: GOOGLE_ISSUER, subject: googleId, email, name, picture: picture ?? null },
+    context
+  );
   await convertPendingInvites(user);
-
   return user;
 }
 
@@ -495,8 +624,16 @@ async function deleteAllSyntheticUsers() {
 
 module.exports = {
   init,
+  getPool: ensurePool,
   SYNTHETIC,
   isSyntheticEmail,
+  GOOGLE_ISSUER,
+  DEV_ISSUER,
+  AccountExistsError,
+  resolveIdentityUser,
+  createOwnerUser,
+  findUserByEmail,
+  convertPendingInvites,
   findOrCreateUser,
   findById,
   incrementTokenVersion,

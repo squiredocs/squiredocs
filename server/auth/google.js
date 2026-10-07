@@ -11,6 +11,9 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // resolved by the instance config when the client is built.
 const { getInstanceConfig } = require('../instance-config');
 
+// Feature 059: the issuer Google identities are stored under (user_identities).
+const GOOGLE_ISSUER = 'https://accounts.google.com';
+
 // OAuth2 client instance, rebuilt if the resolved redirect URI changes
 let oauth2Client = null;
 let oauth2ClientRedirectUri = null;
@@ -74,7 +77,13 @@ async function exchangeCodeForTokens(code) {
 /**
  * Verify Google ID token and extract user profile
  * @param {string} idToken - The ID token from Google
- * @returns {Promise<{googleId: string, email: string, name: string, picture: string}>} User profile
+ * Feature 059: returns an identity in the provider-neutral shape every sign-in
+ * method resolves through (`resolveIdentityUser` in users.js). `emailVerified`
+ * is Google's `email_verified` claim when it is a boolean, else undefined; it is
+ * recorded on the identity and nothing reads it yet (RBD-059-8).
+ *
+ * @returns {Promise<{issuer: string, subject: string, email: string, name: string,
+ *   picture: string|null, emailVerified: boolean|undefined}>} identity
  */
 async function verifyIdToken(idToken) {
   const client = getOAuth2Client();
@@ -87,10 +96,12 @@ async function verifyIdToken(idToken) {
   const payload = ticket.getPayload();
   
   return {
-    googleId: payload.sub,
+    issuer: GOOGLE_ISSUER,
+    subject: payload.sub,
     email: payload.email,
     name: payload.name || payload.email.split('@')[0],
     picture: payload.picture || null,
+    emailVerified: typeof payload.email_verified === 'boolean' ? payload.email_verified : undefined,
   };
 }
 
@@ -123,6 +134,7 @@ async function fetchUserInfo(accessToken) {
 }
 
 module.exports = {
+  GOOGLE_ISSUER,
   generateAuthUrl,
   exchangeCodeForTokens,
   verifyIdToken,

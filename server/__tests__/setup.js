@@ -18,6 +18,11 @@ process.env.PORT = '0'; // Use random port for tests
 // (Set at require time, before routes.js is required, because the routes are
 // registered at module-load time.)
 process.env.ENABLE_DEV_ENDPOINTS = '1';
+// Feature 059 (RBD-059-14): the existing suites encode the hosted service's
+// behavior, which is team mode. Unset SQUIRE_MODE means local (design D1), so
+// default the suite to team here; a suite that tests local mode sets
+// SQUIRE_MODE=local itself and calls _resetInstanceConfigForTests().
+process.env.SQUIRE_MODE = process.env.SQUIRE_MODE || 'team';
 // Point DATABASE_URL at THIS worker's database (feature 052), unconditionally.
 // An externally supplied DATABASE_URL is a BASE, not a target, so overwriting it
 // is the point: any module that reads process.env.DATABASE_URL directly instead

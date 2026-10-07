@@ -21,6 +21,8 @@ import UserProfileBadge from '../components/UserProfileBadge';
 import ViewToggleButton from '../components/ViewToggleButton';
 import Avatar from '../components/Avatar';
 import { useAuth } from '../contexts/AuthContext';
+import useAuthProviders from '../hooks/useAuthProviders';
+import { localInviteNote } from '../utils/localModeInvite';
 import './SpaceSettingsPage.css';
 
 const ROLES = ['viewer', 'editor', 'owner'];
@@ -36,6 +38,7 @@ export default function SpaceSettingsPage({
   user,
 }) {
   const { api, logout } = useAuth();
+  const providers = useAuthProviders();
   const [detail, setDetail] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [error, setError] = useState(null);
@@ -116,12 +119,18 @@ export default function SpaceSettingsPage({
   const handleInvite = () => {
     const email = inviteEmail.trim();
     if (!email) return;
+    let pendingInvite = false;
     return run(async () => {
       const res = await api.post(`/api/spaces/${spaceId}/members`, { email, role: inviteRole });
+      pendingInvite = !!res?.data?.invite;
       setInviteEmail('');
       setSuggestions([]);
       return res;
-    }, `Invited ${email}.`);
+    }, `Invited ${email}.`).then((ok) => {
+      // Feature 059: on a local instance a pending invite cannot be accepted yet.
+      if (ok && pendingInvite && providers.info?.mode === 'local') setNotice(localInviteNote(email));
+      return ok;
+    });
   };
 
   const handleRoleChange = (member, role) => run(

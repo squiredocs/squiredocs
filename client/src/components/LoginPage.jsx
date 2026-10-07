@@ -3,7 +3,44 @@ import { useAuth } from '../contexts/AuthContext';
 import { shouldUseBrowserLinkBehavior } from '../utils/linkBehavior';
 import Logo from './Logo';
 import { isHosted } from '../instance';
+import useAuthProviders from '../hooks/useAuthProviders';
 import './LoginPage.css';
+
+export const CLAIM_COMMAND = 'docker compose exec app squire claim-link';
+
+// Messages for the error codes the server redirects to /login with. The
+// feature 059 sign-in link messages are shared with the claim page.
+export const LINK_ERROR_MESSAGES = {
+  link_invalid: `This sign-in link has expired or was already used. Run ${CLAIM_COMMAND} for a new one.`,
+  instance_claimed: `This instance already has an owner. Run ${CLAIM_COMMAND} to get a sign-in link for the owner.`,
+  claim_invalid: 'Enter a name and a valid email address.',
+};
+
+function GoogleIcon() {
+  return (
+    <svg className="google-icon" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+  );
+}
+
+/**
+ * The local-mode sign-in instruction (feature 059, contracts/pages.md). Shown
+ * on /login and /signup alike: a local instance has one owner and no sign-up.
+ */
+export function LocalSignInInstruction() {
+  return (
+    <div className="login-local">
+      <p>This Squire Docs instance signs in with a one-time link.</p>
+      <p>Run this in the folder where you started Squire Docs:</p>
+      <code className="login-local-command">{CLAIM_COMMAND}</code>
+      <p>Open the link it prints.</p>
+    </div>
+  );
+}
 
 /**
  * Login page component for Squire Docs
@@ -11,6 +48,12 @@ import './LoginPage.css';
  */
 export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode = 'signup' }) {
   const { login, error, loading } = useAuth();
+  // Feature 059: the action area and footer render from the instance's
+  // providers once GET /auth/providers settles (team mode with Google renders
+  // exactly the pre-059 page; any failure falls back to it).
+  const { status: providersStatus, info: providerInfo } = useAuthProviders();
+  const providersReady = providersStatus !== 'loading';
+  const isLocal = providersReady && providerInfo.mode === 'local';
 
   // Feature 005-agent-onboarding: honor ?returnTo=<relative path> so the
   // consent-page → login → Google → consent-page round-trip completes with
@@ -25,6 +68,9 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
       'config_error': 'Authentication is not configured. Please contact support.',
       'no_code': 'Authentication failed. Please try again.',
       'auth_failed': 'Authentication failed. Please try again.',
+      'provider_disabled': 'That sign-in method is not enabled on this instance.',
+      'account_exists': 'An account with this email already exists. Sign in with the method you used before. Linking another sign-in method from Settings arrives with team mode.',
+      ...LINK_ERROR_MESSAGES,
     };
     return errorMessages[error] || `Authentication error: ${error}`;
   };
@@ -66,7 +112,7 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
           <p className="login-subtitle">Write with AI, right in your doc</p>
         </div>
 
-        <h2 className="login-headline">{mode === 'login' ? 'Welcome Back' : 'Get Started'}</h2>
+        <h2 className="login-headline">{mode === 'login' || isLocal ? 'Welcome Back' : 'Get Started'}</h2>
 
         {error && (
           <div className="login-error">
@@ -74,37 +120,39 @@ export default function LoginPage({ onNavigateToSignup, onNavigateToLogin, mode 
           </div>
         )}
 
-        <button
-          className="login-button google-button"
-          onClick={() => login(returnTo)}
-          disabled={loading}
-        >
-          <svg className="google-icon" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          <span>{loading ? 'Signing in...' : (mode === 'login' ? 'Sign in with Google' : 'Sign up with Google')}</span>
-        </button>
+        {providersReady && isLocal && <LocalSignInInstruction />}
 
-        <div className="login-footer">
-          {mode === 'login' ? (
-            <>
-              <span>Don't have an account?</span>
-              <a href="/signup" onClick={handleSignupClick} className="login-signup-link">
-                Sign Up
-              </a>
-            </>
-          ) : (
-            <>
-              <span>Already have an account?</span>
-              <a href="/login" onClick={handleLoginClick} className="login-signup-link">
-                Sign In
-              </a>
-            </>
-          )}
-        </div>
+        {providersReady && !isLocal && providerInfo.providers.map((provider) => (
+          <button
+            key={provider.id}
+            className={`login-button ${provider.id}-button`}
+            onClick={() => login(returnTo, provider.startPath)}
+            disabled={loading}
+          >
+            {provider.id === 'google' && <GoogleIcon />}
+            <span>{loading ? 'Signing in...' : `${mode === 'login' ? 'Sign in' : 'Sign up'} with ${provider.label}`}</span>
+          </button>
+        ))}
+
+        {providersReady && !isLocal && (
+          <div className="login-footer">
+            {mode === 'login' ? (
+              <>
+                <span>Don't have an account?</span>
+                <a href="/signup" onClick={handleSignupClick} className="login-signup-link">
+                  Sign Up
+                </a>
+              </>
+            ) : (
+              <>
+                <span>Already have an account?</span>
+                <a href="/login" onClick={handleLoginClick} className="login-signup-link">
+                  Sign In
+                </a>
+              </>
+            )}
+          </div>
+        )}
 
         {isHosted() && (
           <div className="login-legal">

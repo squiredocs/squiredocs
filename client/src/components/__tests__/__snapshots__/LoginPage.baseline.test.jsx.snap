@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SC-003 baseline: team mode with Google only > /login 1`] = `
+{
+  "controls": [
+    {
+      "href": "/signup",
+      "name": "Squire Docs",
+      "role": "link",
+    },
+    {
+      "href": null,
+      "name": "Sign in with Google",
+      "role": "button",
+    },
+    {
+      "href": "/signup",
+      "name": "Sign Up",
+      "role": "link",
+    },
+  ],
+  "text": "Squire DocsWrite with AI, right in your docWelcome BackSign in with GoogleDon't have an account?Sign Up",
+}
+`;
+
+exports[`SC-003 baseline: team mode with Google only > /signup 1`] = `
+{
+  "controls": [
+    {
+      "href": "/signup",
+      "name": "Squire Docs",
+      "role": "link",
+    },
+    {
+      "href": null,
+      "name": "Sign up with Google",
+      "role": "button",
+    },
+    {
+      "href": "/login",
+      "name": "Sign In",
+      "role": "link",
+    },
+  ],
+  "text": "Squire DocsWrite with AI, right in your docGet StartedSign up with GoogleAlready have an account?Sign In",
+}
+`;
+
+exports[`SC-003 baseline: team mode with Google only > consent page, read and write scopes 1`] = `
+{
+  "controls": [
+    {
+      "href": "#",
+      "name": "Continue with Google",
+      "role": "link",
+    },
+  ],
+  "text": "Squire DocsConnect to Squire DocsSign in to Squire Docs with your Google Account to connect Claude Code.One place where humans and coding agents write the same spec together.A spec your agents can work with and your team can review — with two-way sync to the markdown in your repo.Every edit is attributed to human or agent, and revertible.This grants Claude Code access to your Squire Docs account — not your Google account. Once connected, it will be able to read, create, edit, and delete the documents in your Squire Docs account.You can revoke this access anytime in Settings → AI Agent Access.Continue with Google",
+}
+`;
+
+exports[`SC-003 baseline: team mode with Google only > consent page, read scope only 1`] = `
+{
+  "controls": [
+    {
+      "href": "#",
+      "name": "Continue with Google",
+      "role": "link",
+    },
+  ],
+  "text": "Squire DocsConnect to Squire DocsSign in to Squire Docs with your Google Account to connect Claude Code.One place where humans and coding agents write the same spec together.A spec your agents can work with and your team can review — with two-way sync to the markdown in your repo.Every edit is attributed to human or agent, and revertible.This grants Claude Code access to your Squire Docs account — not your Google account. Once connected, it will be able to read the documents in your Squire Docs account.You can revoke this access anytime in Settings → AI Agent Access.Continue with Google",
+}
+`;

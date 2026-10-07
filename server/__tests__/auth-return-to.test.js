@@ -28,8 +28,10 @@ jest.mock('../auth/google', () => ({
     access_token: 'fixture-access-token',
     refresh_token: 'fixture-refresh-token',
   })),
+  // Feature 059: the adapter returns the identity shape.
   verifyIdToken: jest.fn(async () => ({
-    googleId: 'test-google-id-005-returnto',
+    issuer: 'https://accounts.google.com',
+    subject: 'test-google-id-005-returnto',
     email: 'returnto-test-005@example.com',
     name: 'ReturnTo Test 005',
     picture: 'https://example.com/pic.png',
@@ -79,7 +81,7 @@ describe('Auth returnTo round-trip', () => {
       await pool.query('DELETE FROM users WHERE id = $1', [testUserId]);
     }
     // Extra cleanup on the fixture google_id in case a prior run left it.
-    await pool.query('DELETE FROM users WHERE google_id = $1', ['test-google-id-005-returnto']);
+    await pool.query('DELETE FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', ['test-google-id-005-returnto']);
     await pool.end();
   });
 
@@ -194,7 +196,7 @@ describe('Auth returnTo round-trip', () => {
       expect(cleared).toBeDefined();
       expect(cleared).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/i);
       // Capture the user id for cleanup.
-      const idQ = await pool.query('SELECT id FROM users WHERE google_id = $1', ['test-google-id-005-returnto']);
+      const idQ = await pool.query('SELECT id FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', ['test-google-id-005-returnto']);
       testUserId = idQ.rows[0]?.id;
     });
   });

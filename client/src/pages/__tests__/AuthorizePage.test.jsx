@@ -151,3 +151,39 @@ describe('AuthorizePage — authenticated consent card is unchanged (FR-024)', (
     expect(screen.queryByRole('link', { name: /continue with google/i })).not.toBeInTheDocument();
   });
 });
+
+describe('AuthorizePage — feature 059 provider-driven first-run surface (FR-018, RBD-059-9)', () => {
+  const AGENT = { name: 'Claude Code', description: 'Coding agent' };
+  const stub = (providers) =>
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (String(url).endsWith('/auth/providers')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(providers) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve(AGENT) });
+    }));
+
+  beforeEach(() => {
+    setSearch('?agent_client_id=agent-xyz&scope=documents:read%20documents:write');
+    mockAuth = { user: null, isAuthenticated: false, loading: false, api: { post: vi.fn() } };
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('local mode: no "Google" anywhere, the instruction, and the agent and grant as today', async () => {
+    stub({ mode: 'local', hasOwner: true, signupOpen: false, providers: [] });
+    const { container } = render(<AuthorizePage />);
+    expect(await screen.findByText('docker compose exec app squire claim-link')).toBeInTheDocument();
+    await screen.findByText(/Sign in to this Squire Docs instance to connect Claude Code\./);
+    expect(container.textContent).not.toMatch(/Google/);
+    expect(screen.getByText(/read, create, edit, and delete the documents in your Squire Docs account/)).toBeInTheDocument();
+    expect(screen.getByText(/come back to Claude Code and try again/)).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it("team mode: the action's href uses the registry start path", async () => {
+    stub({ mode: 'team', hasOwner: true, signupOpen: true, providers: [{ id: 'google', label: 'Google', startPath: '/auth/google-alt' }] });
+    render(<AuthorizePage />);
+    const link = await screen.findByRole('link', { name: /continue with google/i });
+    expect(link.getAttribute('href')).toMatch(/^\/auth\/google-alt\?returnTo=/);
+    expect(decodeURIComponent(link.getAttribute('href'))).toContain('/authorize?agent_client_id=agent-xyz');
+  });
+});

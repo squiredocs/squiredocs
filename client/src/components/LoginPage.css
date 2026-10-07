@@ -152,6 +152,32 @@
   text-decoration: underline;
 }
 
+/* Feature 059: local-mode sign-in instruction (no provider button). */
+.login-local {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.login-local p {
+  margin: 0.5rem 0;
+}
+
+.login-local-command {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  user-select: all;
+  overflow-x: auto;
+  white-space: nowrap;
+  text-align: left;
+}
+
 .login-legal {
   margin-top: 1.25rem;
   font-size: var(--text-sm);

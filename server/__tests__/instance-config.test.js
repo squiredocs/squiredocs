@@ -236,3 +236,22 @@ describe('hostedOnly', () => {
     expect(next).toHaveBeenCalledWith('route');
   });
 });
+
+describe('SQUIRE_MODE (feature 059, D1, research R4)', () => {
+  test('unset means local', () => {
+    expect(r({}).mode).toBe('local');
+    expect(r({ SQUIRE_MODE: '' }).mode).toBe('local');
+  });
+
+  test('local and team are accepted', () => {
+    expect(r({ SQUIRE_MODE: 'local' }).mode).toBe('local');
+    expect(r({ SQUIRE_MODE: 'team' }).mode).toBe('team');
+  });
+
+  test.each(['teams', 'Team', 'LOCAL', 'hosted', ' team'])('%j throws naming both values', (value) => {
+    expect(() => r({ SQUIRE_MODE: value })).toThrow(ConfigError);
+    expect(() => r({ SQUIRE_MODE: value })).toThrow(
+      `SQUIRE_MODE must be "local" or "team" (got ${JSON.stringify(value)}).`
+    );
+  });
+});

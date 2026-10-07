@@ -4,7 +4,43 @@
 process.env.GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
 
-const { fetchUserInfo } = require('../google');
+const { OAuth2Client } = require('google-auth-library');
+const { fetchUserInfo, verifyIdToken, GOOGLE_ISSUER } = require('../google');
+
+describe('verifyIdToken (feature 059 identity shape)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const withPayload = (payload) =>
+    jest.spyOn(OAuth2Client.prototype, 'verifyIdToken').mockResolvedValue({ getPayload: () => payload });
+
+  test('returns issuer, subject, email, name, picture, emailVerified', async () => {
+    withPayload({ sub: '1234', email: 'a@example.com', name: 'A', picture: 'https://p', email_verified: true });
+    await expect(verifyIdToken('t')).resolves.toEqual({
+      issuer: 'https://accounts.google.com',
+      subject: '1234',
+      email: 'a@example.com',
+      name: 'A',
+      picture: 'https://p',
+      emailVerified: true,
+    });
+    expect(GOOGLE_ISSUER).toBe('https://accounts.google.com');
+  });
+
+  test('email_verified false is kept', async () => {
+    withPayload({ sub: '1', email: 'b@example.com', name: 'B', email_verified: false });
+    expect((await verifyIdToken('t')).emailVerified).toBe(false);
+  });
+
+  test('email_verified absent (or not a boolean) is undefined; name and picture fall back', async () => {
+    withPayload({ sub: '1', email: 'carol@example.com' });
+    const id = await verifyIdToken('t');
+    expect(id.emailVerified).toBeUndefined();
+    expect(id.name).toBe('carol');
+    expect(id.picture).toBeNull();
+    withPayload({ sub: '1', email: 'carol@example.com', email_verified: 'true' });
+    expect((await verifyIdToken('t')).emailVerified).toBeUndefined();
+  });
+});
 
 describe('fetchUserInfo', () => {
   let originalFetch;

@@ -128,6 +128,17 @@ describe('auth_events trail (feature 034)', () => {
       expect(await eventsFor(user.id)).toHaveLength(0);
     });
 
+    test('feature 059: record() stores the signin_link channel (RBD-059-6)', async () => {
+      const user = await users.findOrCreateUser(newProfile(), {});
+      expect(await authEvents.record({ userId: user.id, event: 'login', signupSource: 'signin_link' })).toBe(true);
+      const rows = await eventsFor(user.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].signup_source).toBe('signin_link');
+      // Unknown values still coerce to the default.
+      await authEvents.record({ userId: user.id, event: 'login', signupSource: 'nonsense' });
+      expect((await eventsFor(user.id))[1].signup_source).toBe('browser');
+    });
+
     test('null ip and null user-agent are stored independently', async () => {
       const user = await authenticate(newProfile(), { ip: null, userAgent: 'UA only' });
       const rows = await eventsFor(user.id);
@@ -183,6 +194,8 @@ describe('auth_events trail (feature 034)', () => {
       const end = source.indexOf('router.', start + 10);
       const body = source.slice(start, end);
       expect(body).not.toMatch(/findOrCreateUser|updateLastLogin/);
+      // Feature 059 (T022): nor any of the identity-era sign-in helpers.
+      expect(body).not.toMatch(/resolveIdentityUser|establishSession|completePostAuth/);
     });
   });
 
