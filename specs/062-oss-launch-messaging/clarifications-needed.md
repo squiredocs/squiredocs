@@ -198,7 +198,7 @@ marks (check = included, marker = not included):
 | Built-in assistant with your own key: Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter | yes | yes | yes |
 | Keys encrypted at rest with AES-256-GCM; remove your key at any time | yes | yes | yes |
 | $10 of AI credits every month | yes | no | no |
-| Sign-in | Sign in with Google | Sign-in link minted by your instance | Sign in with Google |
+| Sign-in | Sign in with Google | Sign-in link minted by your instance | SSO |
 | Runs on your own infrastructure | no | yes | no |
 | Single-tenant: your own isolated instance and database | no | yes | yes |
 | Hosted in the cloud region you choose | no | no | yes |
@@ -210,8 +210,9 @@ hosted-only (058 `SQUIRE_HOSTED`); the self-hosted sign-in is the claim link
 Google today; "Runs on Anthropic's Claude models" is replaced by the
 bring-your-own-key row because a self-hosted instance has no built-in AI until
 a key is added (design, "AI features without keys"). The managed column's
-"Sign in with Google" is the honest default; if a managed customer gets OIDC
-after 061, that cell changes then.
+"Sign in with Google" was the first default; Sam changed the managed cell to
+"SSO" on 2026-10-07 (managed instances are set up per customer, so their
+sign-in is configured to the customer's identity provider).
 
 ---
 

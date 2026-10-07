@@ -381,7 +381,7 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
       expect(r, `row "${label}" missing`).toBeTruthy();
       return (r.match(/<td>([\s\S]*?)<\/td>/g) || []).slice(1).map((td) => (td.includes('pricing-check') ? 'yes' : td.includes('pricing-dash') ? 'no' : text(td)));
     };
-    expect(row('<td>Sign-in</td>')).toEqual(['Sign in with Google', 'Sign-in link minted by your instance', 'Sign in with Google']);
+    expect(row('<td>Sign-in</td>')).toEqual(['Sign in with Google', 'Sign-in link minted by your instance', 'SSO']);
     expect(row('$10 of AI credits every month')).toEqual(['yes', 'no', 'no']);
     expect(row('Anthropic, Google (Gemini), OpenAI, z.ai (GLM), or OpenRouter')).toEqual(['yes', 'yes', 'yes']);
     expect(row('Runs on your own infrastructure')).toEqual(['no', 'yes', 'no']);
