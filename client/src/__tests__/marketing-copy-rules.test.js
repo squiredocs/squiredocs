@@ -27,6 +27,7 @@ import {
   stripHtmlComments,
   findCopyRuleViolations,
 } from '../../scripts/check-copy-rules.mjs';
+import { FOOTER, syncFooterIntoHtml } from '../../scripts/site-footer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.resolve(__dirname, '../..');
@@ -189,6 +190,11 @@ describe('scanned sources are clean (FR-030 to FR-038)', () => {
       expect(vs, vs.map((v) => `${name}: ${v.rule} "${v.match}"`).join('\n')).toHaveLength(0);
     });
   }
+
+  it('the FOOTER source in site-footer.mjs has no copy-rule violations', () => {
+    const vs = findCopyRuleViolations(FOOTER, { requireMit: false });
+    expect(vs, vs.map((v) => `site-footer.mjs FOOTER: ${v.rule} "${v.match}"`).join('\n')).toHaveLength(0);
+  });
 });
 
 // --- Block 4: launch copy anchors --------------------------------------------
@@ -493,5 +499,83 @@ describe('about launch copy (US3, FR-021 to FR-025, FR-028)', () => {
 
   it('closing band (FR-028)', () => {
     expectClosingBand(html, 'about.html');
+  });
+});
+
+// --- Block 3: shared footer, header nav, closing band (US4) -------------------
+
+const STATIC_PAGES = ['landing.html', 'pricing.html', 'about.html', 'security.html'];
+
+describe('footer is the single source (FR-026, FR-027, SC-003)', () => {
+  for (const name of STATIC_PAGES) {
+    it(`${name} carries the stamped FOOTER unchanged`, () => {
+      const html = readPage(name);
+      expect(syncFooterIntoHtml(html) === html, `${name} is out of sync: run npm run sync:footer in client/`).toBe(true);
+    });
+  }
+
+  it('FOOTER has the launch tagline, GitHub, then Self-host', () => {
+    const tagline = '<p class="landing-footer-tagline">Collaborative docs for people and AI agents</p>';
+    expect(FOOTER.split(tagline)).toHaveLength(2);
+    expectInOrder(
+      FOOTER,
+      [
+        `<li><a href="${GITHUB_ORG_URL}">GitHub</a></li>`,
+        `<li><a href="${SELF_HOST_URL}">Self-host</a></li>`,
+      ],
+      'footer Product column',
+    );
+    expect(FOOTER).toContain('<li><a href="/documentation">Documentation</a></li>');
+  });
+
+  it('no retired string remains in client/public/*.html or site-footer.mjs', () => {
+    const retired = [
+      'Write with AI, right in your doc',
+      'Free. No Setup. Sign in with Google.',
+      'Unlimited Docs',
+      'Dedicated Instance',
+    ];
+    const files = fs
+      .readdirSync(PUBLIC_DIR)
+      .filter((f) => f.endsWith('.html'))
+      .map((f) => path.join(PUBLIC_DIR, f));
+    files.push(path.join(CLIENT_DIR, 'scripts', 'site-footer.mjs'));
+    const hits = [];
+    for (const file of files) {
+      const body = fs.readFileSync(file, 'utf8');
+      for (const s of retired) if (body.includes(s)) hits.push(`${path.relative(CLIENT_DIR, file)}: "${s}"`);
+    }
+    expect(hits, hits.join('\n')).toHaveLength(0);
+  });
+});
+
+describe('header nav (FR-029, RBD-062-2)', () => {
+  for (const name of STATIC_PAGES) {
+    it(`${name} has GitHub and Self-host after Blog and before Sign In`, () => {
+      const nav = block(readPage(name), '<nav class="landing-nav">', '</nav>');
+      expectInOrder(
+        nav,
+        [
+          'href="/blog" class="landing-nav-link',
+          `<a href="${GITHUB_ORG_URL}" class="landing-nav-link`,
+          `<a href="${SELF_HOST_URL}" class="landing-nav-link`,
+          'href="/login"',
+        ],
+        `${name} nav`,
+      );
+      expect(nav).toContain('<a href="/documentation" class="landing-nav-link">Documentation</a>');
+      expect(nav).not.toMatch(/star/i);
+    });
+  }
+});
+
+describe('closing band is identical on landing, pricing, and about (FR-028)', () => {
+  it('the three cta sections match', () => {
+    const bands = ['landing.html', 'pricing.html', 'about.html'].map((n) => {
+      const cta = block(readPage(n), '<section class="landing-section cta">');
+      return cta.slice(cta.indexOf('<h2'));
+    });
+    expect(bands[1]).toBe(bands[0]);
+    expect(bands[2]).toBe(bands[0]);
   });
 });
