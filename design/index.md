@@ -56,6 +56,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Squire Docs Plugin Packaging & Marketplace Publishing | `design/plugin-marketplace-publishing.md` | Ratified design |
 | Proposal: Test Suite Architecture (Speed and Isolation) | design/test-suite-architecture.md | Ratified design |
 | Squire Spaces (Shared Team Workspaces) | `design/spaces.md` | Ratified design |
-| Proposal: Self-Hosting and Local Mode | `design/self-hosting-local-mode.md` | Proposed |
+| Proposal: Self-Hosting and Local Mode | `design/self-hosting-local-mode.md` | Ratified design |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).

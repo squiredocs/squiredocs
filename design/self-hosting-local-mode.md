@@ -9,7 +9,7 @@ This proposal defines how someone runs their own copy of Squire Docs, starting w
 
 Team mode, the path for shared instances with real sign-in providers, is outlined here so the two modes fit together. Its detailed design belongs in an amendment to [Squire Authentication and Sharing](https://squiredocs.com/d/503fb6a8-d165-49c7-bc98-883a68b14540).
 
-Status: proposed 2026-10-07. Nothing here is built.
+Status: ratified by Sam 2026-10-07. Nothing here is built yet.
 
 ## Goals
 
@@ -127,7 +127,14 @@ How a link works:
 - The server accepts a token once. It checks the hash, the expiry, and `used_at`, marks it used, then runs the normal post-sign-in path (`completePostAuth`): the session cookies, the `auth_events` row, and welcome-document seeding on first sign-in.
 - On an unclaimed instance, the page shows name and email fields prefilled from the CLI arguments, and submitting creates the owner. Email is required because pending invites and the account record key on it, but it is never verified or sent to in local mode.
 - On a claimed instance, a `claim-link` signs in the existing owner. The CLI ignores `--name` and `--email` and says so, and the page shows no fields, only "Signed in as <owner>". Changing the owner's name or email happens in Settings.
-- There is no HTTP endpoint or MCP tool that mints a link. The only way to get one is the CLI inside the container.
+- There is no HTTP endpoint or MCP tool that mints a link. The only ways to get one are the CLI inside the container and, on an unclaimed instance, the startup log (below).
+
+**The startup-log link (D11).** When the server finishes starting in local mode and the instance has no owner, it mints a claim link the same way the CLI does and logs it in a clearly marked block, so `docker compose logs app` shows it. Details:
+
+- It runs only in local mode with no owner. An instance with an owner, and every team-mode instance including the hosted service, never logs a link.
+- It is minted once per boot, with the same 15-minute expiry and single use. If it expires before anyone clicks it, the person runs ./squire claim-link or restarts the app container.
+- The link carries no name or email, so the claim page opens with empty fields. The agent path still uses the CLI so it can prefill them from git.
+- Anyone who can read the container log can already run commands in the container, so the log adds no new way in. If logs are shipped to an external service, the copy there is spent once the instance is claimed.
 
 Why not trust requests from localhost instead: Docker's port publishing makes every request reach the container from the bridge gateway address, so `req.ip` cannot tell a local browser from another machine. The application also deliberately uses a numeric `trust proxy` hop count, so forwarded headers cannot be used either.
 
@@ -218,18 +225,19 @@ Repository work that is not a pipeline feature (licence, history scrub, moving p
 
 ## Decisions
 
-Each decision lists the proposed default. None are ratified yet.
+All decisions below were ratified by Sam on 2026-10-07.
 
-- **D1. Local mode is the default for a fresh install.** Proposed: yes. Team mode is opt-in through `SQUIRE_MODE=team`.
-- **D2. Two clicks at launch.** Proposed: yes. The claim link and the consent card stay separate. Extending feature 031's auto-issue so a claim link can carry an `/authorize` request and approve it in one round trip is possible, but it changes a security-reviewed gate and can wait until the basic path ships.
-- **D3. Docker Compose is the primary install, not a single all-in-one image.** Proposed: yes. An all-in-one image would have to run Postgres with pgvector inside the app container.
-- **D4. Redis is bundled in the compose file.** Proposed: yes, even though the code runs without it.
-- **D5. Sign-in links expire in 15 minutes and are single-use.** Proposed: yes.
-- **D6. No email is needed in local mode.** Proposed: yes. Team-mode invites can be copied as links when SMTP is unset.
-- **D7. A Docker-free install is deferred.** Proposed: yes. An `npx squire-docs` path with embedded Postgres (PGlite supports pgvector) would reach developers without Docker, but it means porting the `pg` pool, advisory locks, and node-pg-migrate to it.
-- **D8. Hosted-only code stays in the repository behind ****`SQUIRE_HOSTED`****.** Proposed: yes. Moving it to a private repository gives a cleaner public tree at the cost of maintaining a split.
+- **D1. Local mode is the default for a fresh install.** Ratified by Sam 2026-10-07. Team mode is opt-in through `SQUIRE_MODE=team`.
+- **D2. Two clicks at launch.** Ratified by Sam 2026-10-07. The claim link and the consent card stay separate. Extending feature 031's auto-issue so a claim link can carry an `/authorize` request and approve it in one round trip is possible, but it changes a security-reviewed gate and can wait until the basic path ships.
+- **D3. Docker Compose is the primary install, not a single all-in-one image.** Ratified by Sam 2026-10-07. An all-in-one image would have to run Postgres with pgvector inside the app container.
+- **D4. Redis is bundled in the compose file.** Ratified by Sam 2026-10-07, even though the code runs without it.
+- **D5. Sign-in links expire in 15 minutes and are single-use.** Ratified by Sam 2026-10-07.
+- **D6. No email is needed in local mode.** Ratified by Sam 2026-10-07. Team-mode invites can be copied as links when SMTP is unset.
+- **D7. A Docker-free install is deferred.** Ratified by Sam 2026-10-07. An `npx squire-docs` path with embedded Postgres (PGlite supports pgvector) would reach developers without Docker, but it means porting the `pg` pool, advisory locks, and node-pg-migrate to it.
+- **D8. Hosted-only code stays in the repository behind ****`SQUIRE_HOSTED`****.** Ratified by Sam 2026-10-07. Moving it to a private repository gives a cleaner public tree at the cost of maintaining a split.
 - **D9. The Claude Code plugin stays pointed at the hosted service.** Decided by Sam 2026-10-07. Self-hosters add their instance with `claude mcp add --transport http squire-local http://localhost:3910/mcp`. A plugin setting for the server URL (`user_config`) can be revisited once self-host users ask for it.
 - **D10. A ****`./squire`**** wrapper script ships next to the compose file.** Decided by Sam 2026-10-07. It forwards its arguments to `docker compose exec app squire`, so a person can run `./squire claim-link` without an agent. AGENTS.md keeps the full docker command because it works from any folder.
+- **D11. An unclaimed local instance prints a claim link in its startup log.** Decided by Sam 2026-10-07. See Sign-in links.
 
 ## Open questions
 
@@ -245,6 +253,6 @@ Each decision lists the proposed default. None are ratified yet.
   - I'm not sure i need more info
   - **Claude (10-07): **To mint a sign-in link today the command is docker compose exec app squire claim-link, and it has to be run from the folder holding compose.yml. Agents handle that fine. The case it matters for is a person signing back in without their agent, for example after a week away when their session has expired. The option is a tiny ./squire script shipped next to compose.yml that forwards to that command, so a person types ./squire claim-link. A second option: while the instance has no owner, the server also prints a claim link in its startup log, which is what Jupyter does, so docker compose logs app shows it. Recommendation: do both. AGENTS.md keeps the full docker command because it works from anywhere; the README tells people about ./squire.
     - sure let's add the wrapper
-  - **Claude (10-07): **Resolved as D10: the wrapper is in. The startup-log claim link was not adopted; it stays out unless Sam wants it.
+  - **Claude (10-07): **Resolved as D10 (the wrapper) and D11 (the startup-log link).
 - Licence and git history handling are decided outside this document but block publishing.
   - ok
