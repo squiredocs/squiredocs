@@ -483,6 +483,15 @@ kubectl exec -it deployment/collab-postgres -n collab -- psql -U postgres -d col
 kubectl exec deployment/app-dev -n collab -- sh -c "cd /local-dev && npm run init-db"
 ```
 
+## Self-Host Configuration in Development (feature 058)
+
+The production image boots through `script/entrypoint.js` (secrets, then migrations under an advisory lock, then the server). `npm run dev` does not: it still runs `server/index.js` directly, so it generates no secrets and runs no migrations. Run `npm run migrate` yourself as before.
+
+- **Hosted mode.** The app-dev pods (`k8s/overlays/minikube/app-dev.yaml`, `devcontainer/k8s/app-dev.yaml`) set `SQUIRE_HOSTED=true`, so `npm run dev` behaves like squiredocs.com (marketing pages, analytics, signup credits). A pod created before feature 058 picks the value up only on its next `up`/restart; until then the shell has no `SQUIRE_HOSTED` and dev runs in self-host mode. To exercise self-host mode deliberately, start the server with `SQUIRE_HOSTED=false`. Vite reads the flag too. In Vite dev with the flag off, hosted-only paths fall through to the app shell instead of returning 404; production returns 404.
+- **Local image storage.** Set `SQUIRE_DATA_DIR=/local-dev/.squire-data` (gitignored) and leave `S3_IMAGE_BUCKET` unset, or set `STORAGE_DRIVER=local`, to try the local driver. Images are then served from `/api/docs/:docId/images/:imageId/raw`.
+- **Tests.** The backend test setup forces `SQUIRE_HOSTED`, `APP_URL`, `STORAGE_DRIVER`, `S3_IMAGE_BUCKET`, `SMTP_*`, and `SES_*` unset and gives each worker its own temp `SQUIRE_DATA_DIR`, because the dev pod carries real S3 and SES credentials that would otherwise switch drivers. A suite that needs hosted behavior sets `SQUIRE_HOSTED=true` and calls `_resetInstanceConfigForTests()` from `server/instance-config.js`.
+- **Minikube base pod.** The Dockerfile now sets `NODE_ENV=production`, so the minikube `collab-app` pod (which sets no `NODE_ENV`) boots in production mode and refuses weak or default secrets. Make sure `k8s/auth.env` and the MCP secret hold strong values before rebuilding that image.
+
 ## Development Authentication Bypass
 
 For easier development and mobile testing, the application supports bypassing Google OAuth authentication and automatically logging in with a test user.
