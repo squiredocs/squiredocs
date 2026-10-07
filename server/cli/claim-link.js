@@ -20,10 +20,6 @@ const { msg } = require('./messages');
 async function claimLink({ args = {}, pool, out, err }) {
   const name = typeof args.name === 'string' ? args.name.trim() : '';
   const email = typeof args.email === 'string' ? args.email.trim() : '';
-  if (email && !EMAIL_RE.test(email)) {
-    err.write(`${msg('badEmailFlag', { email })}\n`);
-    return 2;
-  }
 
   const owner = await resolveOwner(pool);
   if (owner.user) {
@@ -40,6 +36,12 @@ async function claimLink({ args = {}, pool, out, err }) {
   if (owner.reason !== 'no_users') {
     err.write(`${msg('ownerAmbiguous')}\n`);
     return 1;
+  }
+  // Validated only here, where it is used (059 review L4): on a claimed
+  // instance the flags are ignored, so a bad value must not block the link.
+  if (email && !EMAIL_RE.test(email)) {
+    err.write(`${msg('badEmailFlag', { email })}\n`);
+    return 2;
   }
 
   const { token } = await mintLink(pool, {

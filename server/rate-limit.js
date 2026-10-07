@@ -263,6 +263,22 @@ function perUser(className) {
   };
 }
 
+/**
+ * The /auth router's per-IP limiter, with GET /auth/providers exempt (059
+ * review M1). Every sign-in and consent page fetches the provider list, and a
+ * 429 there made a local-mode page fall back to a Google button that cannot
+ * work. It reads no credentials and returns no user data. Every other /auth
+ * route, including the sign-in link peek and redeem endpoints, stays limited.
+ * Mounted at '/auth', so req.path is relative to it.
+ */
+function authRouteLimiter() {
+  const limiter = perIp('auth');
+  return function authRouteLimiterMiddleware(req, res, next) {
+    if (req.method === 'GET' && req.path === '/providers') return next();
+    return limiter(req, res, next);
+  };
+}
+
 // NOTE: registration admission caps were removed 2026-07-18. Sign-up (POST
 // /mcp/auth/register and the authorize/approve auto-register paths) is
 // intentionally unlimited — we never want to gate new users. The former design
@@ -273,6 +289,7 @@ function perUser(className) {
 
 module.exports = {
   perIp,
+  authRouteLimiter,
   perUser,
   enforceUser,
   enforceKey,

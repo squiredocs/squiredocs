@@ -40,4 +40,14 @@ describe('useAuthProviders', () => {
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.info.mode).toBe('team');
   });
+
+  it('a failure is not memoized: the next mount fetches again and can succeed (059 review M1)', async () => {
+    stubProviders('fail');
+    const first = renderHook(() => useAuthProviders());
+    await waitFor(() => expect(first.result.current.status).toBe('error'));
+    stubProviders(LOCAL_PROVIDERS);
+    const second = renderHook(() => useAuthProviders());
+    await waitFor(() => expect(second.result.current.status).toBe('ready'));
+    expect(second.result.current.info).toEqual(LOCAL_PROVIDERS);
+  });
 });

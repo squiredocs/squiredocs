@@ -41,9 +41,15 @@ export function loadAuthProviders() {
         if (!isProviderInfo(info)) throw new Error('unexpected providers response');
         return { status: 'ready', info };
       })
-      .catch(() => ({ status: 'error', info: GOOGLE_FALLBACK }))
+      .catch(() => {
+        // A failure is NOT memoized (059 review M1): a transient 429 or network
+        // blip must not pin the Google fallback for the life of the page, which
+        // on a local-mode instance would show a Google button that cannot work.
+        shared = null;
+        return { status: 'error', info: GOOGLE_FALLBACK };
+      })
       .then((value) => {
-        settled = value;
+        if (value.status === 'ready') settled = value;
         return value;
       });
   }

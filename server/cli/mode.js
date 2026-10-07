@@ -9,7 +9,7 @@ function modeText({ mode, env = process.env }) {
   if (mode === 'local') {
     return [
       'Mode: local',
-      'Sign-in: one owner, by links from `squire claim-link`. Sign-up is closed.',
+      'Sign-in: sign-up is closed; the owner signs in by links from `squire claim-link`, and any existing account by links from `squire login-link --email`.',
       'To switch to team mode: set SQUIRE_MODE=team and GOOGLE_CLIENT_ID and',
       'GOOGLE_CLIENT_SECRET in .env, then run docker compose up -d.',
     ].join('\n');
@@ -20,7 +20,7 @@ function modeText({ mode, env = process.env }) {
     `Sign-in: ${listed.length ? listed.join(', ') : 'no listed provider'}, plus links from \`squire login-link\`. ` +
       'A first sign-in creates an account.',
     'To switch to local mode: set SQUIRE_MODE=local in .env (or remove it), then run',
-    'docker compose up -d. Only the owner can sign in afterward, by links from `squire claim-link`.',
+    'docker compose up -d. Afterward no one can sign up; existing accounts sign in only by links from `squire claim-link` (the owner) or `squire login-link --email`.',
   ].join('\n');
 }
 

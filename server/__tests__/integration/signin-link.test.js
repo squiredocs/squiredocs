@@ -63,6 +63,25 @@ describe('sign-in link endpoints (local mode)', () => {
   const jsonPost = (body) =>
     request(inst.app).post('/auth/signin-link').set('Origin', APP).set('Accept', 'application/json').send(body);
 
+  test('the dev faucet refuses to create the first user of an unclaimed local instance (059 review M2)', async () => {
+    const savedFlag = process.env.ENABLE_DEV_ENDPOINTS;
+    process.env.ENABLE_DEV_ENDPOINTS = '1';
+    try {
+      const refused = await request(inst.app).post('/auth/dev-login').send({});
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe('instance_unclaimed');
+      expect(await userCount()).toBe(0);
+
+      const { token } = await claimLink();
+      await jsonPost({ token, name: 'Owner', email: 'owner@example.com' });
+      const allowed = await request(inst.app).post('/auth/dev-login').send({});
+      expect(allowed.status).toBe(200);
+    } finally {
+      if (savedFlag === undefined) delete process.env.ENABLE_DEV_ENDPOINTS;
+      else process.env.ENABLE_DEV_ENDPOINTS = savedFlag;
+    }
+  });
+
   test('form mode: a claim sets both session cookies, lands on the seeded welcome doc, one signup event', async () => {
     const { token } = await claimLink();
     const res = await formPost({ token, name: 'Sam', email: 'sam@example.com' });
@@ -229,7 +248,7 @@ describe('sign-in link endpoints (local mode)', () => {
 
   test('FR-035: the link endpoints live on the /auth router that index.js puts behind the per-IP limiter', () => {
     const index = fs.readFileSync(path.join(__dirname, '..', '..', 'index.js'), 'utf8');
-    expect(index).toMatch(/app\.use\('\/auth', rateLimit\.perIp\('auth'\), authRouter\)/);
+    expect(index).toMatch(/app\.use\('\/auth', rateLimit\.authRouteLimiter\(\), authRouter\)/);
     const routes = fs.readFileSync(path.join(__dirname, '..', '..', 'auth', 'routes.js'), 'utf8');
     expect(routes).toMatch(/router\.use\(require\('\.\/signin-link-routes'\)\.createSigninLinkRouter/);
   });

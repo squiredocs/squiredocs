@@ -54,6 +54,9 @@ export default function ClaimPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [fieldError, setFieldError] = useState(null);
+  // Set once a form posts, so a double click cannot spend the link twice and
+  // land a signed-in owner on a "link expired" page (059 review L2).
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -86,16 +89,23 @@ export default function ClaimPage() {
   }, [token]);
 
   const onSubmit = (e) => {
-    if (state.kind !== 'claim') return;
-    if (!name.trim()) {
+    if (submitting) {
       e.preventDefault();
-      setFieldError('name');
       return;
     }
-    if (!EMAIL_RE.test(email.trim())) {
-      e.preventDefault();
-      setFieldError('email');
+    if (state.kind === 'claim') {
+      if (!name.trim()) {
+        e.preventDefault();
+        setFieldError('name');
+        return;
+      }
+      if (!EMAIL_RE.test(email.trim())) {
+        e.preventDefault();
+        setFieldError('email');
+        return;
+      }
     }
+    setSubmitting(true);
   };
 
   if (state.status === 'no-token') {
@@ -133,9 +143,9 @@ export default function ClaimPage() {
       <Shell>
         <h2 className="login-headline">Sign in</h2>
         <p className="claim-text">Sign in as {state.prefill.name} ({state.prefill.email})</p>
-        <form method="post" action="/auth/signin-link">
+        <form method="post" action="/auth/signin-link" onSubmit={onSubmit}>
           <input type="hidden" name="token" value={token} />
-          <button type="submit" className="login-button claim-continue">Continue</button>
+          <button type="submit" className="login-button claim-continue" disabled={submitting}>Continue</button>
         </form>
       </Shell>
     );
@@ -174,7 +184,7 @@ export default function ClaimPage() {
             onChange={(e) => { setEmail(e.target.value); setFieldError(null); }}
           />
         </label>
-        <button type="submit" className="login-button claim-continue">Continue</button>
+        <button type="submit" className="login-button claim-continue" disabled={submitting}>Continue</button>
       </form>
     </Shell>
   );

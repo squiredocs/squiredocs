@@ -251,3 +251,12 @@ still owed.)
   a second port).
 - Test helpers: `createFreshInstanceDb()` for zero-user suites and
   `server/__tests__/helpers/local-instance.js`.
+
+## Review dispositions (post-merge review, 2026-10-07: 0 HIGH, 2 MEDIUM, 4 LOW)
+
+- **M1 FIXED**: a failed `GET /auth/providers` (for example a 429 from the shared per-IP `/auth` budget) was memoized for the life of the page, so a local-mode sign-in or consent page showed a Google button that answers `provider_disabled`. The hook no longer memoizes failures, and `GET /auth/providers` is exempt from the `/auth` limiter through `rateLimit.authRouteLimiter()` (used by `server/index.js` and the local-instance test helper). Peek and redeem stay limited.
+- **M2 FIXED**: the dev faucet could create the first user of an empty local-mode instance, which permanently blocked claiming. `POST /auth/dev-login` now returns 409 `instance_unclaimed` in local mode while the users table is empty. Dev-only (the image never mounts dev endpoints).
+- **L1 FIXED**: `squire mode` said only the owner can sign in in local mode; `login-link --email` signs in any existing account. Text corrected.
+- **L2 FIXED**: the claim page's Continue button could be double-submitted, spending the link and landing a signed-in owner on "link expired". The button disables after the first submit.
+- **L3 DEPLOY PREFLIGHT (no code change)**: the migration's identity CHECK (`length(subject) BETWEEN 1 AND 255`) is added before the backfill, so any hosted row with `google_id = ''` or longer than 255 characters aborts the migration transaction (safely). Before deploying, run on production: `SELECT count(*) FROM users WHERE google_id = '' OR length(google_id) > 255;` (expect 0), alongside the case-variant email count.
+- **L4 FIXED**: `claim-link` rejected a malformed `--email` even on a claimed instance where the flags are ignored. It now validates only when minting a claim link.

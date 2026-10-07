@@ -394,7 +394,9 @@ const diffService = new DiffService(persistenceProvider);
 
 // Mount auth routes — per-IP rate limit on the whole /auth surface (feature 010,
 // US2/FR-005). Keyed on the true client IP (numeric trust proxy above).
-app.use('/auth', rateLimit.perIp('auth'), authRouter);
+// GET /auth/providers is exempt from the per-IP auth budget (059 review M1);
+// see rateLimit.authRouteLimiter.
+app.use('/auth', rateLimit.authRouteLimiter(), authRouter);
 
 // Chat attachment upload (feature 010, US3). Mounted BEFORE the /api/chat body
 // parser so a legitimately large image (up to 15MB → ~20MB base64) isn't

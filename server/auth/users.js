@@ -622,7 +622,18 @@ async function deleteAllSyntheticUsers() {
   return count;
 }
 
+/**
+ * True when the users table has at least one row (059 review M2: the dev
+ * faucet refuses to create the first user of an unclaimed local instance).
+ * @returns {Promise<boolean>}
+ */
+async function hasAnyUser() {
+  const { rows } = await ensurePool().query('SELECT 1 FROM users LIMIT 1');
+  return rows.length > 0;
+}
+
 module.exports = {
+  hasAnyUser,
   init,
   getPool: ensurePool,
   SYNTHETIC,

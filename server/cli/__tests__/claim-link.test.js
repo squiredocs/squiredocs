@@ -94,6 +94,13 @@ describe('squire claim-link', () => {
       expect(after).toEqual({ name: 'Owner', email: 'owner@example.com' });
     });
 
+    test('a malformed --email on a claimed instance is ignored, not an error (059 review L4)', async () => {
+      const owner = await claim();
+      const r = await run(['claim-link', '--email', 'not-an-email']);
+      expect(r.code).toBe(0);
+      expect(await rowOf(tokenOf(r.out))).toMatchObject({ kind: 'signin', user_id: owner.id });
+    });
+
     test('without flags, no "ignored" clause', async () => {
       await claim();
       const r = await run(['claim-link']);

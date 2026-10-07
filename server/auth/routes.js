@@ -41,6 +41,7 @@ const { authContext } = require('./auth-context');
 const onboarding = require('../onboarding');
 const mcpOauthFlow = require('../mcp/auth/oauth-flow');
 const { getInstanceConfig, hostedOnly } = require('../instance-config');
+const usersStore = require('./users');
 
 const router = express.Router();
 
@@ -419,6 +420,17 @@ const NONCE_RE = /^[a-z0-9-]{1,32}$/;
  */
 router.post('/dev-login', requireDevEndpoints, async (req, res) => {
   try {
+    // 059 review M2: on an empty local-mode instance, a faucet user would
+    // become the first user and permanently block claiming (claim links need
+    // zero users, and the synthetic user is not an admin). Claim first.
+    if (getInstanceConfig().mode === 'local') {
+      if (!(await usersStore.hasAnyUser())) {
+        return res.status(409).json({
+          error: 'instance_unclaimed',
+          message: 'This local-mode instance has no owner yet. Claim it first with `squire claim-link`, then use the dev faucet.',
+        });
+      }
+    }
     const { fresh, nonce: rawNonce, browser, returnTo } = req.body || {};
 
     // Feature 034: capture pair for whichever dev-login mode runs below. The

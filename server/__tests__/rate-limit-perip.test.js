@@ -117,3 +117,29 @@ describe('rate limit — per-IP & per-user (FR-005/006/009)', () => {
     }
   });
 });
+
+describe('authRouteLimiter (059 review M1)', () => {
+  function authApp() {
+    const app = express();
+    app.set('trust proxy', 1);
+    const router = express.Router();
+    router.get('/providers', (req, res) => res.json({ ok: true }));
+    router.post('/signin-link/peek', (req, res) => res.json({ ok: true }));
+    app.use('/auth', rateLimit.authRouteLimiter(), router);
+    return app;
+  }
+  beforeEach(() => { rateLimit._reset(); });
+
+  test('GET /auth/providers is never limited; other /auth routes still are', async () => {
+    const app = authApp();
+    for (let i = 0; i < 10; i += 1) {
+      const res = await request(app).get('/auth/providers').set('X-Forwarded-For', '203.0.113.9');
+      expect(res.status).toBe(200);
+    }
+    const statuses = [];
+    for (let i = 0; i < 4; i += 1) {
+      statuses.push((await request(app).post('/auth/signin-link/peek').set('X-Forwarded-For', '203.0.113.9')).status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
+  });
+});
