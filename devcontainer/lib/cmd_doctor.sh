@@ -199,7 +199,9 @@ check_mount_path() {
   local host_path="$1" pod_path="$2" access="${3:-}"
   local shown="$pod_path${access:+ [$access]}"
   if ! mount_healthy "$host_path"; then
-    if mount_live_in_node "$host_path"; then
+    if mount_unreadable_in_node "$host_path" && [[ -n "$(mount_host_pids "$host_path")" ]]; then
+      fail "UNREADABLE: $host_path — mounted and served, but the node can't read it (the host dir was likely deleted and recreated). Fix: collab-devcontainer mounts"
+    elif mount_live_in_node "$host_path"; then
       fail "STALE: $host_path — the node has a mount entry but no process serves it; every read returns EIO and the kubelet can't even start the container. Fix: collab-devcontainer mounts"
     elif [[ -n "$(mount_host_pids "$host_path")" ]]; then
       fail "DEAD: $host_path — the 'minikube mount' process is still running but the node mount is gone (orphan after a reboot / minikube restart). Fix: collab-devcontainer mounts"

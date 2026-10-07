@@ -363,15 +363,43 @@ force_unmount_in_node() {
   local p="$1"
   minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo umount -l $(shq "$p")" </dev/null >/dev/null 2>&1 || true
   COLLAB_DC_MOUNT_TABLE_STALE=1
+  COLLAB_DC_NODE_UNREADABLE_STALE=1
 }
 
-# A path is only healthy when the node has a mount entry AND a host process is
-# still serving it. Checking just one of the two misses a failure mode in each
-# direction: a process without a mount (the classic post-reboot orphan) and a
-# mount without a process (a stale entry that returns EIO on every access).
+# 9p mounts in the node that root can't read, one per line, fetched once per CLI
+# run (refetched alongside the mount table after a remount). A mount can have a
+# table entry AND a live serving process and still be dead: when macOS deletes
+# and recreates the host directory (it does this to TemporaryItems), the 9p
+# server's handle points at the old inode and every access fails with
+# ESERVERFAULT ("Unknown error 526"). Probed as root via sudo — see
+# mount_live_in_node for why the unprivileged ssh user can't probe. One ssh
+# round-trip covers every mount.
+node_unreadable_mounts() {
+  if [[ -z "${COLLAB_DC_NODE_UNREADABLE+x}" || "${COLLAB_DC_NODE_UNREADABLE_STALE:-0}" == 1 ]]; then
+    local script='mount -t 9p | sed -n "s/^.* on \(.*\) type 9p .*/\1/p" | while IFS= read -r p; do ls -A "$p" >/dev/null 2>&1 || printf "%s\n" "$p"; done'
+    # minikube ssh allocates a pty, so lines come back CRLF; strip the CR or the
+    # exact-line match in mount_unreadable_in_node never hits.
+    COLLAB_DC_NODE_UNREADABLE="$(minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo sh -c $(shq "$script")" </dev/null 2>/dev/null | tr -d '\r' || true)"
+    COLLAB_DC_NODE_UNREADABLE_STALE=0
+  fi
+  printf '%s' "$COLLAB_DC_NODE_UNREADABLE"
+}
+
+# True when the node has a mount entry for this path but can't read through it.
+mount_unreadable_in_node() {
+  local p="$1"
+  mount_live_in_node "$p" && grep -qxF "$p" <<<"$(node_unreadable_mounts)"
+}
+
+# A path is only healthy when the node has a mount entry, a host process is
+# still serving it, AND the node can actually read through it. Each check alone
+# misses a failure mode: a process without a mount (the classic post-reboot
+# orphan), a mount without a process (a stale entry that returns EIO on every
+# access), and a mount whose server lost its directory (node_unreadable_mounts).
 mount_healthy() {
   local p="$1"
-  mount_live_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]]
+  mount_live_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]] \
+    && ! mount_unreadable_in_node "$p"
 }
 
 # Start a `minikube mount host:host` for one path, replacing any orphan first.
@@ -422,6 +450,7 @@ reap_nested_mounts() {
         reap_orphan_mount "$a"
         minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo umount $(shq "$a")" </dev/null >/dev/null 2>&1 || true
         COLLAB_DC_MOUNT_TABLE_STALE=1
+        COLLAB_DC_NODE_UNREADABLE_STALE=1
         break
       fi
     done
@@ -506,7 +535,9 @@ ensure_host_mounts() {
     if mount_healthy "$p"; then
       echo "  ok: $p"
     else
-      if mount_live_in_node "$p"; then
+      if mount_unreadable_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]]; then
+        echo "  stale (served, but the node can't read it — the host dir was likely recreated): $p — remounting..."
+      elif mount_live_in_node "$p"; then
         echo "  stale (mount entry with no serving process — reads fail with EIO): $p — remounting..."
       elif [[ -n "$(mount_host_pids "$p")" ]]; then
         echo "  stale (orphaned mount process, node mount is gone): $p — remounting..."
@@ -529,6 +560,7 @@ ensure_host_mounts() {
   while (( tries < 15 )); do
     sleep 1
     COLLAB_DC_MOUNT_TABLE_STALE=1
+    COLLAB_DC_NODE_UNREADABLE_STALE=1
     pending=()
     for p in "${started[@]}"; do
       mount_healthy "$p" || pending+=( "$p" )
@@ -772,11 +804,16 @@ pod_mount_is_readonly() {
 # desired path the pod never declared isn't a broken mount — it's a stale pod
 # spec, which a rebind can't fix and which would otherwise make every `shell`
 # trigger another pointless restart.
+#
+# Paths the node itself can't serve are skipped too: the pod's view of those is
+# broken no matter how it's bound, so a recreate can't fix them — it would only
+# kill whatever is running in the pod, and then fire again on the next `shell`.
 pod_is_blind_to_mounts() {
   local pod="$1" p
   [[ -z "$pod" ]] && return 1
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
+    mount_healthy "$p" || continue
     pod_mount_view "$pod" "$p" "$(pod_path_for "$p")" >/dev/null || return 0
   done < <(pod_declared_mount_paths "$pod")
   return 1
@@ -785,12 +822,26 @@ pod_is_blind_to_mounts() {
 # Rebind the pod onto the live mounts if it can't see them. Called from the
 # user-facing entry points (up, shell) rather than from the background LaunchAgent:
 # recreating the pod interrupts whatever is running inside it, so it happens when
-# the user is present, not on a timer.
+# the user is present, not on a timer — and when Claude is running in the pod
+# (likely another terminal's live session), only after the user says yes.
+# Non-interactive callers get a warning instead of a recreate.
 ensure_pod_binding() {
   local pod="$1"
   pod_is_blind_to_mounts "$pod" || return 0
   echo
-  echo "The pod can't see its host mounts — it started before they were up."
+  echo "The pod can't see some of its host mounts — it was bound before they were (re)mounted."
+  if kc exec "$pod" -- pgrep -x claude >/dev/null 2>&1; then
+    echo "Claude is running in the pod; recreating it would end those sessions."
+    local reply=""
+    if [[ -t 0 ]]; then
+      read -r -p "Recreate the pod now? [y/N] " reply || reply=""
+    fi
+    if [[ ! "$reply" =~ ^[Yy] ]]; then
+      echo "Leaving the pod alone. Run 'collab-devcontainer restart' when it's free."
+      echo
+      return 0
+    fi
+  fi
   echo "Recreating it so .git and the drag-and-drop dirs resolve..."
   "$COLLAB_DC_TOOL_DIR/bin/collab-devcontainer" restart </dev/null
 }

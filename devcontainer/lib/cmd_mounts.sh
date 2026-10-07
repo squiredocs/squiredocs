@@ -80,6 +80,8 @@ report_status() {
     [[ -z "$p" ]] && continue
     if mount_healthy "$p"; then
       echo "  live: $p"
+    elif mount_unreadable_in_node "$p" && [[ -n "$(mount_host_pids "$p")" ]]; then
+      echo "  DEAD (served, but the node can't read it — host dir likely recreated): $p"
     elif mount_live_in_node "$p"; then
       echo "  DEAD (mount entry with no serving process; reads fail with EIO): $p"
     elif [[ -n "$(mount_host_pids "$p")" ]]; then
