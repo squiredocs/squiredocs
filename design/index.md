@@ -35,6 +35,7 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 - [Proposal: Markdown Import & Two-Way Repo Sync](https://squiredocs.com/d/b6edb804-cf72-416d-9c97-063a23e669c0) — generalize the markdown parser, expose import, and sync repo files as an offline CRDT collaborator
 - [Proposal: Test Suite Architecture (Speed and Isolation)](https://squiredocs.com/d/f4f95e7b-ace9-4363-8ef9-05b009140d76) — fix the two measured timeout defects (5s edit-range waits, real reconnect sleeps), split CI into parallel jobs, and move the backend suite to isolated-parallel execution with per-worker databases
 - [Proposal: Self-Hosting and Local Mode](https://squiredocs.com/d/62f408ea-a884-4d2e-a129-fbbbf8abb7e5) — the open-source self-host: a Docker Compose stack that boots with no configuration, a single-owner local mode signed in by CLI-minted one-time links, and the agent-driven try-out path
+- [Proposal: Open Source Launch Messaging](https://squiredocs.com/d/f4f528c7-ee50-4356-b181-cbfd282ab744) — repositions the landing, pricing, and about pages for the open source launch: people-and-agents positioning, free hosted and self-hosted tiers, a managed instance in any region, and a run-it-yourself path
 
 ## Repo Sync Manifest
 
@@ -57,5 +58,6 @@ A single entry point to the Squire architecture docs in this system. Grouped by 
 | Proposal: Test Suite Architecture (Speed and Isolation) | design/test-suite-architecture.md | Ratified design |
 | Squire Spaces (Shared Team Workspaces) | `design/spaces.md` | Ratified design |
 | Proposal: Self-Hosting and Local Mode | `design/self-hosting-local-mode.md` | Ratified design |
+| Proposal: Open Source Launch Messaging | `design/oss-launch-messaging.md` | Ratified design |
 
 **Adding a doc: **create it in Squire, add it to the area listing above and this manifest, and add its guid to the `DOCS` map in `design/sync.mjs` (the map is what the sync actually executes; this table is the human-readable mirror).

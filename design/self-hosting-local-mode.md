@@ -207,7 +207,7 @@ The welcome document is seeded on the owner's first sign-in, as today. Its templ
 - Recovery steps: get a new sign-in link, change the port, read logs, upgrade.
 - A warning that `docker compose down -v` deletes every document, and that `docker compose down` (without `-v`) is the safe way to stop.
 
-The README on GitHub opens with the install command for people and links to `self-host.md` for agents. The documentation site gets a self-hosting page.
+The README on GitHub opens with the install command for people and links to `self-host.md` for agents. The documentation site gets a self-hosting page at `/documentation/self-hosting`, the path the open source launch pages link to.
 
 ## Changes to existing behavior
 

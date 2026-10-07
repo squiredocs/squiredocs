@@ -38,6 +38,7 @@ const DOCS = {
   'f4f95e7b-ace9-4363-8ef9-05b009140d76': 'test-suite-architecture.md',
   '03bac6c7-78e3-449d-ab94-806580fa5a52': 'spaces.md',
   '62f408ea-a884-4d2e-a129-fbbbf8abb7e5': 'self-hosting-local-mode.md',
+  'f4f528c7-ee50-4356-b181-cbfd282ab744': 'oss-launch-messaging.md',
 };
 
 const designDir = dirname(fileURLToPath(import.meta.url));
