@@ -59,6 +59,9 @@ COPY --chown=appuser:appgroup migrations/ ./migrations/
 COPY --chown=appuser:appgroup script/ ./script/
 # Feature 059: the in-container squire CLI (docker compose exec app squire ...).
 COPY --chown=appuser:appgroup bin/ ./bin/
+# Feature 060: the files every instance serves verbatim at /self-host.md and /install.sh.
+COPY --chown=appuser:appgroup AGENTS.md ./AGENTS.md
+COPY --chown=appuser:appgroup distribution/self-host/install.sh ./distribution/self-host/install.sh
 
 # Copy built client from builder stage
 COPY --from=client-builder --chown=appuser:appgroup /app/client/dist ./client/dist

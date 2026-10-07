@@ -43,13 +43,40 @@ function readKnownSlugs(docsDistDir) {
 /**
  * Mount the documentation routes on `app`. `docsDistDir` is the directory of
  * generated documentation HTML (client/dist/documentation).
+ *
+ * Without `transformHtml` (the hosted service) files are sent with sendFile,
+ * unchanged. With it (feature 060, self-hosted instances), every page is read
+ * once at mount into memory and sent as `transformHtml(html, req)`, which
+ * fills in the request's origin (contracts/served-routes.md). Routing is the
+ * same either way.
+ * @param {import('express').Express} app
+ * @param {string} docsDistDir
+ * @param {{ transformHtml?: (html: string, req: import('express').Request) => string }} [opts]
  */
-function mountDocumentationRoutes(app, docsDistDir) {
+function mountDocumentationRoutes(app, docsDistDir, { transformHtml } = {}) {
   const knownSlugs = readKnownSlugs(docsDistDir);
+
+  let cache = null;
+  if (transformHtml) {
+    cache = new Map();
+    for (const name of [...knownSlugs].map((s) => `${s}.html`).concat(['index.html', '404.html'])) {
+      const filePath = path.join(docsDistDir, name);
+      if (fs.existsSync(filePath)) cache.set(name, fs.readFileSync(filePath, 'utf8'));
+    }
+  }
 
   // Serve a built file, or a plain 404 if the file is absent (e.g. the
   // documentation was never built).
-  const sendFileOr404 = (res, fileName, status = 200) => {
+  const sendFileOr404 = (req, res, fileName, status = 200) => {
+    if (cache) {
+      const html = cache.get(fileName);
+      if (html === undefined) {
+        res.status(404).type('html').send('<h1>Not found</h1>');
+        return;
+      }
+      res.status(status).set('Content-Type', 'text/html; charset=utf-8').send(transformHtml(html, req));
+      return;
+    }
     const filePath = path.join(docsDistDir, fileName);
     if (!fs.existsSync(filePath)) {
       res.status(404).type('html').send('<h1>Not found</h1>');
@@ -58,7 +85,7 @@ function mountDocumentationRoutes(app, docsDistDir) {
     res.status(status).sendFile(filePath);
   };
 
-  const send404 = (res) => sendFileOr404(res, '404.html', 404);
+  const send404 = (req, res) => sendFileOr404(req, res, '404.html', 404);
 
   // A strict router so /documentation and /documentation/ are distinct and can
   // be handled differently (serve vs. permanent redirect), matching the route
@@ -70,7 +97,7 @@ function mountDocumentationRoutes(app, docsDistDir) {
 
   // GET /documentation -> index.html
   router.get('/documentation', (req, res) => {
-    sendFileOr404(res, 'index.html');
+    sendFileOr404(req, res, 'index.html');
   });
 
   // GET /documentation/ (trailing slash) -> 301 /documentation (D2)
@@ -87,10 +114,10 @@ function mountDocumentationRoutes(app, docsDistDir) {
       return;
     }
     if (knownSlugs.has(slug)) {
-      sendFileOr404(res, `${slug}.html`);
+      sendFileOr404(req, res, `${slug}.html`);
       return;
     }
-    send404(res);
+    send404(req, res);
   });
 
   // GET /documentation/:slug/ (trailing slash) -> 301 /documentation/:slug (D2)
@@ -105,7 +132,7 @@ function mountDocumentationRoutes(app, docsDistDir) {
 
   // GET /documentation/* (nested or traversal-shaped paths) -> 404 (D4, FR-017)
   router.get('/documentation/*', (req, res) => {
-    send404(res);
+    send404(req, res);
   });
 
   app.use(router);

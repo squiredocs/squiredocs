@@ -334,6 +334,12 @@ export default defineConfig({
       '/oauth-callback': {
         target: 'http://localhost:3001',
         changeOrigin: true
+      },
+      // Feature 060: the self-host runbook and install script, served verbatim
+      // by the backend on every instance.
+      '^/(self-host\\.md|install\\.sh)$': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
       }
     }
   },
