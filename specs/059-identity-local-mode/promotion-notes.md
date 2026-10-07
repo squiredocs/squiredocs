@@ -63,3 +63,53 @@ phases append here.
 - **Tests that keep inserting `google_id` directly** (about 60 files) are left
   as they are; the column stays nullable and unique. The identity model does
   not need them to change.
+
+## Plan phase (2026-10-07)
+
+- **No relaxations introduced by the plan.** New defaults are RBD-059-14 to
+  RBD-059-24 in `clarifications-needed.md`.
+
+- **Migration.** One file, `migrations/1799830000000_add-user-identities-and-signin-links.js`,
+  above the latest `1799820000000` and the retired `1794000000000` phantom. Any
+  later migration in the 058/059/060 campaign must be above `1799830000000`.
+
+- **Merge order: 058 first, then 059.** Shared files and their conflict risk are
+  tabled in `plan.md` ("Overlaps with 058"). The two medium-risk files are
+  `server/auth/routes.js` (both edit the `/google` handler; 059's local-mode gate
+  goes first in the handler, above 058's cookie lines) and
+  `client/src/components/LoginPage.jsx` (058's legal-link condition must survive
+  059's provider rendering). 059 makes no change to `server/auth/jwt.js`.
+
+- **Deploy preconditions added by the plan.**
+  1. `SQUIRE_MODE=team` is now carried by both `k8s/base/app-deployment.yaml`
+     (RBD-059-15) and the aws-prod patch (RBD-059-11); a test pins both
+     (`server/__tests__/deploy-mode-config.test.js`). Verify the boot log line
+     `[Auth] Instance mode: team (providers: google)` after rollout.
+  2. Count case-variant duplicate emails in production before rollout
+     (RBD-059-17): `SELECT lower(email), count(*) FROM users GROUP BY 1 HAVING count(*) > 1`.
+
+  3. Rolling-deploy window (RBD-059-24): a user created by a 059 pod who
+     signs in again on a not-yet-replaced pre-059 pod during the same rollout
+     gets `auth_failed` once (old code upserts on `google_id`, which is NULL
+     for them, and hits the email constraint). It succeeds after the rollout.
+     The opposite direction is closed by the migration's compatibility trigger.
+
+- **Design-doc amendments owed in Squire, additions to the spec-phase list.**
+  5. `design/self-hosting-local-mode.md`, "Owner and redemption details": the
+     backfill maps faucet `dev-test-` subjects to the `dev` issuer (RBD-059-16),
+     and a sign-in link to an existing user shows "Sign in as <name>" with a
+     Continue click instead of redeeming on open (RBD-059-20).
+  6. Same doc, "The squire CLI": `doctor` probes the server's `/ready` and
+     treats owner presence and Redis as informational (RBD-059-23).
+  7. Same doc, "Build sequence" paragraph on `google_id`: the migration adds a
+     compatibility trigger that creates identities for rows written with
+     `google_id` (RBD-059-24); the later cleanup drops it with the column.
+
+- **Spec wording to reconcile at the next spec touch (not blocking).** US3
+  scenario 2 says the claimed-instance page shows "only 'Signed in as
+  <owner>' after redemption"; RBD-059-20 renders "Sign in as <owner>" with a
+  Continue button and the post-redirect page shows the signed-in account.
+
+## Orchestrator note (2026-10-07, from 059 analyze)
+
+- Feature 060 must NOT ship the repository's `.env.example` as the self-host release asset: it sets `SQUIRE_MODE=team` for development (RBD-059-1), and a self-hosted install booting in team mode with no provider refuses to start. 060 needs its own self-host `.env.example` with local mode as the default.

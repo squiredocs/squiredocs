@@ -337,3 +337,246 @@ and reads `APP_URL` with a fallback to `CLIENT_URL` until 058 merges.
 
 **Rationale**: Reuses the pieces that already exist and keeps the Dockerfile
 change small enough to merge cleanly after 058.
+
+---
+
+# Plan phase additions (2026-10-07)
+
+Recorded by the plan agent. Same status: **RATIFIED-BY-DEFAULT (Sam
+pre-authorized, 2026-10-07)** unless later overturned.
+
+---
+
+## RBD-059-14 - Test environments run in team mode by default
+
+**Question**: D1 makes unset `SQUIRE_MODE` mean local. The backend suites
+mount the auth router directly, never set a mode, and several mock the Google
+adapter without setting Google credentials. Which mode do they run in?
+
+**Why it matters**: In local mode the Google start and callback routes refuse
+and sign-up is closed, so every existing first-run, faucet, invite, and
+capture suite would fail. SC-002 requires them to pass with unchanged
+assertions.
+
+**Default chosen**: `server/__tests__/setup.js` sets `SQUIRE_MODE=team` when it
+is unset, mirroring the development overlays (RBD-059-1). The client Vitest
+setup mocks `GET /auth/providers` with the team-mode Google response. Suites
+that test local mode set `SQUIRE_MODE=local` and reset the memoized mode. In
+team mode, route behavior never depends on whether Google credentials are set
+(that is only a boot check), so suites that mock the adapter without
+credentials keep working.
+
+**Rationale**: The existing suites encode the hosted service's behavior, and
+the hosted service is team mode. Making the test default match it keeps the
+regression evidence meaningful.
+
+---
+
+## RBD-059-15 - The base Kubernetes deployment also sets team mode
+
+**Question**: RBD-059-1 and RBD-059-11 name the dev overlays and the aws-prod
+patch. The minikube overlay also deploys the base `collab-app` Deployment
+(built from the Dockerfile) with no mode set, so after 059 it would boot in
+local mode and lose Google sign-in.
+
+**Why it matters**: A quiet behavior change in the minikube image path, and a
+second line of defense for the hosted overlay.
+
+**Default chosen**: `k8s/base/app-deployment.yaml` sets `SQUIRE_MODE=team` on
+the app container. The aws-prod patch still sets it explicitly (RBD-059-11),
+so the hosted mode never depends on the base.
+
+**Rationale**: Every Kubernetes deployment of this repository is a team
+instance; local mode is the compose path (feature 060).
+
+---
+
+## RBD-059-16 - Backfill routes faucet rows to the `dev` issuer
+
+**Question**: FR-002 backfills every `google_id` as a Google identity.
+Development databases hold faucet users whose `google_id` is `dev-test-user`
+or `dev-test-<nonce>`. After the faucet switches to the `dev` issuer
+(FR-013), those rows would be unknown identities whose email already exists,
+and the faucet would hit the `account_exists` refusal.
+
+**Why it matters**: It would break the faucet, the first-run harness, and
+`dev@test.local` sign-in on every existing development database.
+
+**Default chosen**: The backfill writes issuer `dev` for `google_id` values
+starting with `dev-test-` and `https://accounts.google.com` for everything
+else. The hosted database has no `dev-test-` rows (the faucet has never been
+enabled in production), so FR-002's hosted outcome is unchanged.
+
+**Rationale**: A real Google subject is a numeric string and can never start
+with `dev-test-`, so the split is unambiguous.
+
+---
+
+## RBD-059-17 - The email collision check is case-insensitive
+
+**Question**: FR-004 refuses an unknown identity whose email belongs to an
+existing account. The database's `users.email` uniqueness is case-sensitive,
+while invite conversion and `login-link` compare case-insensitively. Which
+comparison does the refusal use?
+
+**Why it matters**: Today a Google sign-in whose email differs from an
+existing account only by case creates a second account, and pending invites
+then convert to both. Matching case-insensitively is slightly stricter than
+today.
+
+**Default chosen**: `lower(email)` comparison. A case-variant first sign-in is
+refused with `account_exists`. Existing case-variant pairs, if any, keep
+working because returning users resolve by identity. The deploy checklist
+counts existing case-variant pairs in production before rollout.
+
+**Rationale**: Two accounts differing only by email case are an
+account-confusion hazard, and every other email comparison in the auth path is
+already case-insensitive. Google normalizes most email claims to lower case, so
+the practical change for the hosted service is expected to be nil.
+
+---
+
+## RBD-059-18 - `findOrCreateUser` stays as a fixture wrapper
+
+**Question**: The spec replaces Google-profile resolution with identities.
+Fourteen backend suites call `findOrCreateUser({ googleId, ... })` as a
+fixture helper. Rewrite them or keep the function?
+
+**Why it matters**: Rewriting fourteen suites risks weakening assertions and
+adds diff without behavioral value; keeping a second creation path risks a
+production route using it.
+
+**Default chosen**: Keep `findOrCreateUser` with its current signature and
+contract (resolve through the Google issuer, then convert invites), marked
+deprecated and fixture-only. No production route calls it; a source-regex test
+enforces that.
+
+**Rationale**: The wrapper delegates to the same `resolveIdentityUser` the
+routes use, so fixture users are created exactly as Google users are, and the
+existing suites stay byte-for-byte unchanged.
+
+---
+
+## RBD-059-19 - The faucet counts for the boot check but is never listed
+
+**Question**: RBD-059-1 counts the dev faucet as a provider for the team-mode
+boot check. Does it appear in `GET /auth/providers` and on the sign-in page?
+
+**Why it matters**: Listing it would add a button to the development sign-in
+page and break the team-mode snapshot (SC-003) in development.
+
+**Default chosen**: The registry marks the faucet `countsForBoot: true,
+listed: false`. It never appears in `GET /auth/providers` or on any page.
+
+**Rationale**: The faucet is a test fixture, not a sign-in method.
+
+---
+
+## RBD-059-20 - The claim page for a sign-in link names the account and waits for a click
+
+**Question**: The design says that on a claimed instance the claim page "shows
+no fields, only 'Signed in as <owner>'". Should the page redeem the link as
+soon as it opens, and what may the peek return for a link that targets an
+existing user (FR-047 allows "the prefilled fields")?
+
+**Why it matters**: Redeeming on open saves a click but lets any link
+previewer that runs JavaScript spend the link. Showing the target lets the
+person see whose session they are about to get.
+
+**Default chosen**: The page shows "Sign in as <name> (<email>)" and a
+Continue button; nothing is spent until the click. For a `signin` link the
+peek's `prefill` holds the target user's current name and email. The landing
+page after redemption shows the signed-in account as usual.
+
+**Rationale**: The token holder can sign in as that user anyway, so showing
+the name and email reveals nothing new, and one click matches the claim flow.
+
+---
+
+## RBD-059-21 - Pages fetch the provider list; failure falls back to Google
+
+**Question**: The pages render from the provider list. Should the server
+inject it into the app shell (058 injects instance configuration there) or
+should the client fetch `GET /auth/providers`? What renders while it loads or
+if it fails?
+
+**Why it matters**: 058 injects static instance configuration into the app
+shell, but the provider info includes owner presence, which needs a database
+read. A blank or wrong sign-in page on the hosted service is an outage.
+
+**Default chosen**: The client fetches `GET /auth/providers` once per page
+load. The headline renders immediately; the action area and footer render when
+the fetch settles. If the fetch fails, the page renders the team-mode Google
+version (today's page).
+
+**Rationale**: Keeps the app shell static (no database read to serve
+`index.html`), works in every environment, and on the hosted service the worst
+case is today's page.
+
+---
+
+## RBD-059-22 - `squire token create` file and duration rules
+
+**Question**: RBD-059-7 sets the defaults but not what happens when the token
+file already exists, the accepted duration grammar, or the expiry bounds.
+
+**Why it matters**: Overwriting a file would leave the previous token live and
+untracked; an unbounded expiry would weaken "expiring" (Constitution V).
+
+**Default chosen**: The command refuses to overwrite an existing file and says
+to choose another `--out` or delete the file and revoke the old token in
+Settings. The file is opened exclusively before minting and removed if
+minting fails. `--expires-in` accepts `<n>d` or `<n>h`, from 1 hour to 365
+days. `--scopes` accepts a comma list drawn from `documents:read` and
+`documents:write`.
+
+**Rationale**: No silent orphaned credentials; bounded lifetime.
+
+---
+
+## RBD-059-23 - What `squire doctor` counts as failing
+
+**Question**: FR-039 lists what `doctor` reports and when it exits non-zero,
+and SC-006 says its `ok` must match `/ready`. `doctor` runs in a separate
+process from the server. How does it agree with `/ready`, and do Redis and
+owner presence affect `ok`?
+
+**Why it matters**: The try-out path's success condition is `ok: true`; a
+fresh instance has no owner, and Redis is optional in the code.
+
+**Default chosen**: `doctor` probes the running server's `/ready` on
+`127.0.0.1:$PORT` with a 2 second timeout and includes the result as a check,
+so `ok` agrees with `/ready` by construction. Owner presence, Redis, email,
+image storage, semantic search, and assistant keys are reported but never make
+`ok` false. Database reachability, pending migrations, the `/ready` probe, the
+mode and provider check, and the `APP_URL` rule do.
+
+**Rationale**: Matches `/ready`'s own policy (Postgres gates, Redis is
+reported), and an unclaimed instance is healthy.
+
+---
+
+## RBD-059-24 - A compatibility trigger creates identities for rows written the old way
+
+**Question**: The migration runs before the new pods roll out. During the
+roll, pre-059 pods keep creating Google users with `google_id` and no identity
+row. Test fixtures (about 60 files) and two dev scripts also insert
+`google_id` directly. FR-003 forbids any sign-in path from reading
+`google_id`. How do those users sign in through the identity model?
+
+**Why it matters**: A user created by an old pod in the deploy window would
+be refused with `account_exists` on their next sign-in (an unknown identity
+whose email exists): a lockout on the hosted service. Fixture users would
+stop being findable by the fixture wrapper.
+
+**Default chosen**: The migration adds an AFTER INSERT trigger on `users`
+that, when `google_id` is set, inserts the matching identity (issuer `dev` for
+`dev-test-` values, Google otherwise; `ON CONFLICT DO NOTHING`). 059's code
+never sets `google_id`, so the trigger is inert for new writes. It is dropped
+with the column in the later cleanup.
+
+**Rationale**: It closes the deploy window at the database, where both old
+and new code meet, without a sign-in path reading `google_id`. The reverse
+window (a user created by a 059 pod signing in on an old pod during the same
+roll) fails once with `auth_failed` and works after the roll; that is a
+transient that the trigger cannot close and is recorded as a deploy note.
