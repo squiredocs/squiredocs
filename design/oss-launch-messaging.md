@@ -104,7 +104,7 @@ The page keeps three columns but changes what they mean:
 | Self-hosted | Free, open source | Run it on your laptop or your own server. Your data stays on your infrastructure. Bring your own key for built-in AI. |
 | Managed instance | Custom pricing | A dedicated, single-tenant Squire Docs that we run and support for your organization. Hosted in the cloud region you choose, so your data stays in the country or jurisdiction your data residency rules require. Email us. |
 
-The two current free columns ("Unlimited Docs" and "Bring your own key") merge into "Hosted", since BYOK is a setting, not a plan. The feature table gains a self-hosted column; the rows that change are sign-in (Google on hosted; local sign-in link, with passwords and OIDC coming for teams, on self-hosted) and AI credits (hosted only).
+The two current free columns ("Unlimited Docs" and "Bring your own key") merge into "Hosted", since BYOK is a setting, not a plan. The feature table gains a self-hosted column; the rows that change are sign-in (Google on hosted; local sign-in link on self-hosted; SSO on a managed instance, per Sam 2026-10-07) and AI credits (hosted only).
 
 **FAQ changes**
 
