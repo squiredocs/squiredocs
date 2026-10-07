@@ -47,7 +47,10 @@ describe('Users module', () => {
 
       expect(user).toBeDefined();
       expect(user.id).toBeDefined();
-      expect(user.google_id).toBe(profile.googleId);
+      // Feature 059: identity, not google_id (I4: new rows leave it NULL).
+      expect(user.google_id).toBeNull();
+      const ids = await pool.query('SELECT issuer, subject FROM user_identities WHERE user_id = $1', [user.id]);
+      expect(ids.rows).toEqual([{ issuer: 'https://accounts.google.com', subject: profile.googleId }]);
       expect(user.email).toBe(profile.email);
       expect(user.name).toBe(profile.name);
       expect(user.picture).toBe(profile.picture);
@@ -402,7 +405,134 @@ describe('Users module', () => {
       expect(row.last_login_at).toBeInstanceOf(Date);
     });
   });
+  describe('resolveIdentityUser invariants (feature 059, contracts/identity-and-post-auth.md)', () => {
+    const ident = (over = {}) => ({
+      issuer: 'https://accounts.google.com',
+      subject: `sub-${crypto.randomUUID()}`,
+      email: `test-${crypto.randomUUID()}@example.com`,
+      name: 'Ident User',
+      picture: null,
+      ...over,
+    });
+    const countFor = async (email) =>
+      (await pool.query('SELECT count(*)::int AS n FROM users WHERE lower(email) = lower($1)', [email])).rows[0].n;
+
+    test('I1: lookup is by (issuer, subject) only; a returning identity with a new email is the same user', async () => {
+      const id = ident();
+      const a = await users.resolveIdentityUser(id);
+      const newEmail = `test-${crypto.randomUUID()}@example.com`;
+      const b = await users.resolveIdentityUser({ ...id, email: newEmail });
+      expect(b.id).toBe(a.id);
+      expect(b.isNew).toBe(false);
+      expect(b.email).toBe(newEmail);
+      // Same subject under another issuer is a different identity.
+      const other = await users.resolveIdentityUser({ ...id, issuer: 'dev', email: `test-${crypto.randomUUID()}@example.com` });
+      expect(other.id).not.toBe(a.id);
+    });
+
+    test('I2: signup capture and source are written only on create', async () => {
+      const id = ident();
+      const a = await users.resolveIdentityUser(id, { signupSource: 'agent_oauth', ip: '203.0.113.1', userAgent: 'UA-1' });
+      expect(a).toMatchObject({ signup_source: 'agent_oauth', signup_ip: '203.0.113.1', signup_user_agent: 'UA-1' });
+      const b = await users.resolveIdentityUser(id, { signupSource: 'browser', ip: '198.51.100.2', userAgent: 'UA-2' });
+      expect(b).toMatchObject({ signup_source: 'agent_oauth', signup_ip: '203.0.113.1', signup_user_agent: 'UA-1' });
+    });
+
+    test('I3: a returning identity refreshes email/name/picture, last_used_at, and email_verified when sent', async () => {
+      const id = ident({ emailVerified: false });
+      const a = await users.resolveIdentityUser(id);
+      const row1 = (await pool.query('SELECT * FROM user_identities WHERE user_id = $1', [a.id])).rows[0];
+      expect(row1.email_verified).toBe(false);
+      await new Promise((r) => setTimeout(r, 5));
+      const b = await users.resolveIdentityUser({ ...id, name: 'Renamed', picture: 'https://p/2', emailVerified: true });
+      expect(b).toMatchObject({ name: 'Renamed', picture: 'https://p/2' });
+      const row2 = (await pool.query('SELECT * FROM user_identities WHERE user_id = $1', [a.id])).rows[0];
+      expect(row2.email_verified).toBe(true);
+      expect(row2.last_used_at.getTime()).toBeGreaterThan(row1.last_used_at.getTime());
+      // Not sent: the stored claim is kept.
+      await users.resolveIdentityUser({ ...id, emailVerified: undefined });
+      const row3 = (await pool.query('SELECT * FROM user_identities WHERE user_id = $1', [a.id])).rows[0];
+      expect(row3.email_verified).toBe(true);
+    });
+
+    test('I4: new users are inserted with google_id NULL', async () => {
+      const a = await users.resolveIdentityUser(ident());
+      expect(a.google_id).toBeNull();
+    });
+
+    test('I5: two concurrent first sign-ins for one pair yield one user and one identity', async () => {
+      const id = ident();
+      const [a, b] = await Promise.all([users.resolveIdentityUser(id), users.resolveIdentityUser(id)]);
+      expect(a.id).toBe(b.id);
+      expect([a.isNew, b.isNew].sort()).toEqual([false, true]);
+      expect(await countFor(id.email)).toBe(1);
+      const ids = await pool.query('SELECT count(*)::int AS n FROM user_identities WHERE issuer = $1 AND subject = $2', [id.issuer, id.subject]);
+      expect(ids.rows[0].n).toBe(1);
+    });
+
+    test('I6: resolveIdentityUser writes no auth_events row and converts no invites', async () => {
+      const id = ident();
+      const owner = await users.resolveIdentityUser(ident());
+      const doc = await pool.query(
+        "INSERT INTO documents (id, title, creator_id) VALUES (uuid_generate_v4(), 'i6', $1) RETURNING id", [owner.id]
+      );
+      await pool.query(
+        "INSERT INTO document_share_invites (doc_id, email, role, invited_by_user_id) VALUES ($1, $2, 'viewer', $3)",
+        [doc.rows[0].id, id.email, owner.id]
+      );
+      try {
+        const u = await users.resolveIdentityUser(id);
+        const ev = await pool.query('SELECT count(*)::int AS n FROM auth_events WHERE user_id = $1', [u.id]);
+        expect(ev.rows[0].n).toBe(0);
+        const inv = await pool.query('SELECT count(*)::int AS n FROM document_share_invites WHERE doc_id = $1', [doc.rows[0].id]);
+        expect(inv.rows[0].n).toBe(1);
+      } finally {
+        await pool.query('DELETE FROM documents WHERE id = $1', [doc.rows[0].id]);
+      }
+    });
+
+    test('collision: unknown pair whose email exists throws AccountExistsError and creates nothing (case-insensitive)', async () => {
+      const existing = await users.resolveIdentityUser(ident());
+      const before = await pool.query('SELECT count(*)::int AS n FROM user_identities');
+      for (const email of [existing.email, existing.email.toUpperCase()]) {
+        await expect(users.resolveIdentityUser(ident({ email }))).rejects.toMatchObject({
+          name: 'AccountExistsError',
+          code: 'account_exists',
+        });
+      }
+      const after = await pool.query('SELECT count(*)::int AS n FROM user_identities');
+      expect(after.rows[0].n).toBe(before.rows[0].n);
+      expect(await countFor(existing.email)).toBe(1);
+    });
+
+    test('RBD-059-24: a row inserted the old way is found by findOrCreateUser as the same user', async () => {
+      const googleId = `legacy-${crypto.randomUUID()}`;
+      const email = `test-${crypto.randomUUID()}@example.com`;
+      const { rows } = await pool.query(
+        'INSERT INTO users (google_id, email, name) VALUES ($1, $2, $3) RETURNING id',
+        [googleId, email, 'Legacy']
+      );
+      const u = await users.findOrCreateUser({ googleId, email, name: 'Legacy', picture: null });
+      expect(u.id).toBe(rows[0].id);
+      expect(u.isNew).toBe(false);
+    });
+
+    test('createOwnerUser inserts an administrator with signin_link provenance', async () => {
+      const client = await pool.connect();
+      try {
+        const owner = await users.createOwnerUser(client, {
+          name: 'Owner', email: `test-${crypto.randomUUID()}@example.com`, ctx: { ip: '203.0.113.9', userAgent: 'UA' },
+        });
+        expect(owner).toMatchObject({ is_admin: true, signup_source: 'signin_link', google_id: null, signup_ip: '203.0.113.9' });
+      } finally {
+        client.release();
+      }
+    });
+
+    test('findUserByEmail is case-insensitive', async () => {
+      const a = await users.resolveIdentityUser(ident());
+      expect((await users.findUserByEmail(pool, a.email.toUpperCase())).id).toBe(a.id);
+      expect(await users.findUserByEmail(pool, 'test-nobody-x@example.com')).toBeNull();
+    });
+  });
 });
-
-
-

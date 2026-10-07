@@ -55,7 +55,7 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
 
   afterAll(async () => {
     if (GOOGLE_IDS.length) {
-      await pool.query('DELETE FROM users WHERE google_id = ANY($1::text[])', [GOOGLE_IDS]);
+      await pool.query('DELETE FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = ANY($1::text[]))', [GOOGLE_IDS]);
     }
     await users.deleteAllSyntheticUsers();
     await pool.end();
@@ -68,7 +68,10 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
   /** Drive a full Google callback for a given profile, optionally with a returnTo. */
   async function googleCallback(profile, returnTo) {
     GOOGLE_IDS.push(profile.googleId);
-    google.verifyIdToken.mockResolvedValueOnce(profile);
+    // Feature 059: the adapter returns the identity shape.
+    google.verifyIdToken.mockResolvedValueOnce({
+      issuer: 'https://accounts.google.com', subject: profile.googleId, email: profile.email, name: profile.name, picture: profile.picture,
+    });
     const state = `state-${profile.googleId}`;
     const cookies = [`oauth_state=${state}`, 'oauth_redirect=http://localhost:5173'];
     if (returnTo) cookies.push(`oauth_return_to=${encodeURIComponent(returnTo)}`);
@@ -80,7 +83,7 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
       const profile = { googleId: 'fr-browser-1', email: 'fr-browser-1@example.com', name: 'Browser One', picture: null };
       const res = await googleCallback(profile); // no returnTo
       expect(res.status).toBe(302);
-      const row = await pool.query('SELECT signup_source FROM users WHERE google_id = $1', [profile.googleId]);
+      const row = await pool.query('SELECT signup_source FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', [profile.googleId]);
       expect(row.rows[0].signup_source).toBe('browser');
       // Non-consent path resolves onboarding (seeds welcome doc).
       expect(onboarding.resolveOnboarding).toHaveBeenCalled();
@@ -88,14 +91,14 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
 
     test('Acc 3.2 — consent returnTo round-trip creates the account mid-flow, stamps agent_oauth, and SKIPS the welcome doc', async () => {
       const profile = { googleId: 'fr-agent-1', email: 'fr-agent-1@example.com', name: 'Agent One', picture: null };
-      const before = await pool.query('SELECT 1 FROM users WHERE google_id = $1', [profile.googleId]);
+      const before = await pool.query('SELECT 1 FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', [profile.googleId]);
       expect(before.rows.length).toBe(0); // account does not exist yet
 
       const res = await googleCallback(profile, '/authorize?client_id=abc&state=xyz&code_challenge=cc');
       expect(res.status).toBe(302);
       expect(res.headers.location).toBe('http://localhost:5173/authorize?client_id=abc&state=xyz&code_challenge=cc');
 
-      const row = await pool.query('SELECT signup_source, welcome_doc_id FROM users WHERE google_id = $1', [profile.googleId]);
+      const row = await pool.query('SELECT signup_source, welcome_doc_id FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', [profile.googleId]);
       expect(row.rows[0].signup_source).toBe('agent_oauth'); // stamped mid-flow
       expect(row.rows[0].welcome_doc_id).toBeNull();          // deliberate skip (FR-013)
       // The load-bearing early return means onboarding seeding is NEVER reached.
@@ -116,7 +119,7 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
       const profile = { googleId: 'fr-stamponce-1', email: 'fr-stamponce-1@example.com', name: 'Stamp Once', picture: null };
       await googleCallback(profile, '/authorize?x=1');        // born agent_oauth
       await googleCallback(profile);                          // later plain login
-      const row = await pool.query('SELECT signup_source FROM users WHERE google_id = $1', [profile.googleId]);
+      const row = await pool.query('SELECT signup_source FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', [profile.googleId]);
       expect(row.rows[0].signup_source).toBe('agent_oauth');  // NOT downgraded to browser
     });
   });
@@ -125,7 +128,7 @@ describe('Feature 029 US3 — tier-1 first-run suite', () => {
     test('an account with welcome_doc_id null returns cleanly with welcomeDocId=null, no error', async () => {
       const profile = { googleId: 'fr-nullwelcome-1', email: 'fr-nullwelcome-1@example.com', name: 'Null Welcome', picture: null };
       await googleCallback(profile, '/authorize?x=1'); // agent_oauth, welcome_doc_id null
-      const row = await pool.query('SELECT * FROM users WHERE google_id = $1', [profile.googleId]);
+      const row = await pool.query('SELECT * FROM users WHERE id IN (SELECT user_id FROM user_identities WHERE subject = $1)', [profile.googleId]);
       const token = jwt.generateAccessToken(row.rows[0]);
 
       const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${token}`);
