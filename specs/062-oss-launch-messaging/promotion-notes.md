@@ -157,7 +157,7 @@ Fixed on the branch:
 
 Gate items for Sam and the merge-queue owner (not fixed in 062):
 
-- Codex is named as a supported agent (hero, "Any agent, any model", pricing, about), and the "See the Agents & MCP Guide for setup" link leads to a guide with no Codex section. Before launch, either add Codex setup to `documentation/agents-and-mcp.md` (060 or a follow-on) or drop Codex from the setup sentence.
+- RESOLVED 2026-10-07: Sam confirmed Codex works and keeps it in the copy; the Agents & MCP guide still needs a Codex section (mayor tracking for 060 or a follow-on). Original note: Codex is named as a supported agent (hero, "Any agent, any model", pricing, about), and the "See the Agents & MCP Guide for setup" link leads to a guide with no Codex section. Before launch, either add Codex setup to `documentation/agents-and-mcp.md` (060 or a follow-on) or drop Codex from the setup sentence.
 - Confirm 060's documentation page frontmatter is exactly `slug: self-hosting`; every "Run it yourself" button and the footer Self-host link depend on it.
 - "Tell your agent 'set up Squire Docs locally'" works without hunting only where the agent can find `self-host.md`: the Claude Code plugin's onboarding skill (self-hosting D9), the README, or the docs site. Agents without the plugin rely on those being discoverable.
 - `screenshot-versionhistory.png` (landing section 2) shows the old "HeroDocs" name; recapture before launch.
