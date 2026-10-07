@@ -12,7 +12,7 @@ changed behavior is marked **changed**. Defaults are the image defaults.
 | `CLIENT_URL` | changed | `APP_URL` | URL | Post-sign-in redirect and CORS origin (explicit value wins) |
 | `GOOGLE_REDIRECT_URI` | changed | `${APP_URL}/auth/google/callback` | URL | Google callback (explicit value wins) |
 | `PUBLIC_ORIGIN` | changed | `APP_URL` | URL | Canonical origin returned for hosted alias hosts (`server/url.js`) |
-| `SQUIRE_HOSTED` | new | unset (off) | `true`, `false` (case-insensitive); anything else is off and logged once | Turns on every hosted-only surface (data-model section 4) |
+| `SQUIRE_HOSTED` | new | unset (off) | `true`, `false` (case-insensitive); anything else fails boot | Turns on every hosted-only surface (data-model section 4) |
 | `SQUIRE_DATA_DIR` | new | `/data` | absolute path | Root for `secrets.json` and `images/` |
 | `MIGRATE_ON_BOOT` | new | `true` | `true`, `false` (case-insensitive) | Entrypoint runs `script/migrate.js` under an advisory lock before the server loads |
 | `STORAGE_DRIVER` | new | `s3` when `S3_IMAGE_BUCKET` is set, else `local` | `local`, `s3` | Image byte storage |
@@ -31,7 +31,7 @@ changed behavior is marked **changed**. Defaults are the image defaults.
 
 - `APP_URL` (or `CLIENT_URL` when it is the source) not an absolute http(s) URL.
 - `STORAGE_DRIVER` not `local` or `s3`: "STORAGE_DRIVER must be one of: local, s3".
-- `MIGRATE_ON_BOOT` not `true` or `false`.
+- `MIGRATE_ON_BOOT` or `SQUIRE_HOSTED` not `true` or `false` (058 review M2: a malformed `SQUIRE_HOSTED` used to be treated as off with a warning).
 - `SQUIRE_DATA_DIR` not absolute.
 - `S3_ENDPOINT` not an absolute http(s) URL.
 - `SMTP_PORT` not an integer in range.
@@ -42,7 +42,6 @@ changed behavior is marked **changed**. Defaults are the image defaults.
 
 ## Boot log lines (one each, at most)
 
-- `[Config] SQUIRE_HOSTED="<value>" is not true or false; treating as off`.
 - `[Config] APP_URL is http on a non-local host (<host>). Serving plain HTTP
   beyond localhost is not supported; put a TLS-terminating proxy in front and
   set an https APP_URL.` (production only)

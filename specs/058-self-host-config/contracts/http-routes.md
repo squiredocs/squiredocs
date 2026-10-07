@@ -10,7 +10,7 @@
   check the resolve route performs.
 - **Responses**:
   - `200` body is the image bytes. Headers: `Content-Type` from
-    `document_images.mime_type`; `Cache-Control: private, max-age=3600`;
+    `document_images.mime_type`; `Cache-Control: private, no-cache` (revalidated via ETag so revoked access applies at once; 058 review L2);
     `X-Content-Type-Options: nosniff`;
     `Content-Security-Policy: default-src 'none'; sandbox`.
   - `401` `{ "error": "No authorization header" }` or

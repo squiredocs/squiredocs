@@ -124,7 +124,7 @@ describe('resolve and raw', () => {
     expect(res.status).toBe(200);
     expect(Buffer.from(res.body)).toEqual(PNG);
     expect(res.headers['content-type']).toMatch(/^image\/png/);
-    expect(res.headers['cache-control']).toBe('private, max-age=3600');
+    expect(res.headers['cache-control']).toBe('private, no-cache');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['content-security-policy']).toBe("default-src 'none'; sandbox");
   }

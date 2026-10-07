@@ -110,10 +110,15 @@ function resolveSecrets({ env, dataDir, generate = true, log = console, _hooks =
   const filePath = path.join(dataDir, FILE_NAME);
 
   // A keyring rotation (API_KEY_ENCRYPTION_KEYS) means the operator chose keys
-  // explicitly; a generated legacy key would turn a clear "missing key" error
-  // into a silent wrong-key decrypt failure (RBD-058-26).
-  const names = SECRET_NAMES.filter(
-    (n) => !(n === 'API_KEY_ENCRYPTION_KEY' && present(env.API_KEY_ENCRYPTION_KEYS))
+  // explicitly, so a NEW legacy key is never generated alongside it: that would
+  // turn a clear "missing key" error into a silent wrong-key decrypt failure
+  // (RBD-058-26). An EXISTING generated legacy key is still adopted from the
+  // file, though: it may be the only copy of the key that encrypted every
+  // pre-rotation BYOK value, and the operator may never have seen it (058
+  // review M1).
+  const names = SECRET_NAMES;
+  const noGenerate = new Set(
+    present(env.API_KEY_ENCRYPTION_KEYS) ? ['API_KEY_ENCRYPTION_KEY'] : []
   );
 
   const fromEnv = names.filter((n) => present(env[n]));
@@ -134,7 +139,7 @@ function resolveSecrets({ env, dataDir, generate = true, log = console, _hooks =
   };
 
   apply(fileObj);
-  const missing = needed.filter((n) => !result.fromFile.includes(n));
+  const missing = needed.filter((n) => !result.fromFile.includes(n) && !noGenerate.has(n));
   if (missing.length === 0 || !generate) return result;
 
   const generatedValues = {};
@@ -150,7 +155,22 @@ function resolveSecrets({ env, dataDir, generate = true, log = console, _hooks =
       // First creation: link(2) refuses to replace an existing file, so of two
       // replicas racing on one volume exactly one publishes.
       try {
-        fs.linkSync(tmp, filePath);
+        try {
+          fs.linkSync(tmp, filePath);
+        } catch (linkErr) {
+          // Some bind mounts (Docker Desktop on Windows, some FUSE/9p mounts)
+          // do not support hard links. Fall back to an exclusive create, which
+          // is just as race-safe: 'wx' fails with EEXIST for the loser (058
+          // review L1).
+          if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].includes(linkErr.code)) throw linkErr;
+          const fd = fs.openSync(filePath, 'wx', 0o600);
+          try {
+            fs.writeSync(fd, fs.readFileSync(tmp));
+            fs.fsyncSync(fd);
+          } finally {
+            fs.closeSync(fd);
+          }
+        }
       } catch (err) {
         if (err.code !== 'EEXIST') throw writeError(dataDir, err);
         // Lost the race: adopt the winner's values. If the winner's file

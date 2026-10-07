@@ -129,14 +129,10 @@ function resolveInstanceConfig(env = process.env) {
   const appUrlParsed = new URL(appUrl);
   const isProduction = env.NODE_ENV === 'production';
 
-  const rawHosted = read(env, 'SQUIRE_HOSTED');
-  let hosted = false;
-  let hostedInvalidValue = null;
-  if (rawHosted !== undefined) {
-    const v = rawHosted.toLowerCase();
-    if (v === 'true') hosted = true;
-    else if (v !== 'false') hostedInvalidValue = rawHosted;
-  }
+  // A malformed value fails boot like every other boolean here: silently
+  // treating it as off would turn squiredocs.com into a self-hosted instance
+  // (058 review M2).
+  const hosted = parseBoolean(env, 'SQUIRE_HOSTED', false);
 
   const dataDir = read(env, 'SQUIRE_DATA_DIR') || '/data';
   if (!path.isAbsolute(dataDir)) {
@@ -157,7 +153,6 @@ function resolveInstanceConfig(env = process.env) {
     cookieSecure: appUrlParsed.protocol === 'https:',
     insecureRemoteHttp: isProduction && appUrlParsed.protocol === 'http:' && !isLoopbackHost(appUrlParsed.hostname),
     hosted,
-    hostedInvalidValue,
     dataDir: path.resolve(dataDir),
     migrateOnBoot: parseBoolean(env, 'MIGRATE_ON_BOOT', true),
     storageDriver: resolveStorageDriver(env),

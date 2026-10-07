@@ -775,3 +775,8 @@ the tag inline); the bytes differ only in the added instance script.
 Usage" subsection (meter, beta note, and the BYOK "tracked but not limited"
 line inside it) is not rendered. `checkQuota` for an unknown user id still
 returns `allowed: false` on either instance type.
+
+
+---
+
+**Amendment to RBD-058-26 (2026-10-07, post-merge review M1).** When `API_KEY_ENCRYPTION_KEYS` is set, the entrypoint still never GENERATES a legacy `API_KEY_ENCRYPTION_KEY`, but it now ADOPTS one already in `secrets.json`. The original rationale ("the operator chose keys explicitly") did not hold for a key the entrypoint generated and the operator never saw: dropping it made every pre-rotation BYOK value undecryptable.

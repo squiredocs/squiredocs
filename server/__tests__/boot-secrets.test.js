@@ -119,14 +119,37 @@ describe('resolveSecrets', () => {
     expect(err.message).toContain('chown -R 100:101');
   });
 
-  test('API_KEY_ENCRYPTION_KEYS set: the legacy key is neither read nor generated (RBD-058-26)', () => {
+  test('API_KEY_ENCRYPTION_KEYS set: an existing generated legacy key is still adopted (058 review M1)', () => {
     fs.writeFileSync(file(), JSON.stringify({ API_KEY_ENCRYPTION_KEY: 'f'.repeat(64) }), { mode: 0o600 });
     const env = { API_KEY_ENCRYPTION_KEYS: `k1:${'1'.repeat(64)}` };
     const res = resolveSecrets({ env, dataDir: dir, log: quietLog() });
-    expect(env.API_KEY_ENCRYPTION_KEY).toBeUndefined();
+    expect(env.API_KEY_ENCRYPTION_KEY).toBe('f'.repeat(64));
+    expect(res.fromFile).toContain('API_KEY_ENCRYPTION_KEY');
     expect(res.generated).not.toContain('API_KEY_ENCRYPTION_KEY');
-    expect(res.fromFile).not.toContain('API_KEY_ENCRYPTION_KEY');
+  });
+
+  test('API_KEY_ENCRYPTION_KEYS set and no legacy key on file: none is generated (RBD-058-26)', () => {
+    const env = { API_KEY_ENCRYPTION_KEYS: `k1:${'1'.repeat(64)}` };
+    const res = resolveSecrets({ env, dataDir: dir, log: quietLog() });
+    expect(env.API_KEY_ENCRYPTION_KEY).toBeUndefined();
     expect(res.generated).toEqual(['ACCESS_TOKEN_SECRET', 'REFRESH_TOKEN_SECRET', 'MCP_JWT_SECRET']);
+    expect(JSON.parse(fs.readFileSync(file(), 'utf8')).API_KEY_ENCRYPTION_KEY).toBeUndefined();
+  });
+
+  test('a filesystem without hard links falls back to an exclusive create (058 review L1)', () => {
+    const spy = jest.spyOn(fs, 'linkSync').mockImplementation(() => {
+      const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e;
+    });
+    try {
+      const env = {};
+      const res = resolveSecrets({ env, dataDir: dir, log: quietLog() });
+      expect(res.generated).toEqual([...SECRET_NAMES]);
+      expect(fs.statSync(file()).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(fs.readFileSync(file(), 'utf8')).MCP_JWT_SECRET).toBe(env.MCP_JWT_SECRET);
+      expect(fs.readdirSync(dir).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test('generate: false reads but never creates', () => {

@@ -97,18 +97,18 @@ describe('cookieSecure and insecureRemoteHttp', () => {
 
 describe('SQUIRE_HOSTED', () => {
   test.each([
-    ['true', true, null],
-    ['TRUE', true, null],
-    ['false', false, null],
-    ['FALSE', false, null],
-    [undefined, false, null],
-    ['1', false, '1'],
-    ['yes', false, 'yes'],
-  ])('%s -> hosted %s', (value, hosted, invalid) => {
+    ['true', true],
+    ['TRUE', true],
+    ['false', false],
+    ['FALSE', false],
+    [undefined, false],
+  ])('%s -> hosted %s', (value, hosted) => {
     const env = value === undefined ? {} : { SQUIRE_HOSTED: value };
-    const c = r(env);
-    expect(c.hosted).toBe(hosted);
-    expect(c.hostedInvalidValue).toBe(invalid);
+    expect(r(env).hosted).toBe(hosted);
+  });
+
+  test.each(['1', 'yes', 'True '])('malformed %p fails boot naming the variable (058 review M2)', (value) => {
+    expect(() => r({ SQUIRE_HOSTED: value })).toThrow(/SQUIRE_HOSTED must be true or false/);
   });
 });
 

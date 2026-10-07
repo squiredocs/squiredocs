@@ -107,6 +107,9 @@ T061 and T062 were not done here. Owed:
 4. "Hosted-only features" bullet: add the welcome document's beta-credit
    sentence (RBD-058-22).
 
-## Review dispositions
+## Review dispositions (post-merge review, 2026-10-07: 0 HIGH, 2 MEDIUM, 2 LOW; all fixed same day)
 
-(none yet)
+- **M1 FIXED**: with `API_KEY_ENCRYPTION_KEYS` set, `resolveSecrets` dropped the generated legacy `API_KEY_ENCRYPTION_KEY` entirely, so an operator rotating keys on a self-hosted instance lost the only copy of the key that encrypted every pre-rotation BYOK value. Now an existing file value is still adopted; only generation is skipped. RBD-058-26 narrowed accordingly. Hosted unaffected (key comes from env).
+- **M2 FIXED**: a malformed `SQUIRE_HOSTED` (e.g. `1`, `True `) was treated as off with a warning, which would silently turn squiredocs.com into a self-hosted instance (404 marketing, no credit cap, no admin emails). It now fails boot like every other boolean. Contract updated.
+- **L1 FIXED**: first creation of `secrets.json` relied on `link(2)`; on mounts without hard links (Docker Desktop on Windows, some FUSE/9p) it failed with a misleading chown hint. Falls back to an exclusive `wx` create, equally race-safe.
+- **L2 FIXED**: raw image bytes were cached `private, max-age=3600`, so a viewer removed from a document kept seeing its images for up to an hour. Now `private, no-cache`, revalidated through Express's ETag, so the access check re-runs.

@@ -44,9 +44,6 @@ telemetry.start();
 const { getInstanceConfig } = require('./instance-config');
 const instanceConfig = getInstanceConfig();
 (function logInstanceConfig() {
-  if (instanceConfig.hostedInvalidValue !== null) {
-    console.warn(`[Config] SQUIRE_HOSTED="${instanceConfig.hostedInvalidValue}" is not true or false; treating as off`);
-  }
   if (instanceConfig.insecureRemoteHttp) {
     console.warn(
       `[Config] APP_URL is http on a non-local host (${new URL(instanceConfig.appUrl).host}). ` +
