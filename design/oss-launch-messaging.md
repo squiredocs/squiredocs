@@ -3,7 +3,7 @@
 
 # Proposal: Open Source Launch Messaging
 
-Status: ratified by Sam 2026-10-07 ("Looks good", plus the managed-instance region amendment). Built as feature 062-oss-launch-messaging. The license is not decided, so every license mention in the copy is a placeholder (see D3).
+Status: ratified by Sam 2026-10-07 ("Looks good", plus the managed-instance region amendment). Built as feature 062-oss-launch-messaging. The project is MIT licensed (Sam, 2026-10-07; see D3).
 
 This doc proposes how squiredocs.com describes Squire Docs once the repository is public. It covers the core positioning (what we say the product is), the supporting messages, proposed copy for the landing, pricing, and about pages, and how to test the message cheaply. Copy rules from earlier rounds still apply: "Squire Docs" in full, no em dashes, no PR-review framing, no forever promises, plain statements of limits.
 
@@ -72,7 +72,7 @@ Replace the SDD-only section with four use cases. SDD becomes the first, not the
 - Sub: Squire Docs is an open source collaborative editor for people and AI agents. Connect Claude Code, Codex, or any MCP agent, watch its edits land live, and keep everything in sync with markdown in your repo.
 - Primary CTA: Start free (hosted)
 - Secondary CTA: Run it yourself (links to the self-host section or `/self-host`)
-- Trust line: Open source ([license]) · Every edit attributed and reversible · Your docs sync to markdown
+- Trust line: Open source (MIT) · Every edit attributed and reversible · Your docs sync to markdown
 
 **Section: Your agent, live in the document** (message 1, with the presence screenshot or a short clip of an agent cursor editing)
 
@@ -108,11 +108,11 @@ The two current free columns ("Unlimited Docs" and "Bring your own key") merge i
 
 **FAQ changes**
 
-- "Can we run Squire Docs ourselves?" becomes: "Yes. Squire Docs is open source under the [license] license. Install it with one command, or follow the self-host guide. If you want us to run a dedicated instance for you in the cloud region of your choice, email contact@squiredocs.com."
+- "Can we run Squire Docs ourselves?" becomes: "Yes. Squire Docs is open source under the MIT license. Install it with one command, or follow the self-host guide. If you want us to run a dedicated instance for you in the cloud region of your choice, email contact@squiredocs.com."
 - New: "Is the hosted version the same software?" Answer: "Yes. squiredocs.com runs the same code as the public repository."
 - New: "Where can a managed instance run?" Answer: "In the cloud region you choose, including EU regions. Your documents, database, and backups stay in that region, which helps you meet data residency and sovereignty requirements. Email contact@squiredocs.com to discuss your region."
 - New: "Do I need an API key to self-host?" Answer: "No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add a key to turn on the built-in assistant and semantic search."
-- "Will Squire Docs stay free?" keeps its current answer for hosted, and adds that the open source project is [license] licensed.
+- "Will Squire Docs stay free?" keeps its current answer for hosted, and adds that the open source project is MIT licensed.
 
 ## Proposed copy: about page
 
@@ -120,7 +120,7 @@ Replace the copy-paste-loop opening with the agent problem:
 
 - H1: Agents do real work now. They need somewhere to put it.
 - Body: Coding agents write plans, specs, and reports, and most of it ends up in a terminal scrollback or a scratch file nobody else can see. Squire Docs gives that work a shared document: you and your team read it, edit it, and correct it while the agent is still working, and every change keeps its author.
-- Add a short "Why open source" paragraph: the tool that holds your team's specs and your agents' work should be one you can inspect, run, and keep. It is [license] licensed, the hosted service runs the same code, and 21st Harmonic offers managed instances for teams that want one.
+- Add a short "Why open source" paragraph: the tool that holds your team's specs and your agents' work should be one you can inspect, run, and keep. It is MIT licensed, the hosted service runs the same code, and 21st Harmonic offers managed instances for teams that want one.
 
 The "What we believe" items mostly survive. Changes: "Trust by design" drops "Google sign-in" and becomes "Your docs, your infrastructure: open source, markdown export, and self-hosting." "Open to any model or agent" stays.
 
@@ -152,7 +152,7 @@ Out of scope, owned elsewhere:
 
 - **D1. Anchor.** The H1 is "Docs your agents can edit with you." and the one-sentence definition in "Recommendation" is used everywhere a definition appears. Spec-driven development moves from the headline to the first of four use cases. Ratified by Sam 2026-10-07.
 - **D2. Pricing structure.** Three columns: Hosted (free during beta), Self-hosted (free, open source), and Managed instance (custom pricing, run by us in the cloud region the customer chooses, for data residency). The two current free columns merge into Hosted. Ratified by Sam 2026-10-07, including the region amendment. The column name "Managed instance" (replacing "Dedicated Instance") is RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07): it names what the customer pays for now that self-hosting is free.
-- **D3. The pages do not name the license.** The license is not decided (AGPL-3.0 with a DCO and MIT are both on the table). The page copy says "open source" and links to the repository, where the LICENSE file names it. The "[license]" placeholders in this doc's proposed copy are dropped in the build, so no page text changes when the license is chosen. Both candidate licenses are OSI-approved, so "open source" is accurate under either. RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07). If Sam picks a source-available license instead, every "open source" claim needs rewriting.
+- **D3. The pages name the MIT license.** Sam chose MIT on 2026-10-07. The trust line reads "Open source (MIT)", and the FAQ and about page say Squire Docs is MIT licensed, each linking to the repository where the LICENSE file lives. MIT is a selling point for an adoption-first launch: anyone can run, modify, and embed it without copyleft obligations. Ratified by Sam 2026-10-07. (Superseded default, same day: the pages were going to avoid naming the license while AGPL-3.0 and MIT were both open.)
 - **D4. Repository link.** The repository URL is not decided. GitHub links point to `https://github.com/squiredocs` (the organization, which exists today and is the current footer target) and get repointed to the repository at launch. RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07).
 - **D5. The copy ships at launch, not before.** The new copy says Squire Docs is open source and links to the install script, which is false until the repository is public and 060 has shipped. So 062's spec and plan merge to main as usual, but the implementation branch stays unmerged until the launch gate: license chosen, history scrub done, repository public, 060 merged. The merge-queue owner merges it then. RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07).
 - **D6. "Run it yourself" target.** The secondary call to action and the "Run it on your machine" section link to the documentation site's self-hosting page at `/documentation/self-hosting`, which 060 creates. The section also shows the install command `curl -fsSL https://squiredocs.com/install.sh | sh` (ratified D12 of the self-hosting design). RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07).
@@ -161,7 +161,7 @@ Out of scope, owned elsewhere:
 
 ## Open questions
 
-1. **License.** The copy assumes MIT. If it ends up Apache-2.0, it is a find-and-replace; if it changes to source-available, the "open source" claims need rewriting. _Answered by D3: the pages do not name the license._
+1. **License.** The copy assumes MIT. If it ends up Apache-2.0, it is a find-and-replace; if it changes to source-available, the "open source" claims need rewriting. _Answered by D3: MIT, chosen by Sam 2026-10-07._
 2. **Domain for self-host docs.** The design puts `self-host.md` and `install.sh` on squiredocs.com. Should there also be a human-readable `/self-host` page, or does the documentation site cover it? _Answered by D6: 060 builds the human-readable page at /documentation/self-hosting._
 3. **Hero visual.** The current hero has no product shot. An agent cursor editing next to a human cursor is the single most convincing image we could show. Worth recording a short loop for launch? _Deferred by D7._
 4. **Hosted CTA weight.** Should "Start free" stay the dominant button, or should "Run it yourself" be equal weight now that hosted sign-ups are not the goal? _Defaulted by D8._
