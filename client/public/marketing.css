@@ -160,6 +160,34 @@
   height: 20px;
 }
 
+/* Secondary button (copied from pricing.html's inline styles, feature 062) */
+.landing-btn.outline {
+  background: transparent;
+  color: #7c3aed;
+  border: 1px solid #c4b5fd;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.landing-btn.outline:hover {
+  background: #f3e8ff;
+}
+
+/* Install command block (feature 062) */
+.landing-install-cmd {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.95rem;
+  background: #f3f4f6;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  text-align: left;
+  max-width: 640px;
+  margin: 1.5rem auto;
+}
+
 /* Hero Screenshot */
 .landing-hero-screenshot {
   max-width: 1100px;
