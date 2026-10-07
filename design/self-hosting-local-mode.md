@@ -100,7 +100,7 @@ The core loop (the editor, version history, sharing, and the MCP surface) needs 
 
 ### Images and upgrades
 
-Images are published to GHCR as multi-architecture (amd64 and arm64) builds with semver tags plus `latest`. `isolated-vm` is a native module, so CI builds and smoke-tests both architectures. `compose.yml` reads the tag from `SQUIRE_VERSION`. Upgrading is `docker compose pull && docker compose up -d --wait`; migrations run on boot.
+Images are published to GHCR as multi-architecture (amd64 and arm64) builds with semver tags plus `latest`. `isolated-vm` is a native module, so CI builds and smoke-tests both architectures. `compose.yml` reads the tag from `SQUIRE_VERSION`. Upgrading is two steps, because the install pins the version: set SQUIRE_VERSION in .env to the new release, then run docker compose pull && docker compose up -d --wait in the install folder; migrations run on boot. (Amended from the 060 spec: a bare pull fetches nothing new while the version is pinned.)
 
 ### Release files and the install script
 
