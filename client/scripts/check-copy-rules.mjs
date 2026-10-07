@@ -41,7 +41,7 @@ const RETIRED_NAMES = ['Dedicated Instance'];
 export const COPY_RULES = [
   // FR-030: the product name is "Squire Docs". Case-sensitive, so the
   // lowercase hostnames squiredocs.com and github.com/squiredocs never match.
-  { id: 'bare-squire', fr: 'FR-030', patterns: [/\bSquire\b(?! Docs)/g] },
+  { id: 'bare-squire', fr: 'FR-030', patterns: [/\bSquire\b(?! Docs)/g, /\bSquireDocs\b/g] },
   // FR-031: no em dash in any encoding.
   { id: 'em-dash', fr: 'FR-031', patterns: [/—|&mdash;|&#8212;|&#x2014;/gi] },
   // FR-032
@@ -66,7 +66,7 @@ export const COPY_RULES = [
     ],
   },
   // FR-037: MIT is the only license named.
-  { id: 'other-license', fr: 'FR-037', patterns: [/\bA?GPL\b|\bApache\b|\bBSD\b|\bMPL\b/gi] },
+  { id: 'other-license', fr: 'FR-037', patterns: [/\b(?:A|L)?GPL(?:v?\d)?\b|\bApache\b|\bBSD\b|\bMPL\b/gi] },
   // FR-038: retired strings.
   {
     id: 'retired-string',
@@ -93,6 +93,7 @@ const HEADING_CONTAINERS = [
   /<title\b[^>]*>([\s\S]*?)<\/title>/gi,
   /<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/gi,
   /<meta\s+(?:property|name)="(?:og|twitter):title"\s+content="([^"]*)"/gi,
+  /<meta\s+name="description"\s+content="([^"]*)"/gi,
 ];
 
 function collect(re, text, rule, out, offset = 0) {

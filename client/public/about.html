@@ -33,6 +33,7 @@
     .landing-logo-text { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
     .landing-nav { display: flex; align-items: center; gap: 0.75rem; }
     .landing-nav-link { color: #6b7280; text-decoration: none; font-size: 0.95rem; font-weight: 500; padding: 0.5rem 0.5rem; }
+    @media (max-width: 960px) { .landing-nav-link-wide { display: none; } }
     .landing-nav-btn { padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; font-weight: 500; cursor: pointer; background: transparent; color: #6b7280; border: 1px solid #d1d5db; text-decoration: none; display: inline-block; }
     .landing-nav-btn.primary { background: #7c3aed; color: #ffffff; border-color: #7c3aed; }
   </style>
@@ -174,7 +175,7 @@
         <div class="about-principles-grid">
           <div class="landing-usecase-card">
             <h3>The document is the interface</h3>
-            <p>You shouldn't have to leave your work to use AI. The agent comes to your page, not the other way around.</p>
+            <p>You shouldn't have to leave your work to use AI. The agent comes to your page.</p>
           </div>
           <div class="landing-usecase-card">
             <h3>Agent work is accountable work</h3>

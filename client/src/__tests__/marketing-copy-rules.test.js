@@ -55,10 +55,14 @@ describe('checker catches each rule (US5, SC-004)', () => {
     ['bare "z.ai"', '<p>Anthropic, OpenAI, z.ai, or OpenRouter.</p>', 'glm-label'],
     ['"AGPL"', '<p>Licensed under the AGPL.</p>', 'other-license'],
     ['"Apache"', '<p>Apache-2.0 licensed.</p>', 'other-license'],
+    ['"LGPL"', '<p>Licensed under the LGPL.</p>', 'other-license'],
+    ['"GPLv3"', '<p>Released as GPLv3.</p>', 'other-license'],
+    ['"SquireDocs" run together', '<p>Try SquireDocs today.</p>', 'bare-squire'],
     ['"Unlimited Docs"', '<h2>Unlimited Docs</h2>', 'retired-string'],
     ['the "Dedicated Instance" plan name', '<h2>Dedicated Instance</h2>', 'retired-string'],
     ['"ChatGPT"', '<p>Use ChatGPT inside your doc.</p>', 'retired-string'],
     ['"spec-driven" in an <h2>', '<h2>For spec-driven teams</h2>', 'spec-driven-heading'],
+    ['"spec-driven" in the meta description', '<meta name="description" content="Docs for spec-driven teams." />', 'spec-driven-heading'],
   ];
 
   for (const [label, text, rule] of mustFire) {
@@ -234,7 +238,7 @@ describe('landing launch copy (US1, FR-001 to FR-013, FR-028)', () => {
   });
 
   it('trust strip has exactly the three launch items, MIT linked (FR-005)', () => {
-    const strip = block(html, '<div class="landing-trust-strip">', '<!-- ');
+    const strip = block(html, '<div class="landing-trust-strip">', '<section');
     const items = strip.match(/<div class="landing-trust-item">/g) || [];
     expect(items).toHaveLength(3);
     expectInOrder(
@@ -283,7 +287,7 @@ describe('landing launch copy (US1, FR-001 to FR-013, FR-028)', () => {
 
   it('section 4 shows the install command and the two links (FR-010)', () => {
     expect(html).toContain(
-      'Tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.',
+      'With Docker installed, tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.',
     );
     expect(html).toContain('<code>curl -fsSL https://squiredocs.com/install.sh | sh</code>');
     expect(html).toMatch(new RegExp(`<a href="${SELF_HOST_URL}"[^>]*>Read the self-host guide</a>`));
@@ -348,7 +352,7 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
     const hero = block(html, '<section class="pricing-hero">');
     expect(text(block(hero, '<h1', '</h1>'))).toBe('Use ours free, or run your own.');
     expect(text(block(hero, '<p', '</p>'))).toBe(
-      'Squire Docs is free during public beta on squiredocs.com, and free to self-host as open source software. Managed instances are priced per organization. No credit card needed.',
+      'Squire Docs is free during public beta on squiredocs.com, and free to self-host as open source software. Managed instances are priced on request. No credit card needed.',
     );
   });
 
@@ -410,7 +414,7 @@ describe('pricing launch copy (US2, FR-014 to FR-020, FR-028)', () => {
       'In the cloud region you choose, including EU regions. Your documents, database, and backups stay in that region, which helps you meet data residency and sovereignty requirements. Email contact@squiredocs.com to discuss your region.',
     );
     expect(text(answer('Do I need an API key to self-host?'))).toBe(
-      'No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add a key to turn on the built-in assistant and semantic search.',
+      'No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add your own key in Settings to turn on the built-in assistant. Semantic search turns on when the server has a Google AI key.',
     );
     const stay = answer('Will Squire Docs stay free?');
     expect(stay).toContain('and your documents export as markdown at any time.');

@@ -36,11 +36,12 @@
     .landing-logo-text { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
     .landing-nav { display: flex; align-items: center; gap: 0.75rem; }
     .landing-nav-link { color: #6b7280; text-decoration: none; font-size: 0.95rem; font-weight: 500; padding: 0.5rem 0.5rem; }
+    @media (max-width: 960px) { .landing-nav-link-wide { display: none; } }
     .landing-nav-btn { padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; font-weight: 500; cursor: pointer; background: transparent; color: #6b7280; border: 1px solid #d1d5db; text-decoration: none; display: inline-block; }
     .landing-nav-btn.primary { background: #7c3aed; color: #ffffff; border-color: #7c3aed; }
     .landing-hero { padding: 10rem 2rem 6rem; text-align: center; background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%); }
     .landing-hero-content { max-width: 800px; margin: 0 auto; }
-    .landing-headline { font-size: 3.5rem; font-weight: 800; line-height: 1.1; margin: 0 0 1.5rem; letter-spacing: -0.03em; color: #1f2937; }
+    .landing-headline { font-size: 3.5rem; font-weight: 800; line-height: 1.1; margin: 0 0 1.5rem; letter-spacing: -0.03em; color: #1f2937; text-wrap: balance; }
     .landing-subheadline { font-size: 1.35rem; color: #6b7280; margin: 0 0 2.5rem; line-height: 1.6; }
     .landing-hero-screenshot { max-width: 1100px; margin: 1rem auto; overflow: hidden; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); border: 1px solid #e5e7eb; }
     .landing-hero-screenshot img { width: calc(100% + 4px); margin-left: -4px; margin-top: -2px; display: block; }
@@ -145,7 +146,7 @@
     <section class="landing-section" style="background: #f9fafb;">
       <div class="landing-section-content">
         <h2 class="landing-section-title">See what changed, undo what you don't want</h2>
-        <p class="landing-section-text">Every change, human or agent, is attributed to whoever made it, and each version can be restored. Diff highlighting and version history show you exactly what the agent changed.</p>
+        <p class="landing-section-text">Every change, human or agent, is attributed to whoever made it, and each version can be restored. Diff highlighting and version history show you what the agent changed.</p>
         <div class="landing-feature-screenshot">
           <img src="/screenshot-versionhistory.png" alt="Version history listing attributed versions, with the changes between two versions highlighted in the document" loading="lazy" />
         </div>
@@ -178,7 +179,7 @@
     <section class="landing-section" style="background: #f9fafb;">
       <div class="landing-section-content">
         <h2 class="landing-section-title">Run it on your machine</h2>
-        <p class="landing-section-text">Tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.</p>
+        <p class="landing-section-text">With Docker installed, tell your agent "set up Squire Docs locally." It runs the install script, prints a sign-in link, and connects itself. Two clicks and you have your own instance on localhost, with no accounts or API keys to configure.</p>
         <pre class="landing-install-cmd"><code>curl -fsSL https://squiredocs.com/install.sh | sh</code></pre>
         <div class="landing-section-links">
           <a href="/documentation/self-hosting" class="landing-btn outline">Read the self-host guide</a>

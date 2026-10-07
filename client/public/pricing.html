@@ -33,6 +33,7 @@
     .landing-logo-text { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
     .landing-nav { display: flex; align-items: center; gap: 0.75rem; }
     .landing-nav-link { color: #6b7280; text-decoration: none; font-size: 0.95rem; font-weight: 500; padding: 0.5rem 0.5rem; }
+    @media (max-width: 960px) { .landing-nav-link-wide { display: none; } }
     .landing-nav-btn { padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.95rem; font-weight: 500; cursor: pointer; background: transparent; color: #6b7280; border: 1px solid #d1d5db; text-decoration: none; display: inline-block; }
     .landing-nav-btn.primary { background: #7c3aed; color: #ffffff; border-color: #7c3aed; }
   </style>
@@ -293,7 +294,7 @@
     <!-- Hero -->
     <section class="pricing-hero">
       <h1>Use ours free, or run your own.</h1>
-      <p>Squire Docs is free during public beta on squiredocs.com, and free to self-host as open source software. Managed instances are priced per organization. No credit card needed.</p>
+      <p>Squire Docs is free during public beta on squiredocs.com, and free to self-host as open source software. Managed instances are priced on request. No credit card needed.</p>
     </section>
 
     <!-- Plans -->
@@ -379,8 +380,8 @@
               <tr>
                 <td>$10 of AI credits every month</td>
                 <td><span class="pricing-check">&#10003;</span></td>
-                <td><span class="pricing-dash">&ndash;</span></td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
               </tr>
               <tr>
                 <td>Sign-in</td>
@@ -390,26 +391,26 @@
               </tr>
               <tr>
                 <td>Runs on your own infrastructure</td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
                 <td><span class="pricing-check">&#10003;</span></td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
               </tr>
               <tr>
                 <td>Single-tenant: your own isolated instance and database</td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
                 <td><span class="pricing-check">&#10003;</span></td>
                 <td><span class="pricing-check">&#10003;</span></td>
               </tr>
               <tr>
                 <td>Hosted in the cloud region you choose</td>
-                <td><span class="pricing-dash">&ndash;</span></td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
                 <td><span class="pricing-check">&#10003;</span></td>
               </tr>
               <tr>
                 <td>Run and supported by us</td>
                 <td><span class="pricing-check">&#10003;</span></td>
-                <td><span class="pricing-dash">&ndash;</span></td>
+                <td><span class="pricing-dash" role="img" aria-label="Not included">&ndash;</span></td>
                 <td><span class="pricing-check">&#10003;</span></td>
               </tr>
             </tbody>
@@ -454,7 +455,7 @@
           </details>
           <details>
             <summary>Do I need an API key to self-host?</summary>
-            <p>No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add a key to turn on the built-in assistant and semantic search.</p>
+            <p>No. The editor, version history, repo sync, and agent connection work without one, because your own agent brings the AI. Add your own key in Settings to turn on the built-in assistant. Semantic search turns on when the server has a Google AI key.</p>
           </details>
         </div>
       </div>

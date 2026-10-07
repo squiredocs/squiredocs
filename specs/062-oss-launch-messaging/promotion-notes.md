@@ -140,3 +140,26 @@ phases append here.
   `npm run sync:footer`, repoints the GitHub links and `GITHUB_ORG_URL` in
   `client/scripts/check-copy-rules.mjs` if the repository name is decided
   (D4), re-runs quickstart.md section 1, and merges.
+
+## Review phase (2026-10-07)
+
+Post-implementation review (Fable, read-only) found no HIGH defects. Dispositions:
+
+Fixed on the branch:
+
+- MEDIUM, pricing FAQ "Add a key to turn on the built-in assistant and semantic search" conflated two keys. Design amended (f4f528c7) and copy changed to "Add your own key in Settings to turn on the built-in assistant. Semantic search turns on when the server has a Google AI key."
+- LOW, "Run it on your machine" omitted the Docker prerequisite. Design amended; copy now opens "With Docker installed, tell your agent...".
+- LOW, scanner false negatives: `SquireDocs` (case-sensitive, so the squiredocs.com domain still passes), `LGPL` and `GPLv3`, and "spec-driven" in `<meta name="description">`. Fixture cases added.
+- LOW, the trust-strip test block ended at the next HTML comment; it now ends at the next `<section`.
+- LOW, the pricing table's not-included en dashes had no accessible text; each now carries `role="img" aria-label="Not included"`.
+- LOW, the inline critical CSS lacked the 960px rule hiding the two new nav links, so the nav could wrap before marketing.css loaded. Added to all four pages.
+- Editorial: "priced per organization" changed to "priced on request" (matches the card); "not the other way around" cut from the about card; "exactly" cut from the diff sentence; the landing H1 gets `text-wrap: balance` so "you." no longer sits alone at 1280px.
+
+Gate items for Sam and the merge-queue owner (not fixed in 062):
+
+- Codex is named as a supported agent (hero, "Any agent, any model", pricing, about), and the "See the Agents & MCP Guide for setup" link leads to a guide with no Codex section. Before launch, either add Codex setup to `documentation/agents-and-mcp.md` (060 or a follow-on) or drop Codex from the setup sentence.
+- Confirm 060's documentation page frontmatter is exactly `slug: self-hosting`; every "Run it yourself" button and the footer Self-host link depend on it.
+- "Tell your agent 'set up Squire Docs locally'" works without hunting only where the agent can find `self-host.md`: the Claude Code plugin's onboarding skill (self-hosting D9), the README, or the docs site. Agents without the plugin rely on those being discoverable.
+- `screenshot-versionhistory.png` (landing section 2) shows the old "HeroDocs" name; recapture before launch.
+- Pre-existing on main, not caused by 062: every marketing page scrolls horizontally at 375px (footer columns about 403px wide) and the header Sign In / Sign Up labels wrap at 375px.
+- Kept as is: "There's no export fee and no lock-in." (retained pricing FAQ line), and "Any agent, any model" heading over a five-provider list (design wording).
