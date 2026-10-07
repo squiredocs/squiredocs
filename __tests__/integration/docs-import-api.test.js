@@ -29,7 +29,7 @@ const { ORIGIN_DB_LOAD, parseOrigin } = require('../../server/origin');
 const { toMarkdown } = require('../../server/mcp/yjs/serialization');
 const { createImportRouter, MAX_IMPORT_BYTES } = require('../../server/api/docs-import');
 const documentImages = require('../../server/document-images');
-const s3Images = require('../../server/s3-images');
+const imageStorage = require('../../server/image-storage');
 const { rehostImagesInFragment, PolicyError } = require('../../server/image-rehost');
 const { setExternalImagePass } = require('../../server/markdown-import');
 
@@ -428,9 +428,9 @@ describe('REST import API', () => {
     beforeEach(() => {
       // Deterministic: real rehost pass + real document_images rows, but the
       // network is faked and S3 byte operations are no-ops.
-      enabledSpy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(true);
-      putObjectSpy = jest.spyOn(s3Images, 'putObject').mockResolvedValue(undefined);
-      copyObjectSpy = jest.spyOn(s3Images, 'copyObject').mockResolvedValue(undefined);
+      enabledSpy = jest.spyOn(imageStorage, 'isEnabled').mockReturnValue(true);
+      putObjectSpy = jest.spyOn(imageStorage, 'putObject').mockResolvedValue(undefined);
+      copyObjectSpy = jest.spyOn(imageStorage, 'copyObject').mockResolvedValue(undefined);
       const fakeFetch = async (src) => {
         if (src.includes('images.example.com')) {
           return { data: Buffer.from('FAKE-PNG-BYTES'), mimeType: 'image/png' };

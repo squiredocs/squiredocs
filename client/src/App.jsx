@@ -18,6 +18,7 @@ import SpaceSettingsPage from './pages/SpaceSettingsPage';
 import ChatPage from './pages/ChatPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
+import { isHosted } from './instance';
 import './App.css';
 
 // UUID validation regex
@@ -53,11 +54,13 @@ function parseRoute() {
     return { view: 'support', docGuid: null };
   }
 
-  // Public legal pages (no auth required)
-  if (path === '/privacy') {
+  // Public legal pages (no auth required). Hosted service only (feature 058):
+  // a self-hosted instance has no Squire Docs legal pages, so they resolve to
+  // the landing view like any unknown path.
+  if (path === '/privacy' && isHosted()) {
     return { view: 'privacy', docGuid: null };
   }
-  if (path === '/terms') {
+  if (path === '/terms' && isHosted()) {
     return { view: 'terms', docGuid: null };
   }
 

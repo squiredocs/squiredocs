@@ -40,6 +40,11 @@ spec:
           value: "3001"
         - name: NODE_ENV
           value: development
+        # Feature 058 (RBD-058-28): development mirrors the hosted service
+        # (marketing pages, analytics shell, credits, admin emails). Unset it,
+        # or set "false", in a shell to exercise self-host mode.
+        - name: SQUIRE_HOSTED
+          value: "true"
         # Positive opt-in that mounts the dev-only auth-bypass routes
         # (/auth/dev-login, /auth/dev-onboarding-reset). Fail-closed: the routes
         # are OFF unless this is explicitly "1". Present ONLY in this dev overlay

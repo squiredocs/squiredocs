@@ -12,7 +12,7 @@ const { EventEmitter } = require('events');
 const Y = require('yjs');
 
 const documentImages = require('../document-images');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const {
   PolicyError,
   isBlockedAddress,
@@ -336,7 +336,7 @@ describe('rehostImagesInFragment', () => {
 
   beforeEach(() => {
     storedCount = 0;
-    enabledSpy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(true);
+    enabledSpy = jest.spyOn(imageStorage, 'isEnabled').mockReturnValue(true);
     storeSpy = jest.spyOn(documentImages, 'storeImage').mockImplementation(async () => {
       storedCount += 1;
       return { id: `img-${storedCount}`, url: `/api/docs/doc-1/images/img-${storedCount}` };

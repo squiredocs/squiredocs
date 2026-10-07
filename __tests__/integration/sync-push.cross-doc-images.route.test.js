@@ -9,8 +9,8 @@
  * without real object storage — mirrors modify-sources.test.js.
  */
 
-// Must be declared before the modules that read s3-images load.
-jest.mock('../../server/s3-images', () => ({
+// Must be declared before the modules that read image storage load.
+jest.mock('../../server/image-storage', () => ({
   isEnabled: jest.fn(() => true),
   putObject: jest.fn(async () => {}),
   getObject: jest.fn(async () => Buffer.alloc(0)),

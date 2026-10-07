@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import {
   parseFrontmatter,
   renderBody,
@@ -15,6 +16,27 @@ import {
   renderIndexPage as renderBlogIndexPage,
   render404 as renderBlog404,
 } from './scripts/render-blog.mjs';
+
+// Feature 058 (RBD-058-28): the dev server mirrors the server's hosted gating.
+// SQUIRE_HOSTED comes from the dev pod's environment (the app-dev pod sets it
+// to "true", so development keeps looking like the hosted service). Unset it to
+// see the self-hosted shell: no marketing or blog pages, no analytics tag.
+const SQUIRE_HOSTED = String(process.env.SQUIRE_HOSTED || '').toLowerCase() === 'true';
+
+// Inject the same instance flag (and, hosted only, the Google tag) the server
+// injects into the built shell. Dev only: the built dist/index.html must stay
+// un-injected, because the server renders it per instance at mount.
+function appShellPlugin() {
+  const require = createRequire(import.meta.url);
+  const { renderAppShell } = require('../server/app-shell.js');
+  return {
+    name: 'squire-app-shell',
+    apply: 'serve',
+    transformIndexHtml(html) {
+      return renderAppShell(html, { hosted: SQUIRE_HOSTED });
+    },
+  };
+}
 
 // Serve static marketing pages in dev mode (matches Express production behavior)
 const STATIC_PAGES = {
@@ -271,7 +293,14 @@ function blogPagesPlugin() {
 }
 
 export default defineConfig({
-  plugins: [staticPagesPlugin(), documentationPagesPlugin(), blogPagesPlugin(), react()],
+  plugins: [
+    // Marketing pages and the blog exist only on the hosted service.
+    ...(SQUIRE_HOSTED ? [staticPagesPlugin()] : []),
+    documentationPagesPlugin(),
+    ...(SQUIRE_HOSTED ? [blogPagesPlugin()] : []),
+    appShellPlugin(),
+    react(),
+  ],
   server: {
     host: process.env.VITE_HOST || '0.0.0.0',
     port: 5173,

@@ -681,3 +681,33 @@ describe('AdminPage — per-user adoption detail (feature 036)', () => {
     expect(within(section).queryByText(adoptionPayload.delegations[0].agentName)).toBeNull();
   });
 });
+
+describe('AdminPage — hosted-only controls (feature 058)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete window.__SQUIRE_INSTANCE__;
+    mockGet.mockImplementation((url) => {
+      if (url === '/api/admin/users') {
+        return Promise.resolve({ data: { users: [captured] } });
+      }
+      return Promise.reject(new Error('not available'));
+    });
+  });
+
+  const renderPage = () =>
+    render(<AdminPage onNavigateHome={() => {}} user={{ name: 'Admin', email: 'admin@example.com' }} />);
+
+  it('hides the welcome-email button and self-test card when not hosted', async () => {
+    renderPage();
+    expect(await screen.findByText('IP')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Send welcome email')).toBeNull();
+    expect(screen.queryByText('Plugin first-run self-test')).toBeNull();
+  });
+
+  it('shows them when hosted', async () => {
+    window.__SQUIRE_INSTANCE__ = { hosted: true };
+    renderPage();
+    expect(await screen.findByLabelText('Send welcome email')).toBeInTheDocument();
+    expect(screen.getByText('Plugin first-run self-test')).toBeInTheDocument();
+  });
+});

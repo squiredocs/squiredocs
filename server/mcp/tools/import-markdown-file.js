@@ -20,6 +20,7 @@
  * fails later with the channel's existing 403 semantics.
  */
 const apiTokens = require('../auth/api-tokens');
+const { getInstanceConfig } = require('../../instance-config');
 const { prepareClaimDelivery } = require('./create-access-token');
 const { deriveMintedTokenName } = require('../auth/token-naming');
 
@@ -191,7 +192,7 @@ async function handler(args, agentToken) {
     name: tokenName,
   });
 
-  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
+  const baseUrl = agentToken.baseUrl || getInstanceConfig().appUrl;
   const command = buildCommand({ intent, docGuid: args.docGuid, claimSecret, claimUrl, baseUrl });
 
   const result = {

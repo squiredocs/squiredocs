@@ -16,7 +16,7 @@
 
 // chat.js is imported READ-ONLY for its transcript image helper (FR-003). Mock its
 // heavy import-time deps the same way the existing chat-attachments suite does.
-jest.mock('../../s3-images', () => ({
+jest.mock('../../image-storage', () => ({
   isEnabled: () => false,
   putObject: jest.fn(async () => {}),
   getObject: jest.fn(async (key) => Buffer.from('BYTES::' + key)),

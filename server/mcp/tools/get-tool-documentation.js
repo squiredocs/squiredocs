@@ -8,6 +8,7 @@
  */
 
 const toolDocumentation = require('./tool-documentation');
+const { getInstanceConfig } = require('../../instance-config');
 
 /**
  * Initialize the tool. No persistence needed - documentation is static.
@@ -59,8 +60,11 @@ const inputSchema = {
  */
 async function handler(args, agentToken) {
   const { tool, section } = args;
+  // The REST reference names this instance: the request's origin, else APP_URL
+  // (feature 058, FR-031).
+  const baseUrl = (agentToken && agentToken.baseUrl) || getInstanceConfig().appUrl;
 
-  const entry = toolDocumentation.getDocs(tool);
+  const entry = toolDocumentation.getDocs(tool, { baseUrl });
   if (!entry) {
     throw new Error(
       `No documentation for tool "${tool}". Available: ${toolDocumentation.DOC_TOPICS.join(', ')}`
@@ -68,7 +72,7 @@ async function handler(args, agentToken) {
   }
 
   if (section) {
-    const match = toolDocumentation.getSection(tool, section);
+    const match = toolDocumentation.getSection(tool, section, { baseUrl });
     if (!match) {
       throw new Error(
         `Unknown section "${section}" for tool "${tool}". Valid sections: ${entry.sectionIds.join(', ')}`

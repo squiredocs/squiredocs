@@ -10,7 +10,7 @@
 
 // Mock S3 so cross-doc image copies exercise the DB + reconcile logic without
 // real object storage. Must be declared before the tool registry loads.
-jest.mock('../../../s3-images', () => ({
+jest.mock('../../../image-storage', () => ({
   isEnabled: jest.fn(() => true),
   putObject: jest.fn(async () => {}),
   getObject: jest.fn(async () => Buffer.alloc(0)),
@@ -34,7 +34,7 @@ const toolRegistry = require('../../tools/index');
 const agentPresence = require('../../agent-presence');
 const { toMarkdown, loadYDoc } = require('../../yjs/serialization');
 const documentImages = require('../../../document-images');
-const s3Images = require('../../../s3-images');
+const imageStorage = require('../../../image-storage');
 const { imageUrl } = require('../../../image-url');
 
 const pool = createPool();
@@ -475,7 +475,7 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
         f => f.toArray().some(n => n.nodeName === 'image'), 'source image node')).destroy();
 
       const targetGuid = await seedDoc('Image Copy Target', null);
-      s3Images.copyObject.mockClear();
+      imageStorage.copyObject.mockClear();
 
       // Clone the image twice — repeated references share one copy
       const result = await modify.handler({
@@ -523,8 +523,8 @@ describe('modify sourceDocGuids (read-only source documents)', () => {
       expect(rows.rows).toHaveLength(1);
       expect(rows.rows[0].mime_type).toBe('image/png');
       expect(rows.rows[0].byte_size).toBe(1234);
-      expect(s3Images.copyObject).toHaveBeenCalledTimes(1);
-      expect(s3Images.copyObject).toHaveBeenCalledWith(
+      expect(imageStorage.copyObject).toHaveBeenCalledTimes(1);
+      expect(imageStorage.copyObject).toHaveBeenCalledWith(
         `doc-images/${srcGuid}/${imageId}`,
         `doc-images/${targetGuid}/${rows.rows[0].id}`
       );

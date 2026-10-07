@@ -2,6 +2,12 @@
  * AI usage metering unit tests
  * Tests ai-usage.js module against a real PostgreSQL database.
  */
+// These assertions describe the hosted service's behavior (feature 058: the
+// production overlay sets SQUIRE_HOSTED=true; the self-hosted branch is covered
+// by hosted-gating.test.js).
+process.env.SQUIRE_HOSTED = 'true';
+require('../instance-config')._resetInstanceConfigForTests();
+
 const aiUsage = require('../ai-usage');
 const { createPool, createTestUser, cleanupTestUser } = require('./helpers/db');
 

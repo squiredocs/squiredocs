@@ -61,16 +61,34 @@ COPY --chown=appuser:appgroup script/ ./script/
 # Copy built client from builder stage
 COPY --from=client-builder --chown=appuser:appgroup /app/client/dist ./client/dist
 
+# Self-host defaults (feature 058). A bare `docker run` gets the production
+# guards (cookie, weak-secret, dev-endpoint, error verbosity), keeps generated
+# secrets and local image bytes under /data, and migrates on boot. The hosted
+# overlay overrides MIGRATE_ON_BOOT=false (the db-migrate Job owns migrations
+# there) and supplies every secret through the environment, so it never writes
+# /data. NODE_ENV here also reaches the minikube base pod (RBD-058-15).
+ENV NODE_ENV=production \
+    SQUIRE_DATA_DIR=/data \
+    MIGRATE_ON_BOOT=true
+
+# The data directory, owned by the runtime user so a named volume mounted
+# there is writable on first boot (a fresh named volume copies this ownership).
+RUN mkdir -p /data && chown appuser:appgroup /data && chmod 0750 /data
+
 # Switch to non-root user
 USER appuser
 
 # Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+# Health check on /ready, not /health: healthy only once startup finished
+# (secrets, migrations, server) and Postgres answers. The start period covers
+# a first boot that runs every migration. Kubernetes ignores HEALTHCHECK; its
+# probes are set in k8s/ (readiness /ready, liveness /health).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=90s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/ready', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"
 
-# Start the server
-CMD ["node", "server/index.js"]
-
+# Start through the entrypoint: secrets, then migrations under an advisory
+# lock, then server/index.js. CMD, not ENTRYPOINT, so the Kubernetes migrate
+# Job's `command: ["npm"]` / `args: ["run", "migrate"]` still replaces it.
+CMD ["node", "script/entrypoint.js"]

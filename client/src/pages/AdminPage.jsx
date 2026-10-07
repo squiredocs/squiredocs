@@ -5,6 +5,7 @@ import Avatar from '../components/Avatar';
 import Logo from '../components/Logo';
 import ViewToggleButton from '../components/ViewToggleButton';
 import { formatAdminDateTime } from '../utils/datetime';
+import { isHosted } from '../instance';
 import './AdminPage.css';
 
 // User-list sort orders. Sorting is client-side: the list endpoint returns
@@ -454,31 +455,35 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
           </div>
         )}
 
-        <div className="admin-settings-card">
-          <div className="admin-settings-heading">
-            <h3>Plugin first-run self-test</h3>
-            <p>
-              Reset the onboarding self-test account (a single hardcoded throwaway)
-              to a fresh first-run, so you can walk <code>/squire:onboard</code> as a
-              brand-new user again. Removes that account and its docs only.
-            </p>
+        {/* Hosted service only (feature 058, FR-028): the reset endpoint does not
+            exist on a self-hosted instance. */}
+        {isHosted() && (
+          <div className="admin-settings-card">
+            <div className="admin-settings-heading">
+              <h3>Plugin first-run self-test</h3>
+              <p>
+                Reset the onboarding self-test account (a single hardcoded throwaway)
+                to a fresh first-run, so you can walk <code>/squire:onboard</code> as a
+                brand-new user again. Removes that account and its docs only.
+              </p>
+            </div>
+            <div className="admin-settings-control">
+              <button
+                type="button"
+                className="admin-btn-sm admin-btn-primary"
+                onClick={handleResetSelfTest}
+                disabled={resettingSelfTest}
+              >
+                {resettingSelfTest ? 'Resetting…' : 'Reset self-test account'}
+              </button>
+              {selfTestResult && (
+                <span className={selfTestResult.ok ? 'admin-settings-status' : 'admin-error-inline'}>
+                  {selfTestResult.message}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="admin-settings-control">
-            <button
-              type="button"
-              className="admin-btn-sm admin-btn-primary"
-              onClick={handleResetSelfTest}
-              disabled={resettingSelfTest}
-            >
-              {resettingSelfTest ? 'Resetting…' : 'Reset self-test account'}
-            </button>
-            {selfTestResult && (
-              <span className={selfTestResult.ok ? 'admin-settings-status' : 'admin-error-inline'}>
-                {selfTestResult.message}
-              </span>
-            )}
-          </div>
-        </div>
+        )}
 
         {loading && (
           <div className="admin-loading">
@@ -612,19 +617,21 @@ export default function AdminPage({ onNavigateHome, onNavigateToSettings, onNavi
                         )}
                       </td>
                       <td className="admin-actions">
-                        <button
-                          className="admin-btn-icon"
-                          onClick={() => handleSendWelcome(u)}
-                          disabled={sendingWelcomeUserId === u.id}
-                          aria-label="Send welcome email"
-                          title={u.welcomeEmailSentAt
-                            ? `Welcome email sent ${formatDate(u.welcomeEmailSentAt)} — click to resend`
-                            : 'Send the beta welcome email to this user (you are BCC’d)'}
-                        >
-                          {sendingWelcomeUserId === u.id
-                            ? '…'
-                            : (u.welcomeEmailSentAt ? '✓' : '✉')}
-                        </button>
+                        {isHosted() && (
+                          <button
+                            className="admin-btn-icon"
+                            onClick={() => handleSendWelcome(u)}
+                            disabled={sendingWelcomeUserId === u.id}
+                            aria-label="Send welcome email"
+                            title={u.welcomeEmailSentAt
+                              ? `Welcome email sent ${formatDate(u.welcomeEmailSentAt)} — click to resend`
+                              : 'Send the beta welcome email to this user (you are BCC’d)'}
+                          >
+                            {sendingWelcomeUserId === u.id
+                              ? '…'
+                              : (u.welcomeEmailSentAt ? '✓' : '✉')}
+                          </button>
+                        )}
                         <button
                           className="admin-btn-icon"
                           onClick={() => toggleExpand(u.id)}

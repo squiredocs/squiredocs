@@ -12,7 +12,8 @@ const documents = require('./documents');
 const documentService = require('./document-service');
 const users = require('./auth/users');
 const { buildYjsNode } = require('./mcp/yjs/node-builder');
-const { WELCOME_DOC_TITLE, WELCOME_DOC_NODES } = require('./onboarding/welcome-template');
+const { WELCOME_DOC_TITLE, buildWelcomeDocNodes } = require('./onboarding/welcome-template');
+const { getInstanceConfig } = require('./instance-config');
 
 // Attribution shown for the seeded content (mirrors the chat assistant author).
 // Feature 040 (FR-005, D10): consumed from the one authoritative definition
@@ -50,7 +51,12 @@ async function seedWelcomeDoc(userId) {
   const docGuid = await documentService.createSeededDocument({
     userId,
     title: WELCOME_DOC_TITLE,
-    nodes: WELCOME_DOC_NODES.map(buildYjsNode),
+    // Built for this instance: its APP_URL, and hosted-only paragraphs only on
+    // the hosted service (feature 058, FR-034).
+    nodes: buildWelcomeDocNodes({
+      appUrl: getInstanceConfig().appUrl,
+      hosted: getInstanceConfig().hosted,
+    }).map(buildYjsNode),
     agentName: CHAT_AGENT_NAME,
   });
 

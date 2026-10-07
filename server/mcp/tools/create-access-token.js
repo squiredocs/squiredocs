@@ -18,6 +18,7 @@
  * opt-in for shell-less agents.
  */
 const apiTokens = require('../auth/api-tokens');
+const { getInstanceConfig } = require('../../instance-config');
 const delegation = require('../auth/delegation');
 const pendingMints = require('../auth/pending-mints');
 const { deriveMintedTokenName, sanitizeTokenName, MAX_NAME_LENGTH } = require('../auth/token-naming');
@@ -192,7 +193,7 @@ async function prepareClaimDelivery(agentToken, { scopes, ttlSeconds, name }) {
     mintedByApiTokenId: agentToken.apiTokenId || null,
   });
 
-  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
+  const baseUrl = agentToken.baseUrl || getInstanceConfig().appUrl;
   return {
     claimSecret,
     claimUrl: `${baseUrl}/api/tokens/claim`,
@@ -216,7 +217,7 @@ async function handler(args, agentToken) {
     apiTokenId: agentToken.apiTokenId || null,
   };
   const tokenName = resolveName(args.name, agentToken);
-  const baseUrl = agentToken.baseUrl || 'https://squiredocs.com';
+  const baseUrl = agentToken.baseUrl || getInstanceConfig().appUrl;
 
   // The usage examples never contain a secret in either delivery mode: the
   // token lives at ~/.squire/token and is referenced via $(cat ...).

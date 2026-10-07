@@ -655,3 +655,123 @@ it early anyway.
 
 **Rationale**: Keeps feature 014's "telemetry first" invariant true for every
 boot path; the hosted service's traces and structured boot logs are unchanged.
+
+---
+
+# Implementation-phase entries (RBD-058-33 onward)
+
+All entries below: **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)**.
+Recorded by the 058 implementer; each is a deviation from or refinement of
+plan.md/tasks.md found while building.
+
+---
+
+## RBD-058-33 - Test setup also drops S3_IMAGE_BUCKET and SES_* (found-in-implementation)
+
+**Question**: T001 deletes `STORAGE_DRIVER` and `SMTP_*` from the test
+environment. The app-dev pod also carries real `S3_IMAGE_BUCKET`, AWS keys, and
+`SES_*` credentials. With the bucket set, `STORAGE_DRIVER` auto-detects `s3`,
+so an unmocked suite would write to a real bucket; with `SES_*` set, email is
+configured through the aliases.
+
+**Default chosen**: `server/__tests__/setup.js` also deletes `S3_IMAGE_BUCKET`,
+`SES_SMTP_HOST`, `SES_SMTP_USER`, `SES_SMTP_PASS`, `SES_FROM_EMAIL`. A suite
+that wants either sets it explicitly. AWS keys and `ADMIN_EMAIL` are left
+alone (nothing selects a driver or a transport from them alone).
+
+**Rationale**: Makes the plan's stated risk mitigation ("the app-dev pod's S3
+vars ignored unless a suite opts in") actually true.
+
+## RBD-058-34 - Per-worker data dir cleanup uses afterAll, not process.on('exit')
+
+**Default chosen**: setup.js registers `afterAll(() => rmSync(...))`. Jest hands
+each test file a fresh process proxy, so an exit listener per file would pile
+up (MaxListeners) in a worker; files in a worker run serially and the next
+file's setup recreates the directory.
+
+## RBD-058-35 - No recursive mkdir in boot and the local driver (found-in-implementation)
+
+**Finding**: `fs.mkdirSync(dir, { recursive: true })` spins forever at 100% CPU
+for a path under `/proc` (Node 22), so a misconfigured `SQUIRE_DATA_DIR` would
+hang boot instead of failing.
+
+**Default chosen**: `server/fs-ensure-dir.js` creates parents one level at a
+time; `server/boot/secrets.js` and the local driver use it. A bad data dir
+fails with the named-directory message.
+
+## RBD-058-36 - Boot migration runner puts node_modules/.bin on PATH
+
+**Finding**: `script/migrate.js` runs `execSync('node-pg-migrate up')`, which
+works under `npm run migrate` (npm adds `node_modules/.bin` to PATH) but not
+when the entrypoint spawns `node script/migrate.js` directly in the image.
+
+**Default chosen**: `defaultRunMigrate` prepends `<repo>/node_modules/.bin` to
+the child's PATH. `script/migrate.js` is unchanged, so the Kubernetes Job is
+unaffected. Verified by running `node script/entrypoint.js` against an empty
+per-agent database (52 migrations applied).
+
+## RBD-058-37 - Boot migration lock key value
+
+**Default chosen**: `MIGRATE_LOCK_KEY = 3728990676630059578`, the first 8
+bytes of sha256("squire-docs:boot-migrate") as a signed int64; a test asserts it
+differs from node-pg-migrate's `7241865325823964`.
+
+## RBD-058-38 - Raw-route cookie path accepts what the WebSocket cookie path accepts
+
+**Default chosen**: `requireAuthOrCookie` verifies the `accessToken` cookie
+with `permissions.extractUser({ queryToken })`, exactly as the WebSocket
+upgrade does (research R8). That call also accepts agent JWTs and API tokens;
+the cookie only ever carries a user session JWT in practice, and scoped
+principals still face the `documents:read` check. A present but bad
+Authorization header is a 401 and never falls back to the cookie. The chat
+attachments router imports the middleware from `server/auth/middleware.js`
+rather than the `server/auth` barrel, so suites that stub the barrel's
+`requireAuth` keep loading. The chat raw route checks the reference before the
+storage check (400 before 503).
+
+## RBD-058-39 - Two small test seams instead of route mirrors
+
+**Default chosen**: document deletion's byte cleanup moved into
+`documentImages.deleteImageBytesForDoc(docId)` (called by `server/index.js`), and
+`collectBundleAssets` is exported from `server/api/docs-export.js`, so the
+local-driver coverage for deletion and bundle export (T034) exercises the
+production functions. T034's cases live in one new suite,
+`server/__tests__/image-storage-local-paths.test.js`, and T033's local cases in
+`server/__tests__/chat-attachments-local.test.js`, because the existing suites
+mock the storage module file-wide.
+
+## RBD-058-40 - Empty-database and concurrent-boot migration covered by an automated test
+
+**Default chosen**: `server/__tests__/migrate-lock.test.js` creates a scratch
+database named `<worker db>_boot` (derived from the per-run base, so private to
+the run and worker), runs two concurrent `runMigrationsWithLock` calls with the
+real `script/migrate.js` runner, asserts the runs never overlap and every
+migration row exists exactly once, then drops it. About 4 s. Quickstart steps
+for the image remain owed (Docker).
+
+## RBD-058-41 - Documentation pages still embed the Google tag (found-in-implementation)
+
+**Finding**: `client/scripts/render-documentation.mjs` puts the Google tag in
+every `/documentation` page, which a self-hosted instance serves. The
+self-hosted CSP blocks the script, so nothing is sent, but the browser logs a
+CSP violation.
+
+**Default chosen**: Left for feature 060's documentation work, alongside the
+squiredocs.com mentions in those pages (RBD-058-6). Listed in promotion notes.
+
+## RBD-058-42 - Vite dev gating and hosted /index.html
+
+**Default chosen**: `client/vite.config.js` gates the blog plugin as well as
+the marketing-pages plugin on `SQUIRE_HOSTED`, and the shell plugin is
+`apply: 'serve'` so the built `dist/index.html` is never pre-injected. In dev
+with the flag off, `/pricing` falls through to the SPA shell (Vite has no 404
+step); production returns 404. On the hosted service `/index.html` now serves
+the injected shell (before, express.static served the raw file, which carried
+the tag inline); the bytes differ only in the added instance script.
+
+## RBD-058-43 - Settings hides the whole AI Usage block when the allowance does not apply
+
+**Default chosen**: When not hosted or `usage.notApplicable`, the Settings "AI
+Usage" subsection (meter, beta note, and the BYOK "tracked but not limited"
+line inside it) is not rendered. `checkQuota` for an unknown user id still
+returns `allowed: false` on either instance type.

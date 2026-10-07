@@ -6,6 +6,12 @@
 const request = require('supertest');
 const express = require('express');
 
+// The welcome email is a hosted-only admin action (feature 058, FR-028); the
+// production overlay sets SQUIRE_HOSTED=true. The self-hosted 404 is covered
+// by hosted-gating.test.js.
+process.env.SQUIRE_HOSTED = 'true';
+require('../instance-config')._resetInstanceConfigForTests();
+
 jest.mock('../email', () => ({
   sendWelcomeEmail: jest.fn(),
 }));

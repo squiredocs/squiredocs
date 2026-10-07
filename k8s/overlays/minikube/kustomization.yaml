@@ -5,6 +5,12 @@ kind: Kustomization
 # (FR-009, SC-003): premium-rwo/standard-rwo storage classes, app-dev tooling
 # pod, /health for both probes, passwordless Redis, image collab:latest, PSS
 # warn=baseline only. No hardening patches (those live in aws-prod).
+#
+# Feature 058: the base collab-app pod now runs NODE_ENV=production from the
+# image's ENV (RBD-058-15), so its secrets (k8s/auth.env, the MCP secret) must
+# be strong non-default values or it refuses to boot. The self-host-config
+# patch mirrors production's SQUIRE_HOSTED=true and MIGRATE_ON_BOOT=false (the
+# migrate Job keeps running); STORAGE_DRIVER is left to auto-detect.
 
 namespace: collab
 
@@ -21,6 +27,8 @@ images:
     newTag: latest
 
 patches:
+  # Feature 058: SQUIRE_HOSTED=true, MIGRATE_ON_BOOT=false on collab-app.
+  - path: patches/app-self-host-config.yaml
   # PSS warn=baseline only (no enforce, RD-8).
   - path: patches/namespace-pss.yaml
     target:

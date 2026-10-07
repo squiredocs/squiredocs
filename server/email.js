@@ -1,32 +1,44 @@
 /**
- * Email notifications via AWS SES SMTP
+ * Email notifications over SMTP (feature 058: any SMTP server; the hosted
+ * service uses AWS SES).
  * Fire-and-forget — never blocks HTTP responses, logs errors but never throws.
- * Gracefully skips if SES_FROM_EMAIL is not configured.
+ *
+ * Transport settings come from the instance config (server/instance-config.js,
+ * research R12): SMTP_HOST, SMTP_PORT (default 465), SMTP_SECURE (default true
+ * for 465, else STARTTLS), SMTP_USER, SMTP_PASS, SMTP_FROM, with the SES_*
+ * names as aliases (the generic name wins). With no sender (SMTP_FROM), or a
+ * sender but no host, every send is skipped silently; server/index.js logs one
+ * boot line saying email is off.
+ *
+ * The admin sign-up and login notifications are hosted-only (RBD-058-23).
  */
 
 const nodemailer = require('nodemailer');
+const { getInstanceConfig } = require('./instance-config');
 
 /** Strip CR/LF to prevent email header injection */
 const sanitizeHeader = (s) => String(s).replace(/[\r\n]/g, '');
 
-const FROM_EMAIL = process.env.SES_FROM_EMAIL;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-const SMTP_HOST = process.env.SES_SMTP_HOST || 'email-smtp.us-west-2.amazonaws.com';
-const SMTP_USER = process.env.SES_SMTP_USER;
-const SMTP_PASS = process.env.SES_SMTP_PASS;
 
 let transporter = null;
+let transporterSmtp = null;
 
 function getTransporter() {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: 465,
-      secure: true,
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-    });
+  const smtp = getInstanceConfig().smtp;
+  if (!transporter || transporterSmtp !== smtp) {
+    const options = { host: smtp.host, port: smtp.port, secure: smtp.secure };
+    if (smtp.user || smtp.pass) options.auth = { user: smtp.user, pass: smtp.pass };
+    transporter = nodemailer.createTransport(options);
+    transporterSmtp = smtp;
   }
   return transporter;
+}
+
+/** Whether email can be sent at all (a sender and a host are configured). */
+function isEmailConfigured() {
+  const { from, host } = getInstanceConfig().smtp;
+  return Boolean(from && host);
 }
 
 /** Escape a string for safe interpolation into HTML. */
@@ -39,17 +51,18 @@ const escapeHtml = (s) => String(s)
  * Returns a result object so callers that care (e.g. an admin-triggered send)
  * can report success/failure; fire-and-forget callers can ignore it.
  *   { ok: true, messageId }        — sent
- *   { ok: false, skipped: true }   — SES not configured
+ *   { ok: false, skipped: true }   — email not configured (no SMTP_FROM or host)
  *   { ok: false, error }           — send failed
  */
 async function sendEmail({ to, subject, html, replyTo, bcc }) {
-  if (!FROM_EMAIL) {
-    console.warn('SES_FROM_EMAIL not set — skipping email:', subject);
+  // Not configured: skip silently. The one "email is off" line is logged at
+  // boot (server/index.js), not per message.
+  if (!isEmailConfigured()) {
     return { ok: false, skipped: true };
   }
 
   try {
-    const message = { from: `Squire Docs <${FROM_EMAIL}>`, to, subject, html };
+    const message = { from: `Squire Docs <${getInstanceConfig().smtp.from}>`, to, subject, html };
     if (replyTo) message.replyTo = sanitizeHeader(replyTo);
     if (bcc) message.bcc = bcc;
     const info = await getTransporter().sendMail(message);
@@ -65,6 +78,7 @@ async function sendEmail({ to, subject, html, replyTo, bcc }) {
  * Notify admin of a new user registration
  */
 function notifyNewUser({ email, name }) {
+  if (!getInstanceConfig().hosted) return; // hosted-only (RBD-058-23)
   if (!ADMIN_EMAIL) return;
   const safeEmail = escapeHtml(email);
   const safeName = escapeHtml(name || '(not provided)');
@@ -83,6 +97,7 @@ function notifyNewUser({ email, name }) {
  * Notify admin of a user login
  */
 function notifyLogin({ email, name }) {
+  if (!getInstanceConfig().hosted) return; // hosted-only (RBD-058-23)
   if (!ADMIN_EMAIL) return;
   const safeEmail = escapeHtml(email);
   const safeName = escapeHtml(name || '(not provided)');

@@ -7,24 +7,29 @@ const { OAuth2Client } = require('google-auth-library');
 // Configuration from environment variables
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/auth/google/callback';
+// Feature 058 (FR-010): GOOGLE_REDIRECT_URI, else ${APP_URL}/auth/google/callback,
+// resolved by the instance config when the client is built.
+const { getInstanceConfig } = require('../instance-config');
 
-// OAuth2 client instance
+// OAuth2 client instance, rebuilt if the resolved redirect URI changes
 let oauth2Client = null;
+let oauth2ClientRedirectUri = null;
 
 /**
  * Get or create the OAuth2 client instance
  */
 function getOAuth2Client() {
-  if (!oauth2Client) {
+  const redirectUri = getInstanceConfig().googleRedirectUri;
+  if (!oauth2Client || oauth2ClientRedirectUri !== redirectUri) {
     if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
       throw new Error('Google OAuth credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.');
     }
     oauth2Client = new OAuth2Client(
       GOOGLE_CLIENT_ID,
       GOOGLE_CLIENT_SECRET,
-      GOOGLE_REDIRECT_URI
+      redirectUri
     );
+    oauth2ClientRedirectUri = redirectUri;
   }
   return oauth2Client;
 }

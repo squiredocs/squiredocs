@@ -10,7 +10,8 @@
 // Vars are `mock`-prefixed so jest's factory-hoist allows referencing them.
 let mockS3Enabled = true;
 const mockPutObject = jest.fn(async () => {});
-jest.mock('../s3-images', () => ({
+jest.mock('../image-storage', () => ({
+  kind: 's3',
   isEnabled: () => mockS3Enabled,
   putObject: (...a) => mockPutObject(...a),
   getObject: jest.fn(async (key) => Buffer.from('BYTES::' + key)),
@@ -25,7 +26,7 @@ jest.mock('../auth', () => ({
 
 const request = require('supertest');
 const express = require('express');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { createChatAttachmentsRouter } = require('../api/chat-attachments');
 const chat = require('../api/chat');
 
@@ -115,7 +116,7 @@ describe('chat attachments — resolve endpoint (transcript display)', () => {
   const uuid = '33333333-3333-3333-3333-333333333333';
   const ownedRef = `attachment:chat-attachments/user-42/${uuid}`;
 
-  beforeEach(() => { mockS3Enabled = true; s3Images.getSignedGetUrl.mockClear(); });
+  beforeEach(() => { mockS3Enabled = true; imageStorage.getSignedGetUrl.mockClear(); });
 
   it('resolves an owned reference to a presigned URL (no-store)', async () => {
     const res = await request(buildApp())
@@ -125,7 +126,7 @@ describe('chat attachments — resolve endpoint (transcript display)', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toBe(`https://s3.example/signed/chat-attachments/user-42/${uuid}?sig=abc`);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(s3Images.getSignedGetUrl).toHaveBeenCalledWith(`chat-attachments/user-42/${uuid}`);
+    expect(imageStorage.getSignedGetUrl).toHaveBeenCalledWith(`chat-attachments/user-42/${uuid}`);
   });
 
   it("rejects another user's reference with 400 (never signs it)", async () => {
@@ -134,7 +135,7 @@ describe('chat attachments — resolve endpoint (transcript display)', () => {
       .query({ ref: ownedRef })
       .set('x-test-user', 'user-other');
     expect(res.status).toBe(400);
-    expect(s3Images.getSignedGetUrl).not.toHaveBeenCalled();
+    expect(imageStorage.getSignedGetUrl).not.toHaveBeenCalled();
   });
 
   it('rejects a traversal reference with 400', async () => {
@@ -143,7 +144,7 @@ describe('chat attachments — resolve endpoint (transcript display)', () => {
       .query({ ref: `attachment:chat-attachments/user-42/../user-victim/${uuid}` })
       .set('x-test-user', 'user-42');
     expect(res.status).toBe(400);
-    expect(s3Images.getSignedGetUrl).not.toHaveBeenCalled();
+    expect(imageStorage.getSignedGetUrl).not.toHaveBeenCalled();
   });
 
   it('rejects a missing/blank ref with 400', async () => {
@@ -173,7 +174,7 @@ describe('chat attachments — reference resolution & user-scope (FR-016/018)', 
     const message = { parts: [{ type: 'file', mediaType: 'image/png', url: ownedRef, filename: 'a.png' }] };
     const images = await chat.extractMessageImages(message, ownerId);
     expect(images).toHaveLength(1);
-    expect(s3Images.getObject).toHaveBeenCalledWith(ownedKey);
+    expect(imageStorage.getObject).toHaveBeenCalledWith(ownedKey);
     expect(Buffer.from(images[0].dataBase64, 'base64').toString()).toBe('BYTES::' + ownedKey);
   });
 

@@ -70,6 +70,44 @@ async function requireAuth(req, res, next) {
 }
 
 /**
+ * Feature 058 (research R8, RBD-058-20): authentication for the raw image
+ * routes. A browser `<img>` request carries cookies only, never the Bearer
+ * header the client's fetch calls send, so these routes also accept the
+ * httpOnly `accessToken` session cookie. An Authorization header, when
+ * present, takes exactly the requireAuth path (a bad header is a 401, never a
+ * silent fall-back to the cookie). The cookie is verified with the same
+ * extractUser call the WebSocket upgrade uses for the same cookie, and scoped
+ * principals face the same scope check.
+ *
+ * Only for read-only GET routes: the cookie is SameSite=Strict in production
+ * and these routes change nothing, so there is no CSRF surface.
+ */
+async function requireAuthOrCookie(req, res, next) {
+  if (req.headers.authorization) {
+    return requireAuth(req, res, next);
+  }
+
+  const cookieToken = req.cookies?.accessToken
+    || require('./jwt').parseCookies(req.headers.cookie).accessToken;
+  if (!cookieToken) {
+    return res.status(401).json({ error: 'No authorization header' });
+  }
+
+  const user = await extractUser({ queryToken: cookieToken });
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const scopeError = checkScopes(user, req.method);
+  if (scopeError) {
+    return res.status(403).json(scopeError);
+  }
+
+  req.user = user;
+  next();
+}
+
+/**
  * Optional authentication middleware
  * Works with or without auth - adds req.user if valid token present
  * Does not return error if no token or invalid token
@@ -156,6 +194,7 @@ function requireDevEndpoints(req, res, next) {
 
 module.exports = {
   requireAuth,
+  requireAuthOrCookie,
   optionalAuth,
   requireAdmin,
   requiredScopeForMethod,

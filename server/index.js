@@ -37,6 +37,29 @@ telemetry.start();
   );
 })();
 
+// --- Instance configuration (feature 058) -------------------------------------
+// Resolved once, here, so `npm run dev` / `npm start` (which bypass the image
+// entrypoint) still fail fast on an invalid APP_URL, STORAGE_DRIVER, SMTP_PORT,
+// ... Every module reads the same memoized object (RBD-058-16).
+const { getInstanceConfig } = require('./instance-config');
+const instanceConfig = getInstanceConfig();
+(function logInstanceConfig() {
+  if (instanceConfig.hostedInvalidValue !== null) {
+    console.warn(`[Config] SQUIRE_HOSTED="${instanceConfig.hostedInvalidValue}" is not true or false; treating as off`);
+  }
+  if (instanceConfig.insecureRemoteHttp) {
+    console.warn(
+      `[Config] APP_URL is http on a non-local host (${new URL(instanceConfig.appUrl).host}). ` +
+      'Serving plain HTTP beyond localhost is not supported; put a TLS-terminating proxy in front and set an https APP_URL.'
+    );
+  }
+  if (!instanceConfig.smtp.from) {
+    console.log('[Email] off (no SMTP_FROM)');
+  } else if (!instanceConfig.smtp.host) {
+    console.warn('[Email] SMTP_FROM is set but SMTP_HOST is not; email is off');
+  }
+})();
+
 const express = require('express');
 const helmet = require('helmet');
 const WebSocket = require('ws');
@@ -66,7 +89,7 @@ const collabGuardrail = require('./collab-guardrail');
 const { parseCookies } = require('./auth/jwt');
 const documents = require('./documents');
 const documentImages = require('./document-images');
-const s3Images = require('./s3-images');
+const imageStorage = require('./image-storage');
 const permissions = require('./permissions');
 const versionHistory = require('./version-history');
 // The identity leaf (features 040/043). Zero-require — safe to import anywhere.
@@ -87,8 +110,7 @@ const resupplyResolution = require('./resupply-resolution');
 const undoService = require('./undo/undo-service');
 const onboarding = require('./onboarding');
 const search = require('./search');
-const { mountDocumentationRoutes } = require('./documentation-routes');
-const { mountBlogRoutes } = require('./blog-routes');
+const { buildCspDirectives, oldDomainRedirect, mountWebRoutes } = require('./web-routes');
 const { ORIGIN_REDIS, shouldPublishToRedis } = require('./origin');
 // The sync-protocol edit gate (feature 038). Frame classification AND the
 // interceptor that installs it live in one module so there is exactly one
@@ -124,6 +146,7 @@ const spaces = require('./spaces');
 const { createExportRouter } = require('./api/docs-export');
 const { createImportRouter } = require('./api/docs-import');
 const { createChatAttachmentsRouter } = require('./api/chat-attachments');
+const { createDocumentImagesRouter } = require('./api/document-images-routes');
 const { createTokenClaimRouter } = require('./api/token-claim');
 const { createUndoStatusRouter } = require('./api/undo-status');
 const { notifyException, setupProcessHandlers } = require('./exception-notifier');
@@ -193,34 +216,23 @@ app.use((req, res, next) => {
 });
 
 // Security headers
+// Feature 058: the directives, the old-domain redirect, and the page routes
+// live in server/web-routes.js, gated on SQUIRE_HOSTED (Google sources and the
+// 301 exist only on the hosted service; img-src carries the S3 origin only for
+// the S3 driver).
 app.use(helmet({
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.googleadservices.com"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      // S3 image origin(s) added so the browser can load presigned document-image URLs.
-      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://www.googletagmanager.com", "https://googleads.g.doubleclick.net", "https://www.google.com", "https://*.gstatic.com", ...s3Images.cspImageSources()],
-      connectSrc: ["'self'", "ws:", "wss:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.google.com", "https://googleads.g.doubleclick.net"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
-    },
+    directives: buildCspDirectives({ hosted: instanceConfig.hosted, storage: imageStorage }),
   },
   crossOriginEmbedderPolicy: false,
 }));
 
-// Redirect old domains to squiredocs.com
-app.use((req, res, next) => {
-  const host = req.get('host');
-  if (host === 'herodocs.xyz' || host === 'heradocs.com') {
-    return res.redirect(301, `https://squiredocs.com${req.originalUrl}`);
-  }
-  next();
-});
+// Redirect old domains to squiredocs.com (hosted only)
+app.use(oldDomainRedirect);
 
-// Client URL for CORS (configurable via env)
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Client URL for CORS: CLIENT_URL, else APP_URL (feature 058, FR-010). The two
+// localhost origins below stay allowed for the Vite and direct dev workflows.
+const CLIENT_URL = instanceConfig.clientUrl;
 
 // CORS configuration - allow credentials for cookies
 const CORS_ALLOWED_ORIGINS = new Set([
@@ -892,15 +904,13 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
     // Delete Yjs data
     await persistenceProvider.clearDocument(docId);
 
-    // Delete the document's images from S3 (DB rows cascade with the document).
-    // Best-effort: a failure here shouldn't block document deletion.
+    // Delete the document's image bytes from image storage (S3 or the local
+    // driver; DB rows cascade with the document). Best-effort: a failure here
+    // shouldn't block document deletion.
     try {
-      if (s3Images.isEnabled()) {
-        const imageKeys = await documentImages.listKeysForDoc(docId);
-        await s3Images.deleteObjects(imageKeys);
-      }
+      await documentImages.deleteImageBytesForDoc(docId);
     } catch (cleanupError) {
-      console.error('Error deleting document images from S3:', cleanupError);
+      console.error('Error deleting document images from image storage:', cleanupError);
       notifyException(cleanupError, { req, source: 'api' });
     }
 
@@ -918,71 +928,11 @@ app.delete('/api/docs/:docId', requireAuth, async (req, res) => {
   }
 });
 
-// API: Upload an image for a document (editor or owner)
-// Body: { filename, mimeType, dataBase64 }. Bytes go to S3; only metadata is stored in PG.
-app.post('/api/docs/:docId/images', requireAuth, express.json({ limit: '20mb' }), async (req, res) => {
-  try {
-    const { docId } = req.params;
-    const userId = req.user.userId;
-
-    if (!s3Images.isEnabled()) {
-      return res.status(503).json({ error: 'Image storage is not configured' });
-    }
-
-    // Uploading is an edit — require editor-or-better
-    if (!(await documents.canEdit(docId, userId))) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const { filename = null, mimeType, dataBase64 } = req.body || {};
-    if (!mimeType || !dataBase64) {
-      return res.status(400).json({ error: 'mimeType and dataBase64 are required' });
-    }
-
-    const result = await documentImages.storeImage({
-      docId, uploaderId: userId, data: Buffer.from(dataBase64, 'base64'), mimeType, filename,
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    // storeImage tags validation errors with a status (400/413).
-    if (error.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error('Error uploading document image:', error);
-    notifyException(error, { req, source: 'api' });
-    res.status(500).json({ error: 'Failed to upload image' });
-  }
-});
-
-// API: Resolve a document image to a short-lived presigned S3 URL (viewer-or-better).
-// Returns { url } rather than bytes so images load directly from S3.
-app.get('/api/docs/:docId/images/:imageId', requireAuth, async (req, res) => {
-  try {
-    const { docId, imageId } = req.params;
-    const userId = req.user.userId;
-
-    if (!s3Images.isEnabled()) {
-      return res.status(503).json({ error: 'Image storage is not configured' });
-    }
-
-    if (!(await documents.hasAccess(docId, userId))) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const image = await documentImages.getImage(imageId, docId);
-    if (!image) {
-      return res.status(404).json({ error: 'Image not found' });
-    }
-
-    const url = await s3Images.getSignedGetUrl(image.s3_key);
-    res.set('Cache-Control', 'no-store');
-    res.json({ url });
-  } catch (error) {
-    console.error('Error resolving document image:', error);
-    notifyException(error, { req, source: 'api' });
-    res.status(500).json({ error: 'Failed to resolve image' });
-  }
-});
+// Document image upload, resolve, and raw byte routes (feature 058: moved
+// into server/api/document-images-routes.js so tests mount the production
+// router; the upload route keeps its own 20mb JSON parser, and the global
+// parser above still skips that path).
+app.use(createDocumentImagesRouter({ documents, documentImages, storage: imageStorage, notifyException }));
 
 // API: Search registered users for the share autocomplete
 app.get('/api/users/search', requireAuth, async (req, res) => {
@@ -1607,83 +1557,10 @@ app.delete('/api/docs/:docId/versions/:versionId', requireAuth, rateLimit.perUse
   }
 });
 
-// Serve static files and React app (only if build directory exists)
-if (fs.existsSync(clientBuildPath)) {
-  // Serve static marketing pages (matches Vite dev plugin behavior)
-  app.get('/', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'landing.html'));
-  });
-
-  app.get('/pricing', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'pricing.html'));
-  });
-
-  app.get('/about', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'about.html'));
-  });
-
-  app.get('/security', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'security.html'));
-  });
-
-  // Serve the product documentation site (feature 007). Mounted BEFORE
-  // express.static: the static middleware treats dist/documentation as a
-  // directory and would 301 the canonical /documentation to /documentation/
-  // (and serve the trailing-slash form directly), inverting the D1/D2
-  // redirects. Mounted before the app-shell catch-all so an unknown slug
-  // returns a styled 404 instead of falling through to the app (FR-016).
-  // Reads the generated files once at mount time; a missing directory is
-  // handled without crashing (Edge Cases).
-  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
-
-  // Serve the static blog. Mounted BEFORE express.static (same reasoning as the
-  // documentation routes: the static middleware would 301 the canonical /blog to
-  // /blog/ and invert the redirects) and before the app-shell catch-all so an
-  // unknown slug returns a styled 404 instead of falling through to the app.
-  mountBlogRoutes(app, path.join(clientBuildPath, 'blog'));
-
-  app.use(express.static(clientBuildPath, {
-    setHeaders: (res, filePath) => {
-      // marketing.css is render-blocking for the static marketing pages and
-      // isn't fingerprinted; a short TTL avoids a revalidation round trip on
-      // every page view without pinning stale styles for long after a deploy.
-      if (filePath.endsWith('marketing.css')) {
-        res.setHeader('Cache-Control', 'public, max-age=300');
-      }
-      // Root-level blog assets (blog.css, blog-*.svg — exactly what the /blog*
-      // CloudFront path pattern matches) and the self-hosted /vendor/* bundles
-      // are static, edge-cached (edge.tf), and invalidated on every deploy
-      // (script/deploy-aws.sh). Mirror the blog HTML's header (blog-routes.js):
-      // cache hard at the shared edge, short browser max-age so a deploy's
-      // edge invalidation actually reaches readers.
-      const rel = path.relative(clientBuildPath, filePath);
-      if (
-        (rel.startsWith('blog') && !rel.includes(path.sep)) ||
-        rel.startsWith(`vendor${path.sep}`)
-      ) {
-        res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=31536000');
-      }
-    },
-  }));
-
-  // Serve React app for all other routes
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(clientBuildPath, 'index.html'));
-  });
-} else {
-  // In development, serve a message if frontend isn't built
-  app.get('*', (req, res) => {
-    res.send(`
-      <html>
-        <body>
-          <h1>Server is running</h1>
-          <p>Please build the client first: <code>cd client && npm run build</code></p>
-          <p>Or run in development mode: <code>npm run dev</code></p>
-        </body>
-      </html>
-    `);
-  });
-}
+// Marketing, legal, and blog pages (hosted only), documentation, static files,
+// /agents.md, and the injected app shell (feature 058, server/web-routes.js).
+// Falls back to a "build the client" page when client/dist is missing.
+mountWebRoutes(app, { clientBuildPath });
 
 // Express error-handling middleware (safety net for unhandled errors)
 app.use((err, req, res, next) => {

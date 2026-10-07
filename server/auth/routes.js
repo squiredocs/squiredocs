@@ -38,19 +38,21 @@ const { validateCodeChallenge } = require('../mcp/auth/pkce');
 // Auto-issue path is restricted to localhost redirect URIs (feature 031
 // adversarial-review fix, ratified by Sam 2026-07-22 — see the gate below).
 const { isLocalhostUri } = require('../mcp/auth/registered-agents');
+const { getInstanceConfig, hostedOnly } = require('../instance-config');
 
 const router = express.Router();
 
-// Fallback client URL for redirects (configurable via env)
-const DEFAULT_CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Fallback client URL for redirects: CLIENT_URL, else APP_URL (feature 058,
+// FR-010). Read at call time from the instance config.
+const defaultClientUrl = () => getInstanceConfig().clientUrl;
 
 /**
  * Get the client URL from request origin or referer, falling back to env config.
- * In production, always returns DEFAULT_CLIENT_URL to prevent open redirect.
+ * In production, always returns defaultClientUrl() to prevent open redirect.
  */
 function getClientUrl(req) {
   if (process.env.NODE_ENV === 'production') {
-    return DEFAULT_CLIENT_URL;
+    return defaultClientUrl();
   }
   // In development, use origin/referer for flexibility
   if (req.headers.origin) {
@@ -64,24 +66,24 @@ function getClientUrl(req) {
       // Invalid referer, fall through
     }
   }
-  return DEFAULT_CLIENT_URL;
+  return defaultClientUrl();
 }
 
 /**
  * Validate that a client URL matches the allowed origin.
- * Returns DEFAULT_CLIENT_URL if validation fails.
+ * Returns defaultClientUrl() if validation fails.
  */
 function validateClientUrl(clientUrl) {
   try {
     const parsed = new URL(clientUrl);
-    const allowed = new URL(DEFAULT_CLIENT_URL);
+    const allowed = new URL(defaultClientUrl());
     if (parsed.origin === allowed.origin) {
       return clientUrl;
     }
   } catch {
     // Invalid URL
   }
-  return DEFAULT_CLIENT_URL;
+  return defaultClientUrl();
 }
 
 /**
@@ -120,7 +122,6 @@ function isValidReturnTo(value) {
  */
 router.get('/google', (req, res) => {
   try {
-    const isProduction = process.env.NODE_ENV === 'production';
     const clientUrl = getClientUrl(req);
 
     // Store the client URL in a cookie so we can redirect back after OAuth
@@ -128,7 +129,7 @@ router.get('/google', (req, res) => {
       httpOnly: true,
       maxAge: 5 * 60 * 1000,
       sameSite: 'lax',
-      secure: isProduction,
+      secure: getInstanceConfig().cookieSecure,
     });
 
     // Feature 005-agent-onboarding: honor a same-origin returnTo path through
@@ -140,7 +141,7 @@ router.get('/google', (req, res) => {
         httpOnly: true,
         maxAge: 10 * 60 * 1000, // 10 minutes (R1)
         sameSite: 'lax',
-        secure: isProduction,
+        secure: getInstanceConfig().cookieSecure,
       });
     }
 
@@ -150,7 +151,7 @@ router.get('/google', (req, res) => {
       httpOnly: true,
       maxAge: 5 * 60 * 1000,
       sameSite: 'lax',
-      secure: isProduction,
+      secure: getInstanceConfig().cookieSecure,
     });
 
     const authUrl = generateAuthUrl(state);
@@ -171,7 +172,7 @@ router.get('/google/callback', async (req, res) => {
   const { code, error, state } = req.query;
 
   // Get the client URL from the cookie we set, validate it, then clear
-  const rawClientUrl = req.cookies?.oauth_redirect || DEFAULT_CLIENT_URL;
+  const rawClientUrl = req.cookies?.oauth_redirect || defaultClientUrl();
   const clientUrl = process.env.NODE_ENV === 'production'
     ? validateClientUrl(rawClientUrl)
     : rawClientUrl;
@@ -819,7 +820,7 @@ router.post('/dev-consent-approve', requireDevEndpoints, requireAuth, async (req
  * parameter-handling bug cannot widen the blast radius (SC-005). Idempotent no-op
  * when the account is already reset.
  */
-router.post('/prod-reset-selftest-account', requireAdmin, async (req, res) => {
+router.post('/prod-reset-selftest-account', hostedOnly, requireAdmin, async (req, res) => {
   try {
     const { deleted, docCount } = await deleteUserByEmail(PROD_RESET_ACCOUNT);
     return res.json({ ok: true, account: PROD_RESET_ACCOUNT, deleted, docCount });

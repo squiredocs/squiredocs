@@ -17,7 +17,7 @@ const { findByNodeName } = require('./sandbox/helpers');
 const { isAppImageUrl, parseAppImageUrl } = require('../image-url');
 const documents = require('../documents');
 const documentImages = require('../document-images');
-const s3Images = require('../s3-images');
+const imageStorage = require('../image-storage');
 const { rehostImagesInFragment } = require('../image-rehost');
 const { IMPORT_ORIGIN_ATTR } = require('./sandbox/from-markdown');
 const { isAllowedLinkHref, schemeOf } = require('../../shared/link-protocol');
@@ -82,7 +82,7 @@ async function reconcileCrossDocImages(xmlFragment, targetDocGuid, userId) {
     if (!parsed || parsed.docId === targetDocGuid) continue;
     crossDocNodes.push({ node, src, parsed });
   }
-  if (crossDocNodes.length === 0 || !s3Images.isEnabled()) {
+  if (crossDocNodes.length === 0 || !imageStorage.isEnabled()) {
     return { copied, removed };
   }
 

@@ -312,8 +312,8 @@ describe('importMarkdown', () => {
   test('report shape: blocks, images (all four arrays), frontmatter', async () => {
     // Hermetic: force the storage-disabled degradation path so the default
     // rehost pass never attempts DNS/network in unit tests.
-    const s3Images = require('../s3-images');
-    const enabledSpy = jest.spyOn(s3Images, 'isEnabled').mockReturnValue(false);
+    const imageStorage = require('../image-storage');
+    const enabledSpy = jest.spyOn(imageStorage, 'isEnabled').mockReturnValue(false);
     const docGuid = await makeDoc();
     const report = await doImport(docGuid, '# Doc\n\ntext ![pic](https://ext.example.com/p.png)\n\n![gone](data:image/png;base64,AAAA)');
     enabledSpy.mockRestore();

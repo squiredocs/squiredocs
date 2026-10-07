@@ -1,0 +1,128 @@
+[
+  {
+    "type": "heading",
+    "level": 1,
+    "content": "Welcome to Squire Docs!"
+  },
+  {
+    "type": "paragraph",
+    "content": "Squire Docs is a collaborative editor for spec-driven development: design docs, ADRs, and specs that engineers, PMs, and coding agents write together, with every edit attributed."
+  },
+  {
+    "type": "heading",
+    "level": 2,
+    "content": "How it works"
+  },
+  {
+    "type": "paragraph",
+    "content": "Everyone — and every agent — works in the same living document. Every edit is attributed, versioned, and reversible, and the whole thing can sync to your repos as markdown."
+  },
+  {
+    "type": "mermaid",
+    "content": "graph TB\n    subgraph Clients[\"Contributors\"]\n        T[\"You & your team<br/>(live cursors)\"]\n        A[\"Squire Assistant<br/>(in-app AI)\"]\n        C[\"Your coding agents<br/>(Claude Code · Kiro via MCP)\"]\n    end\n\n    D[(\"Living document<br>Yjs CRDT<br>attributed · versioned · reversible\")]\n\n    T -->|\"edits\"| D\n    A -->|\"edits\"| D\n    C -->|\"reads / writes\"| D\n    C -->|\"reads / writes\"| R\n    D <-->|\"markdown two-way sync\"| R[(\"Your git repo<br>.md files\")]\n\n    style D fill:#e1f5fe,stroke:#0288d1,stroke-width:2px\n    style R fill:#e8f5e9,stroke:#388e3c,stroke-width:2px\n    style T fill:#e3f2fd,stroke:#1976d2\n    style A fill:#fce4ec,stroke:#c62828\n    style C fill:#f3e5f5,stroke:#6a1b9a"
+  },
+  {
+    "type": "heading",
+    "level": 2,
+    "content": "Connect your coding agents"
+  },
+  {
+    "type": "paragraph",
+    "content": "Squire Docs speaks MCP, so agents like Claude Code and Kiro can read and edit your docs right alongside you. However they connect, your agent appears in your docs as a named, attributed cursor."
+  },
+  {
+    "type": "paragraph",
+    "content": [
+      {
+        "text": "Claude Code",
+        "marks": [
+          "bold"
+        ]
+      },
+      " — in a terminal (not inside a running agent session), run:"
+    ]
+  },
+  {
+    "type": "codeBlock",
+    "language": "bash",
+    "content": "claude mcp add --transport http squire https://squiredocs.com/mcp && claude mcp login squire"
+  },
+  {
+    "type": "paragraph",
+    "content": [
+      {
+        "text": "Kiro",
+        "marks": [
+          "bold"
+        ]
+      },
+      " (AWS's spec-driven agentic IDE) — add Squire to the mcpServers block of your MCP config (.kiro/settings/mcp.json in a workspace, or ~/.kiro/settings/mcp.json for every project). Kiro hot-reloads the file on save and walks you through the browser sign-in on first use:"
+    ]
+  },
+  {
+    "type": "codeBlock",
+    "language": "json",
+    "content": "{\n  \"mcpServers\": {\n    \"squire\": {\n      \"url\": \"https://squiredocs.com/mcp\"\n    }\n  }\n}"
+  },
+  {
+    "type": "paragraph",
+    "content": [
+      "Using a different agent? Point it at ",
+      {
+        "text": "https://squiredocs.com/agents.md",
+        "marks": [
+          {
+            "type": "link",
+            "href": "https://squiredocs.com/agents.md"
+          }
+        ]
+      },
+      " — most MCP-native agents can read that page and connect themselves. For the full picture, see ",
+      {
+        "text": "Agents & MCP",
+        "marks": [
+          {
+            "type": "link",
+            "href": "https://squiredocs.com/documentation/agents-and-mcp"
+          }
+        ]
+      },
+      "."
+    ]
+  },
+  {
+    "type": "heading",
+    "level": 2,
+    "content": "About Squire Docs"
+  },
+  {
+    "type": "paragraph",
+    "content": "Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to specs a team—human or agent—can execute. It is currently in free public beta, including a $10 AI credit allotment for new users."
+  },
+  {
+    "type": "paragraph",
+    "content": [
+      "Need help? ",
+      {
+        "text": "Email support",
+        "marks": [
+          {
+            "type": "link",
+            "href": "mailto:contact@squiredocs.com"
+          }
+        ]
+      },
+      " or use the ",
+      {
+        "text": "Get Support",
+        "marks": [
+          {
+            "type": "link",
+            "href": "https://squiredocs.com/support"
+          }
+        ]
+      },
+      " link in the Account menu."
+    ]
+  }
+]

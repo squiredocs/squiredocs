@@ -9,6 +9,7 @@ const { sendWelcomeEmail } = require('../email');
 const appSettings = require('./app-settings');
 const { MODEL_DEFS, getAvailableModels, resolveSharedDefaultKey, resolveUserChatModelKey } = require('./chat-models');
 const { hasServerKey, listProviders } = require('./ai-providers');
+const { hostedOnly } = require('../instance-config');
 
 const router = express.Router();
 let pool = null;
@@ -375,7 +376,8 @@ router.patch('/users/:userId/chat-model', async (req, res) => {
  * Manual, admin-triggered (never automatic). BCCs the admin. Records the send
  * time in users.welcome_email_sent_at on success.
  */
-router.post('/users/:userId/welcome-email', async (req, res) => {
+// Hosted-only (feature 058, FR-028): unregistered on a self-hosted instance.
+router.post('/users/:userId/welcome-email', hostedOnly, async (req, res) => {
   try {
     const { userId } = req.params;
 
@@ -389,7 +391,7 @@ router.post('/users/:userId/welcome-email', async (req, res) => {
     const result = await sendWelcomeEmail({ to: user.email, firstName });
     if (!result.ok) {
       if (result.skipped) {
-        return res.status(503).json({ error: 'Email is not configured (SES_FROM_EMAIL unset)' });
+        return res.status(503).json({ error: 'Email is not configured (SMTP_FROM unset)' });
       }
       return res.status(502).json({ error: `Failed to send email: ${result.error}` });
     }
