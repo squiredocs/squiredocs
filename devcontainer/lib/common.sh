@@ -384,13 +384,19 @@ force_unmount_in_node() {
 # readdir and fails while the mount is perfectly usable for opening files by
 # path — which is all a dragged-in path needs. Probing with `ls` would classify
 # that working mount as broken and remount it on every single invocation.
+#
+# stat alone is not enough either: an export can go bad for PART of its tree.
+# The repo's .git mount did exactly that — the root stat'd, HEAD and index read,
+# but every file under refs/ failed to open with EBADF, so git saw no branches
+# while every check here said "ok". Paths with known critical files
+# (mount_probe_files) also have those files opened and read.
 node_read_table() {
   if [[ -z "${COLLAB_DC_NODE_READ+x}" || "${COLLAB_DC_NODE_READ_STALE:-0}" == 1 ]]; then
     local script="" p q
     while IFS= read -r p; do
       [[ -z "$p" ]] && continue
       q="$(shq "$p")"
-      script+="if sudo stat -c %i ${q} >/dev/null 2>&1; then r=ok; else r=fail; fi"$'\n'
+      script+="if $(node_read_cmd "$p"); then r=ok; else r=fail; fi"$'\n'
       script+="printf '%s\t%s\n' \"\$r\" ${q}"$'\n'
     done < <(all_mount_paths)
     if [[ -z "$script" ]]; then
@@ -411,7 +417,33 @@ node_can_read() {
   local p="$1" table; table="$(node_read_table)"
   grep -qxF "$(printf 'ok\t%s' "$p")"   <<<"$table" && return 0
   grep -qxF "$(printf 'fail\t%s' "$p")" <<<"$table" && return 1
-  minikube -p "$COLLAB_DC_CONTEXT" ssh -- "sudo stat -c %i $(shq "$p")" </dev/null >/dev/null 2>&1
+  minikube -p "$COLLAB_DC_CONTEXT" ssh -- "$(node_read_cmd "$p")" </dev/null >/dev/null 2>&1
+}
+
+# Files under a mount, relative to it, that must open and read for the mount to
+# be usable — one per line. Only the repo's .git has any: HEAD, the index, and
+# the loose ref HEAD points at (the file git needs to resolve the branch). Taken
+# from the host so only files that really exist are demanded. Other mounts are
+# drop zones of arbitrary content with nothing known to probe.
+mount_probe_files() {
+  local p="$1" f ref
+  [[ "$p" == "$COLLAB_DC_TARGET_REPO/.git" ]] || return 0
+  ref="$(git -C "$COLLAB_DC_TARGET_REPO" symbolic-ref -q HEAD 2>/dev/null || true)"
+  for f in HEAD index $ref; do
+    [[ -f "$p/$f" ]] && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+# Node-side shell test that the mount at $1 is readable: stat the mount point,
+# then open and read one byte of each mount_probe_files entry.
+node_read_cmd() {
+  local p="$1" f cmd
+  cmd="sudo stat -c %i $(shq "$p") >/dev/null 2>&1"
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && cmd+=" && sudo head -c1 $(shq "$p/$f") >/dev/null 2>&1"
+  done < <(mount_probe_files "$p")
+  printf '%s' "$cmd"
 }
 
 # A path is only healthy when the node has a mount entry, a host process is
@@ -819,16 +851,29 @@ pod_mount_view() {
   #   3 = the pod can't even stat the mount point. A 9p export gone bad returns
   #       EIO on every access while still looking mounted. Needs a REMOUNT — a
   #       pod rebind cannot fix this one.
+  #   5 = entries resolve, but a mount_probe_files entry won't open and read:
+  #       the export has gone bad for part of its tree (see node_read_table).
+  #       Reported as 3; the caller asks the node whether it's a rebind or a
+  #       remount.
+  local -a files=()
+  while IFS= read -r e; do [[ -n "$e" ]] && files+=( "$e" ); done < <(mount_probe_files "$host_path")
   kc exec "$pod" -- sh -c '
     d=$1; shift
-    for name; do [ -e "$d/$name" ] && exit 0; done
+    hit=0
+    while [ "$1" != -- ]; do [ -e "$d/$1" ] && hit=1; shift; done
+    shift
+    if [ "$hit" = 1 ]; then
+      for f; do head -c1 "$d/$f" >/dev/null 2>&1 || exit 5; done
+      exit 0
+    fi
     [ -d "$d" ] && exit 4
     exit 3
-  ' _ "$pod_path" "${probes[@]}" >/dev/null 2>&1 || rc=$?
+  ' _ "$pod_path" "${probes[@]}" -- ${files[@]+"${files[@]}"} >/dev/null 2>&1 || rc=$?
 
   case "$rc" in
     0) printf 'ok'; return 0 ;;
     3) printf 'UNREADABLE (reads fail with EIO — not bound to a live mount)'; return 3 ;;
+    5) printf 'UNREADABLE (files under it fail to open — the mount has partly gone bad)'; return 3 ;;
     4)
       # The sample can go stale under us: TemporaryItems churns constantly, and
       # every entry we picked may legitimately be gone by now. Re-check the host

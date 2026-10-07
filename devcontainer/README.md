@@ -161,17 +161,20 @@ A path listed in `rw_paths` but nested inside another mounted path is dropped by
 
 ### Keeping the mounts alive (`mounts`)
 
-`minikube mount` establishes **one** 9p mount inside the node and never reconnects. A Mac reboot or `minikube stop/start` therefore breaks every mount, and it breaks them *quietly* — in two different ways:
+`minikube mount` establishes **one** 9p mount inside the node and never reconnects. A Mac reboot or `minikube stop/start` therefore breaks every mount, and it breaks them *quietly*, in several different ways:
 
 | State | What you see | Fix |
 |---|---|---|
 | Host process alive, node mount gone | The classic post-reboot orphan. `pgrep` finds a healthy-looking process; the pod sees **empty** directories. | remount |
 | Node mount entry present, no serving process | Every read returns `EIO` (`Unknown error 526`). The kubelet refuses to create the container at all — the pod is stuck in `CreateContainerError`. | force-unmount, then remount |
 | Mount entry **and** process both present, but the export has gone bad | Everything looks perfect — table entry, live process — yet every read through the mount returns `EIO`, including files created on the host seconds ago. | force-unmount, then remount |
+| Export gone bad for **part** of its tree | The mount root `stat`s and some files read, but others fail to open with `Bad file descriptor`. Seen on `.git` after weeks of uptime: `HEAD` and `index` read fine, every file under `refs/` failed, so git reported "not a git repository" / "current branch appears to be broken". | remount (kill the host process), then `restart` to rebind the pod |
 
 Because of the first case, liveness is **never** judged by `pgrep` alone. Because of the third, it isn't judged by the mount table either: a path counts as healthy only when the node has an entry, a host process is still serving it, **and the node can actually read through it** (one batched `minikube ssh` + `sudo stat` per run — `sudo` because the mounts are `--uid 0 --gid 0` and `minikube ssh` lands as the unprivileged `docker` user).
 
 That third check is deliberately a `stat`, never a directory listing. A directory with thousands of entries overflows 9p's `readdir` and fails with `Unknown error 526` while the mount is perfectly usable for opening files *by path* — which is all a dragged-in path needs. Probing with `ls` classifies that working mount as broken and remounts it on every invocation.
+
+A root `stat` misses the partial failure in the fourth row, so for the repo's `.git` mount the check also opens and reads one byte of `HEAD`, `index`, and the loose ref `HEAD` points at, on both the node and in the pod. Other mounts are drop zones with no known files to probe, so they keep the `stat`-only check.
 
 ```sh
 collab-devcontainer mounts                  # heal whatever is down, then report
