@@ -118,8 +118,8 @@ The script never prompts, so an agent can run it unattended, and it exits non-ze
 
 ```
 mkdir squire-docs && cd squire-docs
-curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/compose.yml
-curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/squire && chmod +x squire
+curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/compose.yml
+curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/squire && chmod +x squire
 docker compose up -d --wait
 ./squire claim-link
 ```
@@ -271,6 +271,7 @@ All decisions below were ratified by Sam on 2026-10-07.
 - **D10. A ****`./squire`**** wrapper script ships next to the compose file.** Decided by Sam 2026-10-07. It forwards its arguments to `docker compose exec app squire`, so a person can run `./squire claim-link` without an agent. AGENTS.md keeps the full docker command because it works from any folder.
 - **D11. An unclaimed local instance prints a claim link in its startup log.** Decided by Sam 2026-10-07. See Sign-in links.
 - **D12. Setup does not require cloning the repository, and an install script ships at launch.** Decided by Sam 2026-10-07. Instructions live at `squiredocs.com/self-host.md`, the files come from GitHub release assets, and `squiredocs.com/install.sh` runs the whole setup in one command, with the manual commands documented alongside it.
+- **D13. The public repository is squiredocs/squiredocs.** Decided by Sam 2026-10-07. Release assets come from github.com/squiredocs/squiredocs and the image is ghcr.io/squiredocs/squiredocs.
 
 ## Open questions
 
