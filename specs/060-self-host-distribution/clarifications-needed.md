@@ -752,3 +752,11 @@ origin` and `release.mjs latest` prints `latest=true` only when the version
 has no prerelease suffix and no `vX.Y.Z` release tag is higher (prerelease
 tags are ignored). That one decision sets both the `:latest` manifest tag and
 `gh release create --latest=true|false`.
+
+---
+
+**Sam's decisions, 2026-10-08 (upgrading the defaults above):**
+
+- **RBD-060-13 RATIFIED with a change:** the copyright holder is `Sam Goldstein`, not the LLC (21st Harmonic LLC is a single-member registered business with no assets yet; Sam can assign the copyright to it later). Line: `Copyright (c) 2025-2026 Sam Goldstein`, in `LICENSE` and every generated plugin bundle. The marketing pages' "© 21st Harmonic LLC" copy is unaffected.
+- **RBD-060-5 RATIFIED:** the first release is `v1.0.0` (image `ghcr.io/squiredocs/squiredocs:1.0.0` plus `latest`).
+- **RBD-060-10 RATIFIED:** the Codex section ships; Sam confirmed Codex works and signed off the commands as written.

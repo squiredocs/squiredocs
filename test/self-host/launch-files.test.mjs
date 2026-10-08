@@ -12,7 +12,7 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
 test('LICENSE is MIT with the RBD-060-13 holder and equals every generated bundle LICENSE', () => {
   const license = read('LICENSE');
-  assert.match(license, /^MIT License\n\nCopyright \(c\) 2026 21st Harmonic LLC\n/);
+  assert.match(license, /^MIT License\n\nCopyright \(c\) 2025-2026 Sam Goldstein\n/);
   assert.match(license, /Permission is hereby granted, free of charge/);
   assert.match(license, /THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND/);
   for (const bundle of ['claude-plugin', 'mcp-registry', 'cursor-plugin']) {

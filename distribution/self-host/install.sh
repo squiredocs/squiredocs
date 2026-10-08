@@ -359,4 +359,4 @@ main() {
   printf '%s\n' "$link"
 }
 
-main "$@"
+{ main "$@"; }

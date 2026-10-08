@@ -534,9 +534,9 @@ test('the whole script piped on stdin installs (control for the truncation tests
 
 test('every truncation at a line boundary runs nothing', () => {
   const text = fs.readFileSync(SCRIPT, 'utf8');
-  assert.ok(text.endsWith('\nmain "$@"\n'), 'the last line calls main');
+  assert.ok(text.endsWith('\n{ main "$@"; }\n'), 'the last line calls main inside a brace group');
   const lines = text.split('\n');
-  // lines ends with '' (the final newline); the last real line is main "$@".
+  // lines ends with '' (the final newline); the last real line is { main "$@"; }.
   for (let k = 0; k < lines.length - 2; k++) {
     assertRunsNothing(lines.slice(0, k).join('\n') + (k ? '\n' : ''), `first ${k} lines`);
   }
@@ -544,8 +544,15 @@ test('every truncation at a line boundary runs nothing', () => {
 
 test('sampled truncations inside a line run nothing', () => {
   const text = fs.readFileSync(SCRIPT, 'utf8');
-  const end = text.lastIndexOf('\nmain "$@"');
+  const end = text.lastIndexOf('\n{ main "$@"; }');
   for (let cut = 1; cut < end; cut += 41) assertRunsNothing(text.slice(0, cut), `first ${cut} bytes`);
+});
+
+test('every truncation inside the last line runs nothing (brace group, review H1 follow-up)', () => {
+  const text = fs.readFileSync(SCRIPT, 'utf8');
+  const start = text.lastIndexOf('\n{ main "$@"; }') + 1;
+  const stop = text.length - 1; // the full last line without its newline still runs, by design
+  for (let cut = start; cut < stop; cut += 1) assertRunsNothing(text.slice(0, cut), `first ${cut} bytes`);
 });
 
 // ── Static checks ─────────────────────────────────────────────────────────

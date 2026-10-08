@@ -4,7 +4,7 @@ Source: `distribution/self-host/install.sh` (mode 100755). Served verbatim at
 `/install.sh` on every instance (see `served-routes.md`). POSIX `sh`; passes
 `shellcheck -s sh` with no errors. Never reads stdin. Above `main()` the file
 holds only assignments and function definitions, and its last line is
-`main "$@"`, so a download cut short at a line boundary runs nothing (review
+`{ main "$@"; }`, so a download cut short anywhere runs nothing (review
 finding H1).
 
 ## Invocation
