@@ -30,6 +30,11 @@ function createClientBuildFixture() {
   write('documentation/index.html', '<html><body>DOCS INDEX</body></html>');
   write('documentation/agents-and-mcp.html', '<html><body>AGENTS AND MCP</body></html>');
   write('documentation/404.html', '<html><body>DOCS 404</body></html>');
+  // Feature 060: the self-hosted variant a not-hosted instance serves, with
+  // the origin sentinel the server replaces per request.
+  write('documentation/_self-hosted/index.html', '<html><body>SELF-HOSTED DOCS INDEX __SQUIRE_ORIGIN__/mcp</body></html>');
+  write('documentation/_self-hosted/agents-and-mcp.html', '<html><body>AGENTS AND MCP SELF-HOSTED <code>__SQUIRE_ORIGIN__/mcp</code> <a href="__SQUIRE_ORIGIN__/api/docs">x</a></body></html>');
+  write('documentation/_self-hosted/404.html', '<html><body>SELF-HOSTED DOCS 404</body></html>');
   write('blog/index.html', '<html><body>BLOG INDEX</body></html>');
   write('blog/404.html', '<html><body>BLOG 404</body></html>');
   return {

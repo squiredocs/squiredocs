@@ -302,3 +302,116 @@ describe('terminology: "docs" never means product documentation (T035)', () => {
     expect(all, all.join('\n')).toHaveLength(0);
   });
 });
+
+// --- Feature 060: the self-hosting page (T038, FR-029, FR-040, RBD-060-9) ---
+
+describe('the self-hosting page (060 T038)', () => {
+  const page = sourcePages.find((p) => p.frontmatter.slug === 'self-hosting');
+
+  it('exists with its slug, title, description, and order 10 right after Agents and MCP', () => {
+    expect(page, 'documentation/self-hosting.md').toBeTruthy();
+    expect(page.error).toBeNull();
+    expect(page.frontmatter.title).toBe('Self-hosting');
+    expect(page.frontmatter.description).toBe(
+      'Run your own Squire Docs instance with Docker Compose, sign in with a claim link, and connect your agent.'
+    );
+    expect(page.frontmatter.order).toBe(10);
+    const sorted = [...allPages].sort((a, b) => a.order - b.order).map((p) => p.slug);
+    expect(sorted.indexOf('self-hosting')).toBe(sorted.indexOf('agents-and-mcp') + 1);
+    expect(sorted.slice(-3)).toEqual(['markdown', 'appearance', 'account-and-support']);
+  });
+
+  it('covers the required topics in order', () => {
+    const headings = [...page.body.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(headings).toEqual([
+      'Prerequisites',
+      'Install with one command',
+      'What the install script does',
+      'Sign in with a claim link',
+      'Connect your agent',
+      'Without an API key',
+      'Configuration',
+      'Upgrading',
+      'Backing up',
+      'Stopping safely',
+      'Exposing an instance',
+      'Windows',
+      'Getting help',
+    ]);
+    const b = page.body;
+    expect(b).toContain('Docker Compose 2.24 or later');
+    expect(b).toContain('curl -fsSL https://squiredocs.com/install.sh | sh -s --');
+    expect(b).toContain('./squire claim-link');
+    expect(b).toContain('docker compose logs app');
+    expect(b).toContain('claude mcp add --transport http squire-local http://localhost:3910/mcp');
+    expect(b).toMatch(/SQUIRE_PORT/);
+    expect(b).toContain('token create');
+    expect(b).toContain('GOOGLE_GENERATIVE_AI_API_KEY');
+    for (const s of ['SMTP_HOST', 'S3_IMAGE_BUCKET', 'APP_URL', '.env']) expect(b).toContain(s);
+    expect(b).toMatch(/set `SQUIRE_VERSION` in `\.env` to the new release/);
+    expect(b).toContain('docker compose pull && docker compose up -d --wait');
+    for (const v of ['squire-data', 'postgres-data', 'redis-data']) expect(b).toContain(v);
+    expect(b).toMatch(/encryption key/);
+    expect(b).toContain('docker compose down -v');
+    expect(b).toContain('docker compose exec app squire');
+    expect(b).toContain('https://squiredocs.com/self-host.md');
+    expect(b).toMatch(/https:\/\/github\.com\/[^/\s)]+\/[^/\s)]+/);
+    expect(b).toContain('security@squiredocs.com');
+  });
+
+  it('states the FR-040 TLS rule', () => {
+    expect(page.body).toMatch(/Plain HTTP is supported only on localhost/);
+    expect(page.body).toMatch(/TLS-terminating proxy/);
+    expect(page.body).toMatch(/https `APP_URL`/);
+  });
+
+  it('names no feature that does not exist and never says bare "Squire"', () => {
+    expect(page.body).not.toMatch(/password/i);
+    expect(page.body).not.toMatch(/OIDC/i);
+    const prose = page.body
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`\n]*`/g, '')
+      .replace(/\]\([^)]*\)/g, ']')
+      .replace(/https?:\/\/\S+/g, '');
+    expect(prose.match(/\bSquire\b(?! Docs)/g)).toBeNull();
+    expect(page.body).not.toContain('—');
+  });
+});
+
+// --- Feature 060: build output for both variants (T033) ---------------------
+
+describe('build output: hosted and self-hosted directories (060 T033)', () => {
+  it('writes every page, index, and 404 to both directories and passes the output checks', async () => {
+    const { build, checkBuildOutput, SELF_HOSTED_SUBDIR } = await import('../../scripts/build-documentation.mjs');
+    const os = await import('node:os');
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-build-'));
+    try {
+      build({ srcDir: DOCS_SRC_DIR, outDir });
+      const expected = [...sourcePages.map((p) => `${p.frontmatter.slug}.html`), '404.html'].sort();
+      const hosted = fs.readdirSync(outDir).filter((f) => f.endsWith('.html')).sort();
+      const variant = fs.readdirSync(path.join(outDir, SELF_HOSTED_SUBDIR)).sort();
+      expect(hosted).toEqual(expected);
+      expect(variant).toEqual(expected);
+      expect(checkBuildOutput(outDir)).toEqual([]);
+      for (const f of hosted) {
+        expect(fs.readFileSync(path.join(outDir, f), 'utf8')).not.toContain('__SQUIRE_ORIGIN__');
+        const v = fs.readFileSync(path.join(outDir, SELF_HOSTED_SUBDIR, f), 'utf8');
+        expect(v).not.toContain('googletagmanager');
+        expect(v).not.toContain('rel="canonical"');
+        expect(v).not.toContain('og:url');
+      }
+      expect(fs.readFileSync(path.join(outDir, SELF_HOSTED_SUBDIR, 'agents-and-mcp.html'), 'utf8')).toContain(
+        '__SQUIRE_ORIGIN__/mcp'
+      );
+
+      // The checks catch a sentinel in a hosted page and a tag in a variant page.
+      fs.writeFileSync(path.join(outDir, 'editing.html'), 'x __SQUIRE_ORIGIN__ x');
+      fs.writeFileSync(path.join(outDir, SELF_HOSTED_SUBDIR, 'editing.html'), '<link rel="canonical" href="x">');
+      const errors = checkBuildOutput(outDir);
+      expect(errors.some((e) => e.includes('documentation/editing.html') && e.includes('__SQUIRE_ORIGIN__'))).toBe(true);
+      expect(errors.some((e) => e.includes('_self-hosted/editing.html') && e.includes('rel="canonical"'))).toBe(true);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+});

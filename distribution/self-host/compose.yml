@@ -1,0 +1,68 @@
+# Squire Docs self-host stack. Documentation:
+# https://squiredocs.com/documentation/self-hosting
+#
+# Start:    docker compose up -d --wait
+# Stop:     docker compose down        (keeps your documents)
+# Never:    docker compose down -v     (deletes every document and the generated encryption key)
+#
+# Settings go in .env next to this file (see .env.example). Postgres and Redis
+# publish no ports; their credentials below are reachable only on this
+# compose network. The app listens on 127.0.0.1 only.
+services:
+  app:
+    image: ghcr.io/squiredocs/squiredocs:${SQUIRE_VERSION:-__SQUIRE_VERSION__}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:${SQUIRE_PORT:-3910}}
+      DATABASE_URL: postgresql://squire:squire@postgres:5432/squire
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    ports:
+      - "127.0.0.1:${SQUIRE_PORT:-3910}:3001"
+    volumes:
+      - squire-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/ready', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)}).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 90s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: squire
+      POSTGRES_PASSWORD: squire
+      POSTGRES_DB: squire
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U squire -d squire"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  squire-data: {}
+  postgres-data: {}
+  redis-data: {}

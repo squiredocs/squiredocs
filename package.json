@@ -20,6 +20,7 @@
     "test:client": "cd client && npx vitest run --reporter=../script/vitest-llm-reporter.mjs",
     "test:client:watch": "cd client && npm run test:watch",
     "test:first-run": "node --test test/first-run/*.test.mjs",
+    "test:self-host": "node --test test/self-host/*.test.mjs",
     "test:collab": "node test-collaboration.js",
     "init-db": "node script/init-db.js",
     "migrate": "node script/migrate.js",

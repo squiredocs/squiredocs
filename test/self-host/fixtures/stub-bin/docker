@@ -1,0 +1,60 @@
+#!/bin/sh
+# Stub `docker` for the Docker-free distribution tests (feature 060,
+# contracts/install-sh.md "Test hooks"). Appends its argv to $STUB_LOG, one
+# invocation per line, then behaves according to STUB_* variables:
+#
+#   STUB_DOCKER_COMPOSE_MISSING=1   `docker compose ...` fails like a docker without the plugin
+#   STUB_DOCKER_COMPOSE_VERSION     `docker compose version --short` output (default 2.29.1)
+#   STUB_DOCKER_INFO_EXIT           exit code of `docker info` (default 0)
+#   STUB_DOCKER_UP_EXIT             exit code of `docker compose up` (default 0)
+#   STUB_DOCKER_UP_STDERR           text `docker compose up` writes to stderr
+#   STUB_DOCTOR_EXIT                exit code of `... squire doctor` (default 0)
+#   STUB_CLAIM_OUTPUT               stdout of `... squire claim-link` (default a valid link)
+#   STUB_CLAIM_EXIT                 exit code of `... squire claim-link` (default 0)
+#   STUB_EXEC_EXIT                  exit code of any other `compose exec` (default 0)
+#   STUB_STDIN_LOG                  when set, `compose exec` appends what it reads on stdin here
+if [ -n "${STUB_LOG:-}" ]; then
+  printf 'docker' >> "$STUB_LOG"
+  for a in "$@"; do printf ' %s' "$a" >> "$STUB_LOG"; done
+  printf '\n' >> "$STUB_LOG"
+fi
+
+case "${1:-}" in
+  info)
+    exit "${STUB_DOCKER_INFO_EXIT:-0}"
+    ;;
+  compose)
+    if [ "${STUB_DOCKER_COMPOSE_MISSING:-}" = 1 ]; then
+      echo "docker: 'compose' is not a docker command." >&2
+      exit 1
+    fi
+    shift
+    case "${1:-}" in
+      version)
+        echo "${STUB_DOCKER_COMPOSE_VERSION:-2.29.1}"
+        exit 0
+        ;;
+      up)
+        if [ -n "${STUB_DOCKER_UP_STDERR:-}" ]; then echo "$STUB_DOCKER_UP_STDERR" >&2; fi
+        exit "${STUB_DOCKER_UP_EXIT:-0}"
+        ;;
+      exec)
+        if [ -n "${STUB_STDIN_LOG:-}" ]; then cat >> "$STUB_STDIN_LOG" 2>/dev/null; fi
+        case " $* " in
+          *" squire doctor"*)
+            echo "doctor: all checks passed"
+            exit "${STUB_DOCTOR_EXIT:-0}"
+            ;;
+          *" squire claim-link"*)
+            echo "This link claims the instance. It expires in 15 minutes." >&2
+            printf '%s\n' "${STUB_CLAIM_OUTPUT-http://localhost:3910/claim#Abc_123-xyz}"
+            exit "${STUB_CLAIM_EXIT:-0}"
+            ;;
+        esac
+        exit "${STUB_EXEC_EXIT:-0}"
+        ;;
+    esac
+    exit 0
+    ;;
+esac
+exit 0

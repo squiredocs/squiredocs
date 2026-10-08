@@ -1,0 +1,9 @@
+#!/bin/sh
+# Squire Docs: run the squire CLI inside the app container from any folder,
+# for example ./squire claim-link or ./squire doctor. Equivalent to
+# docker compose exec app squire <command> run from this folder.
+# A TTY is used only when both stdin and stdout are terminals, so captured
+# output (link=$(./squire claim-link)) holds only the command's stdout.
+cd "$(dirname "$0")" || exit 1
+if [ -t 0 ] && [ -t 1 ]; then exec docker compose exec app squire "$@"; fi
+exec docker compose exec -T app squire "$@"

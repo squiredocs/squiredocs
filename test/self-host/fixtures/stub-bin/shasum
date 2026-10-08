@@ -1,0 +1,19 @@
+#!/bin/sh
+# Stub `shasum` (feature 060): the macOS checksum tool. Accepts `-a 256 FILE...`
+# and delegates to the real sha256sum named by $STUB_REAL_SHA256SUM, so the
+# install script's shasum branch is exercised on Linux with real digests.
+if [ -n "${STUB_LOG:-}" ]; then
+  printf 'shasum' >> "$STUB_LOG"
+  for a in "$@"; do printf ' %s' "$a" >> "$STUB_LOG"; done
+  printf '\n' >> "$STUB_LOG"
+fi
+if [ "${1:-}" != "-a" ] || [ "${2:-}" != "256" ]; then
+  echo "shasum stub: only -a 256 is supported" >&2
+  exit 1
+fi
+shift 2
+if [ -z "${STUB_REAL_SHA256SUM:-}" ]; then
+  echo "shasum stub: STUB_REAL_SHA256SUM is not set" >&2
+  exit 1
+fi
+exec "$STUB_REAL_SHA256SUM" "$@"

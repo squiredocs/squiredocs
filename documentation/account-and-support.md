@@ -2,7 +2,7 @@
 slug: account-and-support
 title: Account and support
 description: Manage settings, API tokens, and your own AI provider keys in Squire Docs, and get support.
-order: 12
+order: 13
 ---
 
 This page covers the Settings page, API tokens, your own AI provider keys, and how to get help.

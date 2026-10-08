@@ -1,7 +1,7 @@
 {
   "name": "squire-docs",
   "displayName": "Squire Docs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The durable, attributed spec layer for agentic development — two-way sync between your repo's spec files and a live Squire Docs document your team edits together.",
   "author": {
     "name": "Squire Docs",

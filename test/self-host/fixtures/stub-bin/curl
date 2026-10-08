@@ -1,0 +1,54 @@
+#!/bin/sh
+# Stub `curl` for the Docker-free install.sh tests (feature 060). Appends its
+# argv to $STUB_LOG and serves release assets from a fixture directory:
+#
+#   STUB_CURL_DIR          directory holding the assets, served by URL basename
+#   STUB_CURL_FAIL         asset basename whose download fails (exit 22)
+#   STUB_LATEST_VERSION    version the `releases/latest` redirect names; unset = the HEAD request fails
+#
+# Supported shapes: `curl ... -I <url>` (HEAD: prints a Location header) and
+# `curl ... -o <file> <url>` (download).
+if [ -n "${STUB_LOG:-}" ]; then
+  printf 'curl' >> "$STUB_LOG"
+  for a in "$@"; do printf ' %s' "$a" >> "$STUB_LOG"; done
+  printf '\n' >> "$STUB_LOG"
+fi
+
+head=0
+out=''
+url=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -I|--head) head=1 ;;
+    -o|--output) shift; out="$1" ;;
+    -*) case "$1" in -*I*) head=1 ;; esac ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+
+if [ "$head" = 1 ]; then
+  if [ -z "${STUB_LATEST_VERSION:-}" ]; then
+    echo "curl: (22) The requested URL returned error: 404" >&2
+    exit 22
+  fi
+  printf 'HTTP/2 302\r\n'
+  printf 'location: https://github.com/stub/stub/releases/tag/v%s\r\n' "$STUB_LATEST_VERSION"
+  printf '\r\n'
+  exit 0
+fi
+
+name=$(basename "$url")
+if [ -n "${STUB_CURL_FAIL:-}" ] && [ "$name" = "$STUB_CURL_FAIL" ]; then
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
+if [ -z "${STUB_CURL_DIR:-}" ] || [ ! -f "$STUB_CURL_DIR/$name" ]; then
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
+if [ -n "$out" ]; then
+  cat "$STUB_CURL_DIR/$name" > "$out"
+else
+  cat "$STUB_CURL_DIR/$name"
+fi

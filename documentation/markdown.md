@@ -2,7 +2,7 @@
 slug: markdown
 title: Markdown export, import, and sync
 description: Export Squire Docs documents as markdown, import markdown to create or update documents, and keep a two-way sync with your repository.
-order: 10
+order: 11
 ---
 
 Squire Docs documents move in and out as markdown. This page covers exporting, importing, and keeping a document in two-way sync with a file in a repository. The REST examples use an `sk_sqd_` API token read from a file. Keep tokens in a file rather than typed into commands, since command-line arguments leak into shell history. See [Agents and MCP](/documentation/agents-and-mcp) for how to create one.

@@ -135,3 +135,78 @@ to Sam. Later phases append here.
   superseding the spec phase's shorter list only by adding: `release.mjs`
   and `REPOSITORY`, `npm run test:self-host`, the dispatch inputs, the
   Compose 2.24 requirement, and the driver's `--signin-link` leg.
+
+## Implement phase (2026-10-07/08)
+
+- **Relaxations**: none. New defaults are RBD-060-34 and RBD-060-36 to
+  RBD-060-38; RBD-060-35 (Codex) and the RBD-060-1 ratification came from Sam
+  through the orchestrator.
+
+- **Repository name (RBD-060-1, RATIFIED by Sam 2026-10-07)**:
+  `squiredocs/squiredocs` in `release.mjs` and its four mirrors. The release
+  workflow still refuses to run anywhere else, so runs in `samg/collab` fail
+  at `validate` and publish nothing. The LICENSE holder (21st Harmonic LLC,
+  RBD-060-13) and the first version stay defaults for Sam to confirm.
+
+- **Launch-gate items for 062**: `LICENSE`, `/documentation/self-hosting`,
+  `/install.sh`, and `/self-host.md` exist (the two routes go live with the
+  next hosted deploy). **Codex: KEEP.** The Codex section in
+  `documentation/agents-and-mcp.md` was written from Codex's documented MCP
+  setup; Sam confirmed Codex works on 2026-10-07; the exact commands
+  (`codex mcp add squire --url https://squiredocs.com/mcp`,
+  `codex mcp login squire`, the `[mcp_servers.squire]` block) are to be
+  checked by Sam before launch (RBD-060-35). 062 keeps Codex in its copy.
+
+- **Driver results (T028)**, against a local-mode dev server started from
+  this worktree on a scratch database (`collab_060_scratch`, dropped after)
+  and port 3960, `SQUIRE_MODE=local`, `ENABLE_DEV_ENDPOINTS=1`:
+  `--signin-link` on a fresh instance with `--expect-name "CI Agent"
+  --expect-email ci-agent@example.com --script-check`: PASS (claim, owner
+  check, refresh exchange, `hasOwner`, `/mcp/auth/approve`, token,
+  `list_documents`, `modify` in the isolate). `--signin-link` on the claimed
+  instance with a bare `claim-link`: PASS. Default leg: PASS. `--first-run`:
+  PASS. Two fixes came out of this run: the leg must peek and post the
+  prefilled name and email (RBD-060-34), and the `modify` script must be
+  `export default function edit(doc) { ... }` (T029; the contract's
+  one-liner would have failed the CI agent job).
+
+- **Executable bits (T010, T014)**: `distribution/self-host/squire`,
+  `install.sh`, `release.mjs`, and the four stubs are committed as 100755
+  (checked with `git ls-files -s`). The merge queue needs no extra step.
+
+- **Docker-only checks owed** (none can run in the pod):
+  1. The first `release.yml` run (quickstart Part B steps 1 to 4) in
+     `squiredocs/squiredocs` once it is public: both image builds, both
+     compose smokes, the agent job, manifest platforms, `latest` policy,
+     asset names. This is also the first evidence that the Dockerfile's two
+     COPY lines build (FR-011).
+  2. The `docker compose exec app squire doctor --json` smoke step is what
+     proves RBD-060-23 (no TTY without `-T` in a non-interactive shell). If it
+     fails on stray output, add `-T` to AGENTS.md's commands and request a
+     design amendment.
+  3. US3 scenario 3, the upgrade check: quickstart Part B step 5 lists the
+     exact commands for a maintainer machine. Nothing automates it.
+  4. Sam's next `script/build-and-deploy-aws.sh` run (quickstart "Hosted
+     deploy check"); `git diff main -- Dockerfile script k8s` shows only the
+     two COPY lines and their comment.
+  5. `shellcheck -s sh` on `install.sh` and `squire`: runs in `test.yml`;
+     not installed in the pod (the local case skips with a notice).
+
+- **Hosted output**: every hosted documentation page matches the recorded
+  golden hashes except `agents-and-mcp` (Codex section, re-recorded with the
+  reason); a pre- and post-change `npm run build` differ only by the new
+  sidebar entry on each page.
+
+- **Documentation owed by the merge queue** (unchanged from `plan.md`, plus):
+  README "Run it yourself" and the distribution items should name
+  `squiredocs/squiredocs`, `ghcr.io/squiredocs/squiredocs`, and
+  https://github.com/squiredocs/squiredocs/releases; mention the Codex
+  section; `docs/dev.md` should describe running the driver legs against a
+  local-mode server on a scratch database (quickstart Part A step 6). No
+  `CLAUDE.md` change.
+
+- **Contract amendments to record** (specs, not design):
+  `contracts/oauth-driver-signin-link.md` (peek then redeem with the
+  prefill; the `edit(doc)` script form); `contracts/served-routes.md` (the
+  plain-host check, RBD-060-37); `contracts/install-sh.md` (stdin closed for
+  children, RBD-060-36; absolute paths in messages, RBD-060-38).

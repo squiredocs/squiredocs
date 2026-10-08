@@ -101,12 +101,78 @@ function isHostedOnlyPath(p) {
   return false;
 }
 
+/** The repository root: the same relative layout in development and in /app. */
+const REPO_ROOT = path.join(__dirname, '..');
+
+/**
+ * The self-host runbook and install script, served verbatim on every instance
+ * (feature 060, FR-013, FR-021, RBD-060-2, contracts/served-routes.md). Both
+ * files are read once at mount; a missing file leaves its route unmounted.
+ * No substitution, no input: the bytes are the repository's.
+ * @param {import('express').Express} app
+ * @param {{ repoRoot?: string }} [opts]
+ */
+function mountDistributionRoutes(app, { repoRoot = REPO_ROOT } = {}) {
+  const routes = [
+    ['/self-host.md', 'AGENTS.md', 'text/markdown; charset=utf-8'],
+    ['/install.sh', path.join('distribution', 'self-host', 'install.sh'), 'text/x-shellscript; charset=utf-8'],
+  ];
+  for (const [route, rel, type] of routes) {
+    const file = path.join(repoRoot, rel);
+    if (!fs.existsSync(file)) continue;
+    const body = fs.readFileSync(file);
+    app.get(route, (req, res) => {
+      res.set('Content-Type', type);
+      res.set('Cache-Control', 'public, max-age=300');
+      res.send(body);
+    });
+  }
+}
+
+/** The sentinel the self-hosted documentation variant uses for this instance's origin. */
+const ORIGIN_SENTINEL = '__SQUIRE_ORIGIN__';
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * The origin to show in self-hosted documentation pages: the request's own
+ * origin (as /agents.md uses) when it parses as a plain http(s) origin, else
+ * the configured APP_URL. HTML-escaped, because Host is client-controlled
+ * (research R11, Constitution V).
+ */
+function safeOrigin(req) {
+  let origin = null;
+  try {
+    const candidate = buildBaseUrl(req);
+    const u = new URL(candidate);
+    // The URL parser accepts quotes and other markup in a host; a real host is
+    // a DNS name or IP literal with an optional port.
+    const plainHost = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/.test(u.host);
+    if ((u.protocol === 'http:' || u.protocol === 'https:') && plainHost && u.origin === candidate) origin = candidate;
+  } catch {
+    origin = null;
+  }
+  if (!origin) origin = new URL(getInstanceConfig().appUrl).origin;
+  return escapeHtml(origin);
+}
+
 /**
  * Mount the web routes on `app`. Reads the client shell once.
  * @param {import('express').Express} app
- * @param {{ clientBuildPath: string, storage?: object }} opts
+ * @param {{ clientBuildPath: string, repoRoot?: string, storage?: object }} opts
  */
-function mountWebRoutes(app, { clientBuildPath }) {
+function mountWebRoutes(app, { clientBuildPath, repoRoot = REPO_ROOT }) {
+  // Before the client-build check and the hosted split: every instance kind,
+  // with or without a client build, serves these two files identically.
+  mountDistributionRoutes(app, { repoRoot });
+
   const indexPath = path.join(clientBuildPath, 'index.html');
   if (!fs.existsSync(clientBuildPath) || !fs.existsSync(indexPath)) {
     // In development, serve a message if frontend isn't built
@@ -182,7 +248,14 @@ function mountWebRoutes(app, { clientBuildPath }) {
   }
 
   // ── Not hosted ──────────────────────────────────────────────────────────
-  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation'));
+  // The self-hosted documentation variant (feature 060, FR-030 to FR-032):
+  // no analytics, no canonical URL, filtered header and footer, and instance
+  // URLs carrying a sentinel that becomes this instance's origin per request.
+  // The _self-hosted directory is never addressable by URL: nested paths under
+  // /documentation are the documentation 404 on both instance kinds.
+  mountDocumentationRoutes(app, path.join(clientBuildPath, 'documentation', '_self-hosted'), {
+    transformHtml: (html, req) => html.split(ORIGIN_SENTINEL).join(safeOrigin(req)),
+  });
 
   app.use((req, res, next) => {
     if ((req.method === 'GET' || req.method === 'HEAD') && isHostedOnlyPath(req.path)) {
@@ -207,4 +280,7 @@ function mountWebRoutes(app, { clientBuildPath }) {
   app.get('*', sendShell);
 }
 
-module.exports = { buildCspDirectives, oldDomainRedirect, mountWebRoutes, isHostedOnlyPath, HOSTED_ORIGIN };
+module.exports = {
+  buildCspDirectives, oldDomainRedirect, mountWebRoutes, mountDistributionRoutes, isHostedOnlyPath, safeOrigin,
+  HOSTED_ORIGIN, ORIGIN_SENTINEL,
+};

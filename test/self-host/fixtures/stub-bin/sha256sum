@@ -1,0 +1,18 @@
+#!/bin/sh
+# Stub `sha256sum` (feature 060). Delegates to the real tool named by
+# $STUB_REAL_SHA256SUM so checksums stay real; with STUB_SHA256SUM_OUTPUT set it
+# prints that digest for every file instead (to force a mismatch).
+if [ -n "${STUB_LOG:-}" ]; then
+  printf 'sha256sum' >> "$STUB_LOG"
+  for a in "$@"; do printf ' %s' "$a" >> "$STUB_LOG"; done
+  printf '\n' >> "$STUB_LOG"
+fi
+if [ -n "${STUB_SHA256SUM_OUTPUT:-}" ]; then
+  for f in "$@"; do printf '%s  %s\n' "$STUB_SHA256SUM_OUTPUT" "$f"; done
+  exit 0
+fi
+if [ -z "${STUB_REAL_SHA256SUM:-}" ]; then
+  echo "sha256sum stub: STUB_REAL_SHA256SUM is not set" >&2
+  exit 1
+fi
+exec "$STUB_REAL_SHA256SUM" "$@"

@@ -38,6 +38,16 @@ plugin mirrors and the launch copy, and a one-place constant makes the
 eventual decision a one-line change. Sam decides the repository name before
 the first release tag.
 
+**RATIFIED by Sam 2026-10-07: squiredocs/squiredocs.** `REPOSITORY` in
+`distribution/self-host/release.mjs` and its four mirrors (`AGENTS.md`,
+`install.sh`, `compose.yml`, `documentation/self-hosting.md`) carry
+`squiredocs/squiredocs`; the image is `ghcr.io/squiredocs/squiredocs` and the
+assets come from https://github.com/squiredocs/squiredocs/releases. The
+same-repository publish guard (RBD-060-20) stays, so a run in the current
+private `samg/collab` repository fails validation and publishes nothing. The
+placeholder refusals stay too, tested against a copy with the placeholder put
+back.
+
 ---
 
 ## RBD-060-2 - `/self-host.md` and `/install.sh` are served on every instance, verbatim
@@ -266,6 +276,9 @@ verification needs a Codex login the pod does not have.
 
 **Rationale**: The spec cannot assert a third-party tool's behavior from
 memory; it can require the claim be proven before it is published.
+
+**Overtaken 2026-10-07 by RBD-060-35**: Sam confirmed Codex works with Squire
+Docs and asked for the section, written from Codex's documented setup.
 
 ---
 
@@ -606,3 +619,69 @@ the short form for people in prose but never as a step an agent runs. The
 `agents-md` test asserts the full form appears in every command line. This
 follows D10 ("AGENTS.md keeps the full docker command because it works from
 any folder"). Spec text amendment candidate for FR-023.
+
+# Implement phase (2026-10-07)
+
+All entries below: **RATIFIED-BY-DEFAULT (Sam pre-authorized, 2026-10-07)**
+unless marked otherwise.
+
+## RBD-060-34 - The driver peeks the link and posts the prefilled name and email
+
+**Question**: contracts/oauth-driver-signin-link.md has the driver redeem
+with body `{ token }`, but `POST /auth/signin-link` refuses a claim link
+without `name` and `email` in the body (`claim_invalid`, field `name`): the
+prefill is stored with the link and the claim page reads it through
+`POST /auth/signin-link/peek`, then posts it back.
+
+**Default chosen**: The `--signin-link` leg calls `POST /auth/signin-link/peek`
+(read-only), then posts `{ token, name, email }` from the peek's `prefill` for
+a claim link and `{ token }` for a sign-in link, exactly as the claim page
+does. Verified against a local-mode server on a fresh and a claimed instance.
+Contract amendment candidate.
+
+## RBD-060-35 - Codex section written from Codex's documented MCP setup
+
+**Decision (orchestrator, relaying Sam)**: Codex section written from Codex's
+documented MCP setup; Sam confirmed Codex works on 2026-10-07; exact commands
+to be checked by Sam before launch. The section in
+`documentation/agents-and-mcp.md` uses `codex mcp add squire --url
+https://squiredocs.com/mcp`, `codex mcp login squire`, the
+`[mcp_servers.squire]` `url` form in `~/.codex/config.toml`, and
+`bearer_token_env_var` for the headless token path, as OpenAI's Codex MCP page
+documented them on 2026-10-07 (developers.openai.com/codex/mcp, which
+redirects to learn.chatgpt.com/docs/extend/mcp). It names
+`http://localhost:3910/mcp` for a self-hosted instance. The agents-and-mcp
+golden hash was re-recorded in the same commit for this section only. Not run
+from the pod (no Codex login).
+
+## RBD-060-36 - install.sh closes stdin for every command it runs
+
+**Question**: Under `curl ... | sh`, the shell reads the script from stdin, and
+`docker compose exec` (and `curl`) inherit it, so a child could swallow the
+rest of the script.
+
+**Default chosen**: Every `docker`, `curl`, and `./squire` call in
+`install.sh` reads `/dev/null`. A test feeds the script text on stdin to
+stubs that log anything they read and asserts nothing was read. `docker
+compose up` output is captured and written to stderr when the command ends
+(needed for the port-conflict match), so it is not streamed live.
+
+## RBD-060-37 - The request origin must be a plain host before it enters documentation HTML
+
+**Question**: research R11 validates the origin with `new URL(v).origin === v`,
+but the WHATWG URL parser accepts quotes and similar characters in a host
+(`Host: x'onmouseover='...` round-trips), which escaping alone made safe but
+left in the page.
+
+**Default chosen**: `safeOrigin` additionally requires the host to be a DNS
+name or IP literal with an optional port; anything else falls back to
+`APP_URL`. The value is still HTML-escaped. The Vite plugin applies the same
+rule with `localhost:5173` as its fallback.
+
+## RBD-060-38 - The existing-install message names the folder's absolute path
+
+**Default chosen**: The upgrade command printed for an existing install uses
+the folder's absolute path (`cd /abs/path && docker compose pull && ...`), so
+it works from wherever the agent runs it. The port-conflict and
+`docker compose logs app` messages use the same absolute path.
+
