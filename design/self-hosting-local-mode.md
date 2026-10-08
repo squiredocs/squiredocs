@@ -72,7 +72,7 @@ Moving from local to team mode is a configuration change and a restart. The owne
 
 Each service has a health check. `app` waits on `service_healthy` for both dependencies. Its own health check is `/ready`, which reports Postgres and Redis reachability and stays 503 until startup finishes, so `docker compose up --wait` returns only when the app can serve requests. The Dockerfile's `HEALTHCHECK` changes from `/health` to `/ready` so the image behaves the same outside compose. The Postgres check is `pg_isready -h 127.0.0.1`: without `-h` it uses the Unix socket, which answers while the image's first-run initialization server is still running, before Postgres accepts TCP connections, and the app's migration step would then fail to connect.
 
-Data lives in three named volumes: `squire-data` (generated secrets and local image storage), `postgres-data`, and `redis-data`. The app port is published on `127.0.0.1:${SQUIRE_PORT:-3910}` (the container still listens on 3001; only the host port changes), so it is not reachable from other machines unless the user changes the binding.
+Data lives in three named volumes: `squire-data` (generated secrets and local image storage), `postgres-data`, and `redis-data`. The app port is published on `127.0.0.1:${SQUIRE_PORT:-3910}` (the container still listens on 3001; only the host port changes), so it is not reachable from other machines unless the user changes the binding. (From the 060 build.) Postgres uses internal credentials (squire/squire/squire), and neither Postgres nor Redis publishes a port.
 
 `.env` is optional. `.env.example` lists every setting with its default. The only setting a try-out user might need is `SQUIRE_PORT`, if 3910 is taken.
 
@@ -100,7 +100,7 @@ The core loop (the editor, version history, sharing, and the MCP surface) needs 
 
 ### Images and upgrades
 
-Images are published to GHCR as multi-architecture (amd64 and arm64) builds with semver tags plus `latest`. `isolated-vm` is a native module, so CI builds and smoke-tests both architectures. `compose.yml` reads the tag from `SQUIRE_VERSION`. Upgrading is two steps, because the install pins the version: set SQUIRE_VERSION in .env to the new release, then run docker compose pull && docker compose up -d --wait in the install folder; migrations run on boot. (Amended from the 060 spec: a bare pull fetches nothing new while the version is pinned.)
+Images are published to GHCR as multi-architecture (amd64 and arm64) builds with semver tags plus `latest`. `isolated-vm` is a native module, so CI builds and smoke-tests both architectures. `compose.yml` reads the tag from `SQUIRE_VERSION`. Upgrading is two steps, because the install pins the version: set SQUIRE_VERSION in .env to the new release, then run docker compose pull && docker compose up -d --wait in the install folder; migrations run on boot. (Amended from the 060 spec: a bare pull fetches nothing new while the version is pinned.) (From the 060 build.) Releases are cut by pushing a vX.Y.Z tag; the image gets X.Y.Z, and latest only for non-prerelease tags. Each architecture is smoke-tested before anything is published: the stack becomes healthy, squire doctor --json reports ok, and the isolate sandbox runs a script. The images pushed are the exact tarballs that were tested.
 
 ### Release files and the install script
 
@@ -123,6 +123,8 @@ curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/sq
 docker compose up -d --wait
 ./squire claim-link
 ```
+
+(From the 060 build.) Progress goes to stderr and stdout carries only the claim link. SQUIRE_INSTALL_ASSET_URL overrides where the release files are downloaded from, which lets CI install from a run's own unpublished assets. The latest version is found through GitHub's releases/latest redirect, and an existing installation is detected by compose.yml in the folder. The settings file is published as env.example, because GitHub renames release assets that begin with a period.
 
 ## The squire CLI
 
@@ -210,6 +212,8 @@ The welcome document is seeded on the owner's first sign-in, as today. Its templ
 - Recovery steps: get a new sign-in link, change the port, read logs, upgrade.
 - A warning that `docker compose down -v` deletes every document, and that `docker compose down` (without `-v`) is the safe way to stop.
 
+(From the 060 build.) Every instance, hosted or self-hosted, serves /self-host.md and /install.sh byte for byte. AGENTS.md opens with one line pointing contributors to CONTRIBUTING.md, since the file name usually means contributor instructions for coding agents.
+
 The README on GitHub opens with the install command for people and links to `self-host.md` for agents. The documentation site gets a self-hosting page at `/documentation/self-hosting`, the path the open source launch pages link to.
 
 ## Changes to existing behavior
@@ -246,7 +250,7 @@ Proposed pipeline features, in order:
 
 1. **Self-host configuration foundation.** `APP_URL`, cookie flag, generated secrets, migrations on boot, local image storage, generic SMTP, `SQUIRE_HOSTED`, welcome template URLs. No user-visible change on the hosted service.
 2. **Identity and local mode.** A `user_identities` table keyed by issuer and subject (Google rows backfilled), the provider registry and `GET /auth/providers`, `SQUIRE_MODE`, sign-in links, the `squire` CLI, and the sign-in and consent pages rendered from providers. Adds a migration.
-3. **Distribution.** `compose.yml`, the `squire` wrapper, and `SHA256SUMS` as release assets; the GHCR multi-arch image; `install.sh` and `self-host.md` served from squiredocs.com and kept in the repository; the README section and the documentation page; the `onboard.md` pointer to `self-host.md`; and a CI job that plays the agent: run the install script against the freshly built image, redeem the claim link it prints, and drive the OAuth chain with the existing `test/first-run/oauth-chain-driver.mjs` (which needs a sign-in-link leg in place of the dev faucet).
+3. **Distribution.** `compose.yml`, the `squire` wrapper, and `SHA256SUMS` as release assets; the GHCR multi-arch image; `install.sh` and `self-host.md` served from squiredocs.com and kept in the repository; the README section and the documentation page; the `onboard.md` pointer to `self-host.md`; and a CI job that plays the agent: run the install script against the freshly built image, redeem the claim link it prints, and drive the OAuth chain with the existing `test/first-run/oauth-chain-driver.mjs` (which needs a sign-in-link leg in place of the dev faucet). (From the 060 build.) The production image has no dev endpoints, so the CI job approves consent through the real POST /mcp/auth/approve route with the owner's session from the redeemed link.
 4. **Team mode.** Generic OIDC, local passwords, `SIGNUP_MODE`, and the verified-email invite rule, per the Authentication and Sharing amendment. Can follow launch.
 
 Build step 2 also replaces the Google-only user creation. Today `users.google_id` is `NOT NULL UNIQUE` (`migrations/003_create_users_table.js`), `findOrCreateUser` upserts `ON CONFLICT (google_id)`, and `completePostAuth` takes a Google-shaped profile. Step 2 makes `google_id` nullable (kept for the hosted service's existing rows until a later cleanup), resolves users through `user_identities`, and changes `completePostAuth` to accept an already-resolved user so every sign-in method shares it.

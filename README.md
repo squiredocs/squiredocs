@@ -1,6 +1,20 @@
-# Collaborative Rich Text Editor
+# Squire Docs
 
-A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. Multiple users can edit the same document simultaneously with automatic conflict resolution.
+A real-time collaborative document editor for people and their AI agents, built with Yjs, TipTap, and Node.js. Multiple users and agents can edit the same document simultaneously with automatic conflict resolution. MIT licensed (see `LICENSE`).
+
+## Run it yourself
+
+```bash
+curl -fsSL https://squiredocs.com/install.sh | sh
+```
+
+This creates a `squire-docs` folder, downloads the release's `compose.yml`, `squire` wrapper, and settings file (checked against `SHA256SUMS`), starts Squire Docs with Postgres and Redis in Docker, waits until everything is healthy, and prints a one-time claim link as its last line. Open the link, click Continue, and you are signed in as the owner. Then connect your agent with `claude mcp add --transport http squire-local http://localhost:3910/mcp` and click Approve. That is two clicks and no passwords, email, or API keys. Requires Docker with Compose 2.24 or later.
+
+- Agents: follow https://squiredocs.com/self-host.md (this repository's `AGENTS.md`), which lists every command with its success condition.
+- People: see `/documentation/self-hosting` on any instance.
+- `./squire <command>` in the install folder runs the in-container CLI, for example `./squire claim-link` to sign in again or `./squire doctor`.
+- **The `squire-data` volume holds the generated secrets, including the key that encrypts stored API keys. `docker compose down -v` deletes it along with every document; `docker compose down` is the safe way to stop.**
+
 
 ## Features
 
@@ -49,7 +63,9 @@ A real-time collaborative rich text editor built with Yjs, TipTap, and Node.js. 
 - npm or yarn
 - PostgreSQL 12+ (for server-side persistence)
 
-## Installation
+## Developing
+
+To work on Squire Docs itself (cloning is only needed for development; see `CONTRIBUTING.md`):
 
 1. Clone the repository:
 ```bash
@@ -326,6 +342,15 @@ The image runs `node script/entrypoint.js` (the Dockerfile `CMD`, so the migrati
 - **Sign-in links.** `signin_links` stores only a SHA-256 hash, a target (claim or a user id), a 15-minute expiry, and `used_at`. The link is `${APP_URL}/claim#<token>`: the token travels in the fragment, so it never reaches access logs or `Referer`. The claim page calls `POST /auth/signin-link/peek` (read-only: valid, and whether it creates the owner or signs someone in), and Continue posts to `POST /auth/signin-link`, which spends the link and runs the normal post-sign-in redirect (JSON when asked). Owner creation runs in one transaction that takes the users lock and fails if any user exists; the owner id is recorded in `app_settings` (`server/auth/instance-owner.js`). An unclaimed local instance prints a claim block in plain lines just before it reports ready. Link sign-ins record `signin_link` as the sign-in source. No HTTP or MCP endpoint mints links; the `/auth` per-IP limiter covers both endpoints.
 - **The `squire` CLI** (`bin/squire.js`, on `PATH` in the image; modules in `server/cli/`): `doctor [--json]` (probes `/ready`, reports mode, `APP_URL`, optional features, owner; `--json` carries a `failed` list), `claim-link [--name] [--email]`, `login-link --email`, `mode`, and `token create --name <agent>` (an `sk_sqd_` token with read and write scopes, 30-day default expiry, written to a 0600 file under the data directory and never printed without `--stdout`). In the image: `docker compose exec app squire <command>`.
 - Design: `design/self-hosting-local-mode.md` ("Instance modes", "Sign-in links", "The squire CLI").
+
+### Self-Host Distribution and Releases (feature 060)
+
+- **Release assets.** Each GitHub release of `squiredocs/squiredocs` publishes `compose.yml`, the `squire` wrapper, `env.example` (GitHub renames dot-leading asset names; `install.sh` saves it as `.env.example`), and `SHA256SUMS`, all pinned to the release's image tag. Sources live in `distribution/self-host/`; `distribution/self-host/release.mjs` stamps them. The repository name is one constant mirrored in four files and pinned by a drift test.
+- **Image.** `ghcr.io/squiredocs/squiredocs`, multi-architecture (amd64 and arm64), tags `X.Y.Z` plus `latest` for non-prerelease releases. Releases are cut by pushing a `vX.Y.Z` tag; `.github/workflows/release.yml` builds both architectures on native runners, smoke-tests each (healthy stack, `squire doctor --json`, the isolate sandbox), runs an agent-playing job (installs with `install.sh` from the run's own assets, redeems the claim link, drives the OAuth chain with `test/first-run/oauth-chain-driver.mjs --signin-link`, ends with a `modify` call), and only then pushes the tested image tarballs and attaches the assets. It refuses to publish from any repository other than `squiredocs/squiredocs`. The hosted ECR build (`script/build-and-deploy-aws.sh`) is separate and unchanged.
+- **`install.sh`** (POSIX sh, never prompts): flags `--dir PATH` (default `./squire-docs`), `--version X.Y.Z` (default latest), `--name`, `--email`; `SQUIRE_INSTALL_ASSET_URL` overrides the asset source (used by CI). It refuses to overwrite an existing install and prints the upgrade command instead (set `SQUIRE_VERSION` in `.env`, then `docker compose pull && docker compose up -d --wait`). Progress goes to stderr; stdout carries only the claim link.
+- **Served routes.** Every instance serves `/install.sh` and `/self-host.md` (the repository's `AGENTS.md`) byte for byte. A self-hosted instance serves a documentation variant that names the instance's own origin, carries no analytics tag, and links only to pages the instance serves; the hosted pages are pinned by golden hashes. The self-hosting guide is `documentation/self-hosting.md` (`/documentation/self-hosting`).
+- **Repository files.** `LICENSE` (MIT), `CONTRIBUTING.md`, `SECURITY.md` (security@squiredocs.com).
+- Design: `design/self-hosting-local-mode.md` ("Release files and the install script", D12, D13).
 
 ### MCP OAuth Secrets
 
