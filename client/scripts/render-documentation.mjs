@@ -395,15 +395,27 @@ export function filterFooter(footerHtml) {
 }
 
 /**
+ * A sentence in the hosted pages that tells a reader of squiredocs.com how to
+ * adapt a hosted URL to a self-hosted instance ("For a self-hosted instance,
+ * use that instance's endpoint in place of the hosted one: ..."). In the
+ * self-hosted variant the URLs before it already name the instance, so the
+ * sentence is dropped there (060 review L3). It runs to the first period
+ * followed by whitespace or the end of the paragraph.
+ */
+const HOSTED_ONLY_SENTENCE_RE = /\s*For a self-hosted instance, [\s\S]*?\.(?=\s|<\/p>)/g;
+
+/**
  * The body of a self-hosted page: instance URLs (the MCP endpoint and the
- * REST API) carry ORIGIN_SENTINEL, and links to hosted-only pages become
+ * REST API) carry ORIGIN_SENTINEL, links to hosted-only pages become
  * absolute links to squiredocs.com (their policies describe the hosted
- * service, RBD-060-8). Distribution URLs, email addresses, and everything
- * else are unchanged. The hosted variant is returned as is.
+ * service, RBD-060-8), and sentences addressed only to hosted readers about
+ * self-hosted instances are dropped. Distribution URLs, email addresses, and
+ * everything else are unchanged. The hosted variant is returned as is.
  */
 export function renderVariantBody(bodyHtml, variant = 'hosted') {
   if (variant !== 'self-hosted') return bodyHtml;
   return String(bodyHtml)
+    .replace(HOSTED_ONLY_SENTENCE_RE, '')
     .replace(/https:\/\/squiredocs\.com\/mcp\b/g, `${ORIGIN_SENTINEL}/mcp`)
     .replace(/https:\/\/squiredocs\.com\/api\//g, `${ORIGIN_SENTINEL}/api/`)
     .replace(/href="(\/[^"]*)"/g, (m, href) => (isHostedOnlyHref(href) ? `href="${CANONICAL_ORIGIN}${href}"` : m));

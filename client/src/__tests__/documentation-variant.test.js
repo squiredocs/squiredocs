@@ -126,6 +126,23 @@ describe('self-hosted pages (FR-030, FR-031)', () => {
     }
   });
 
+  // 060 review L3: the hosted-only "use that instance's endpoint" sentence
+  // refers to URLs the variant has already rewritten, so it is dropped there.
+  it('drop the hosted-only self-hosted-instance sentence from the Codex paragraph, keeping the rest', () => {
+    const agents = rendered.find((r) => r.slug === 'agents-and-mcp').html;
+    expect(agents).not.toContain('For a self-hosted instance');
+    expect(agents).not.toContain("in place of the hosted one");
+    expect(agents).toContain('<code>bearer_token_env_var = &quot;SQUIRE_DOCS_TOKEN&quot;</code> in the same <code>[mcp_servers.squire]</code> block.</p>');
+    const hosted = render(sourcePages.find((p) => p.frontmatter.slug === 'agents-and-mcp'), 'hosted');
+    expect(hosted).toContain("For a self-hosted instance, use that instance's endpoint in place of the hosted one: <code>http://localhost:3910/mcp</code>");
+  });
+
+  it('renderVariantBody drops only the hosted-only sentence', () => {
+    const body = '<p>Set it up. For a self-hosted instance, use <code>x.y</code> (see <a href="/documentation/self-hosting">Self-hosting</a>).</p>\n<p>Next. For a self-hosted instance, do this. Keep this.</p>\n';
+    expect(renderVariantBody(body, 'self-hosted')).toBe('<p>Set it up.</p>\n<p>Next. Keep this.</p>\n');
+    expect(renderVariantBody(body, 'hosted')).toBe(body);
+  });
+
   it('mark the instance URLs in markdown.md and agents-and-mcp.md with the sentinel', () => {
     const count = (slug) => rendered.find((r) => r.slug === slug).html.split(`${ORIGIN_SENTINEL}/`).length - 1;
     expect(count('markdown')).toBe(5);
