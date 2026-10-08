@@ -32,7 +32,7 @@ telemetry.start();
     'If this is a real deployment, production hardening is OFF: dev-only auth-\n' +
     'bypass routes may be mounted, auth cookies are not Secure/SameSite=strict,\n' +
     'and the JWT weak-secret fail-fast is disabled. Set NODE_ENV=production in\n' +
-    'the production overlay (k8s/overlays/aws-prod).\n' +
+    'the deployment\'s environment.\n' +
     '**********************************************************************\n'
   );
 })();

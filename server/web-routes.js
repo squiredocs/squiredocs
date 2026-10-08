@@ -72,8 +72,7 @@ function staticSetHeaders(clientBuildPath) {
     }
     // Root-level blog assets (blog.css, blog-*.svg — exactly what the /blog*
     // CloudFront path pattern matches) and the self-hosted /vendor/* bundles
-    // are static, edge-cached (edge.tf), and invalidated on every deploy
-    // (script/deploy-aws.sh). Mirror the blog HTML's header (blog-routes.js):
+    // are static, edge-cached, and invalidated on every hosted deploy. Mirror the blog HTML's header (blog-routes.js):
     // cache hard at the shared edge, short browser max-age so a deploy's
     // edge invalidation actually reaches readers.
     const rel = path.relative(clientBuildPath, filePath);

@@ -166,28 +166,18 @@ by Vite middleware (`client/vite.config.js`), so a content edit shows on refresh
 
 ## Kubernetes Deployment
 
-Production runs on AWS k3s in the `collab` namespace, served through CloudFront
-`<cloudfront-distribution-id>` (which terminates TLS for `squiredocs.com` and reaches the
-`app.squiredocs.com` origin). Since the 2026-07-16 cutover it runs on a
-**dedicated hardened single-node k3s cluster** that is Squire's alone:
+The hosted service at squiredocs.com runs on a dedicated single-node k3s cluster on
+AWS behind CloudFront. Its operations files (OpenTofu, the production Kustomize
+overlay, the observability manifests, SOPS-encrypted secrets, the deploy scripts,
+and the operator guide) live in a private operations repository, not in this one.
+That repository is laid over a checkout of this one at deploy time, so the shared
+pieces stay here: `k8s/base` (the app, Postgres, Redis, and the backup CronJob),
+the `Dockerfile` and `Dockerfile.backup`, and `script/backup-postgres.sh`. Design
+ground truth is
+[design/infrastructure-and-environments.md](design/infrastructure-and-environments.md).
 
-- **Production** is the dedicated cluster (kube context `k3s-squiredocs`, node
-  `<prod-instance-id>`, EIP `<prod-eip>`) — its own EC2 instance, security group,
-  and IAM role. It is declared as code with **OpenTofu** (`infra/terraform/`),
-  **Kustomize** (`k8s/base` + `k8s/overlays/{minikube,aws-prod}`), and **SOPS/age**
-  secrets (`k8s/secrets/`). Origin TLS is a cert-manager + Let's Encrypt (Route53
-  DNS-01) certificate that auto-renews.
-- **The old shared node** (context `k3s-wft-aws`, `<old-node-ip>`), which shared its
-  EC2 instance, SG, and IAM role with the wildfiretrackers.com workload, is now
-  **orphaned** and awaits decommissioning.
-
-**The full operator guide is [docs/operations.md](docs/operations.md)** — cluster
-topology, OpenTofu/state, Kustomize, SOPS secrets, SSM node access, the ECR
-pull-secret refresh, the backup pipeline, edge/CloudFront, the cutover procedure,
-observability, and the gotchas. Design ground truth is
-[design/infrastructure-and-environments.md](design/infrastructure-and-environments.md);
-the migration runbook is
-[specs/011-iac-config-management/runbook.md](specs/011-iac-config-management/runbook.md).
+To run your own instance, see the self-hosting section below; you do not need any
+of the hosted service's operations files.
 
 Local development uses **Minikube** — see [docs/dev.md](docs/dev.md).
 
@@ -210,23 +200,14 @@ minikube start --cpus=10 --memory=12288 --disk-size=40g --driver=docker
 ./script/deploy.sh
 ```
 
-### Seeding from a Production Backup
+### Seeding from a Backup
 
-Nightly Postgres backups land in the dedicated `s3://squiredocs-db-backups/`
-bucket (SSE-KMS + Object Lock, timestamped filenames). To restore a backup into a
-cluster's Postgres pod, stream it in:
+To restore a `pg_dump` backup into a cluster's Postgres pod, stream it in:
 
 ```bash
 gunzip -c collab-backup.sql.gz \
   | kubectl exec -i deploy/collab-postgres -n collab -- psql -U postgres -d collab_db
 ```
-
-For the dedicated cluster (no SSH; managed via SSM), relay the `.sql.gz` to the
-node through a presigned S3 URL first. The complete, rehearsed restore procedure is
-in [docs/operations.md](docs/operations.md#restore-procedure-rehearsed).
-
-> Historical note: the old shared node backed up to the shared `earthquaketracksql`
-> bucket with day-of-year filenames — superseded by `squiredocs-db-backups`.
 
 ### Deploy Scripts
 
@@ -237,32 +218,11 @@ in [docs/operations.md](docs/operations.md#restore-procedure-rehearsed).
 | `script/builddockerdev.sh` | Builds the Docker image in minikube's Docker context |
 | `script/deploy.sh` | Legacy shared-node/GKE deploy (`envsubst`-based; kept for the rollback window) |
 | `script/backup-postgres.sh` | pg_dump backup script baked into the backup image and run by the CronJob |
-| **`script/build-and-deploy-aws.sh`** | **One-command production build + deploy** — ECR login, builds & pushes the arm64 image for HEAD, switches context, then runs `deploy-aws.sh`. ⚠️ Still hardcodes the legacy `k3s-wft-aws` context; see the note below. |
-| **`script/deploy-aws.sh`** | **Production deploy via Kustomize** — guards the kube context (`DEPLOY_CONTEXT`, default `k3s-squiredocs`), resolves the app's ECR digest (fails closed), applies the `aws-prod` overlay, gates on the rollout + migrate Job, then tags the deploy. Secrets are applied separately via SOPS. |
-
-### AWS k3s Deployment (production)
-
-```bash
-# Apply the SOPS secrets once, then deploy (run on an ARM Mac — the image is arm64).
-for f in k8s/secrets/*.enc.yaml; do sops -d "$f" | kubectl apply -f -; done
-./script/deploy-aws.sh
-```
-
-> **Known inconsistency:** `build-and-deploy-aws.sh` still hardcodes
-> `CONTEXT="k3s-wft-aws"` (the legacy shared-node context) and switches to it
-> before calling `deploy-aws.sh`, whose guard expects `k3s-squiredocs`. The two
-> disagree, so the wrapper **fails closed** on the context guard (no wrong-cluster
-> deploy) but is unusable against the new cluster as written — set `DEPLOY_CONTEXT`
-> / point it at `k3s-squiredocs`, or build+push manually and run `deploy-aws.sh`
-> directly. See [docs/operations.md](docs/operations.md#deploy-tooling).
-
-> **Note:** CI (`.github/workflows/test.yml`) only runs tests — a `backend` job for the server suite and a `client` job for the client and first-run rehearsal suites, the two running in parallel. It does **not** build or push any image. So a production deploy always needs a local build+push. `deploy-aws.sh` resolves the app image's ECR digest from the pushed tag and fails if it's missing (no mutable-tag fallback).
 
 ### Notes
 
 - `deploy.sh` does **not** deploy PostgreSQL — run `postgres-deploy.sh` first (minikube only)
-- For minikube, the app image is `collab:latest` (built locally); for k3s production it pulls from ECR (`<aws-account-id>.dkr.ecr.us-east-1.amazonaws.com/eqt/collab`), arm64 only, pinned by digest at deploy time
-- The dedicated cluster shares no infrastructure with the wft workload — it has its own node, security group, IAM role, postgres + redis pods
+- For minikube, the app image is `collab:latest` (built locally)
 - See `docs/dev.md` for the full development environment guide (Mutagen sync, port-forwarding, etc.). Mutagen sync is almost always running and reliable — you can generally trust local changes are synced to the pod without verification.
 
 ## Configuration
@@ -346,7 +306,7 @@ The image runs `node script/entrypoint.js` (the Dockerfile `CMD`, so the migrati
 ### Self-Host Distribution and Releases (feature 060)
 
 - **Release assets.** Each GitHub release of `squiredocs/squiredocs` publishes `compose.yml`, the `squire` wrapper, `env.example` (GitHub renames dot-leading asset names; `install.sh` saves it as `.env.example`), and `SHA256SUMS`, all pinned to the release's image tag. Sources live in `distribution/self-host/`; `distribution/self-host/release.mjs` stamps them. The repository name is one constant mirrored in four files and pinned by a drift test.
-- **Image.** `ghcr.io/squiredocs/squiredocs`, multi-architecture (amd64 and arm64), tags `X.Y.Z` plus `latest`, which moves only to the highest `X.Y.Z` release so a backport never moves it back (per-architecture staging tags `X.Y.Z-amd64` and `X.Y.Z-arm64` back the manifest). Releases are cut by pushing a `vX.Y.Z` tag; `.github/workflows/release.yml` builds both architectures on native runners, smoke-tests each (healthy stack, `squire doctor --json`, the isolate sandbox), runs an agent-playing job (installs with `install.sh` from the run's own assets, redeems the claim link, drives the OAuth chain with `test/first-run/oauth-chain-driver.mjs --signin-link`, ends with a `modify` call), and only then pushes the tested image tarballs and attaches the assets. Only the publish job gets write permissions, run steps use bash with `pipefail`, and every action is pinned to a commit SHA. It refuses to publish from any repository other than `squiredocs/squiredocs`. The hosted ECR build (`script/build-and-deploy-aws.sh`) is separate and unchanged.
+- **Image.** `ghcr.io/squiredocs/squiredocs`, multi-architecture (amd64 and arm64), tags `X.Y.Z` plus `latest`, which moves only to the highest `X.Y.Z` release so a backport never moves it back (per-architecture staging tags `X.Y.Z-amd64` and `X.Y.Z-arm64` back the manifest). Releases are cut by pushing a `vX.Y.Z` tag; `.github/workflows/release.yml` builds both architectures on native runners, smoke-tests each (healthy stack, `squire doctor --json`, the isolate sandbox), runs an agent-playing job (installs with `install.sh` from the run's own assets, redeems the claim link, drives the OAuth chain with `test/first-run/oauth-chain-driver.mjs --signin-link`, ends with a `modify` call), and only then pushes the tested image tarballs and attaches the assets. Only the publish job gets write permissions, run steps use bash with `pipefail`, and every action is pinned to a commit SHA. It refuses to publish from any repository other than `squiredocs/squiredocs`. The hosted service builds its own image separately.
 - **`install.sh`** (POSIX sh, never prompts): flags `--dir PATH` (default `./squire-docs`), `--version X.Y.Z` (default latest), `--name`, `--email`; `SQUIRE_INSTALL_ASSET_URL` overrides the asset source (used by CI); `SQUIRE_PORT`, when set, is validated and saved to `.env`. It refuses to overwrite an existing install and prints the upgrade command instead (set `SQUIRE_VERSION` in `.env`, then `docker compose pull && docker compose up -d --wait`), and refuses any other non-empty folder. `.env` gets `SQUIRE_VERSION` and a random `COMPOSE_PROJECT_NAME=squire-docs-<hex>`, so same-named install folders never share containers or volumes. The whole script runs from `{ main "$@"; }` on its last line, so a truncated `curl | sh` download runs nothing. Progress goes to stderr; stdout carries only the claim link.
 - **Served routes.** Every instance serves `/install.sh` and `/self-host.md` (the repository's `AGENTS.md`) byte for byte. A self-hosted instance serves a documentation variant that names the instance's own origin, carries no analytics tag, and links only to pages the instance serves; the hosted pages are pinned by golden hashes. The self-hosting guide is `documentation/self-hosting.md` (`/documentation/self-hosting`).
 - **Repository files.** `LICENSE` (MIT), `CONTRIBUTING.md`, `SECURITY.md` (security@squiredocs.com).
@@ -420,8 +380,8 @@ The server is instrumented with vendor-neutral **OpenTelemetry** (feature 014):
   proven by sentinel-content tests.
 
 The Collector, monitoring node (OpenObserve), dashboards, and alarms are the
-observability platform (feature 013) — see `design/observability-and-telemetry.md`
-and `docs/operations.md`.
+observability platform (feature 013) — see `design/observability-and-telemetry.md`.
+Their manifests live in the private operations repository.
 
 ### Collaboration Binding Hardening (feature 021)
 
@@ -1244,11 +1204,9 @@ hardened S3 bucket:
   `squiredocs-db-backup-writer` credential, and a CloudWatch dead-man alarm emails
   if no backup lands in 26h
 
-Full backup and restore operations — including why the uploader uses AWS CLI v2
-(s3cmd is incompatible with Object Lock) and the rehearsed restore procedure — are
-in [docs/operations.md](docs/operations.md#backups--data-protection). The legacy
-shared node backed up to the shared `earthquaketracksql` bucket; that is
-superseded.
+The uploader uses AWS CLI v2 because s3cmd is incompatible with Object Lock. The
+hosted service's bucket, alarm, and rehearsed restore procedure are documented in
+its private operations repository.
 
 ## Database Migrations
 

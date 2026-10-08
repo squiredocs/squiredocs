@@ -36,17 +36,22 @@ design/.squire-token
 # Speckit local state (current-feature pointer; machine-local, never track)
 .specify/feature.json
 
-# transient deploy wrapper (script/deploy-aws.sh)
+# The hosted service's private operations repository is laid over a checkout
+# of this one at deploy time. Never commit its files here.
+infra/
+k8s/secrets/
+.sops.yaml
+k8s/overlays/aws-prod/
 k8s/overlays/.deploy-tmp-*/
-
-# OpenTofu working files (module authored only; ops track runs init/plan/apply).
-# .terraform.lock.hcl IS committed (L3): it pins provider hashes so `tofu init`
-# verifies them across the operator's platforms (linux/darwin, amd64/arm64).
-infra/terraform/.terraform/
-infra/terraform/*.tfstate
-infra/terraform/*.tfstate.*
-infra/terraform/*.tfvars
-k8s/secrets/k3s-squiredocs.kubeconfig
+k8s/o11y/
+k8s/o11y-dashboards/
+docs/operations.md
+script/build-and-deploy-aws.sh
+script/deploy-aws.sh
+script/bootstrap-cluster-addons.sh
+script/finalize-o11y-cert.sh
+script/cache-savings-prod.sh
+script/provision-s3-images.sh
 
 # Search eval harness output (feature 018) — operator artifacts, never committed
 server/search/eval/eval-results.*.json

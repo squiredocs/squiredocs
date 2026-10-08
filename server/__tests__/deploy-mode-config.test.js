@@ -1,8 +1,9 @@
 /**
  * Feature 059 (T059, FR-025, RBD-059-1/-11/-15): every deployment this repo
  * ships sets SQUIRE_MODE=team explicitly. Unset means local mode (design D1),
- * which turns Google sign-in off, so a future edit that drops the entry from
- * the hosted overlay would lock everyone out of squiredocs.com. This pins it.
+ * which turns Google sign-in off, so a future edit that drops the entry would
+ * lock everyone out. This pins it. (The hosted overlay's pin lives with that
+ * overlay in the private operations repository.)
  */
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +25,6 @@ function squireModeIn(file) {
 describe('deployments set SQUIRE_MODE=team', () => {
   test.each([
     'k8s/base/app-deployment.yaml',
-    'k8s/overlays/aws-prod/patches/app-node-env.yaml',
     'k8s/overlays/minikube/app-dev.yaml',
     'devcontainer/k8s/app-dev.yaml',
   ])('%s', (file) => {

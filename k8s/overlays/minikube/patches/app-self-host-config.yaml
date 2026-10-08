@@ -1,5 +1,5 @@
 # Feature 058: the minikube base collab-app mirrors production's hosted-mode
-# and migration settings (k8s/overlays/aws-prod/patches/app-self-host-config.yaml).
+# and migration settings (the hosted service's production overlay).
 # The db-migrate Job keeps owning migrations. STORAGE_DRIVER is left to
 # auto-detect (s3 when S3_IMAGE_BUCKET is set, else local) and APP_URL to
 # default from CLIENT_URL.

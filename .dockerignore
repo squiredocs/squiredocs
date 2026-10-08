@@ -18,7 +18,15 @@ __tests__/
 .vscode/
 .idea/
 
-
-
-
-
+# The hosted service's operations files, when laid over a checkout to deploy.
+# Keep encrypted secrets, OpenTofu, and ops scripts out of the image.
+infra/
+k8s/
+.sops.yaml
+docs/operations.md
+script/build-and-deploy-aws.sh
+script/deploy-aws.sh
+script/bootstrap-cluster-addons.sh
+script/finalize-o11y-cert.sh
+script/cache-savings-prod.sh
+script/provision-s3-images.sh

@@ -2,9 +2,9 @@
 
 This guide explains how to work with the Kubernetes-based development environment using Minikube and Mutagen for file synchronization.
 
-> **Operating production?** This guide is local-dev only. Production infrastructure
-> (the dedicated hardened k3s cluster, OpenTofu, SOPS secrets, SSM node access,
-> backups, edge, cutover) is documented in **[operations.md](operations.md)**.
+> **Operating production?** This guide is local-dev only. The hosted service's
+> infrastructure (its k3s cluster, OpenTofu, SOPS secrets, backups, edge) is
+> documented in its private operations repository.
 
 ## Two ways to drive this environment
 
@@ -1198,14 +1198,13 @@ kubectl exec deployment/app-dev -n collab -- pkill -f node                      
 
 Database backups are a **production** concern, not a local-dev one — the Minikube
 environment does not run the backup CronJob. The full backup and restore
-operations for the production cluster (bucket hardening, the AWS-CLI-v2 uploader,
-the scoped writer credential, the freshness alarm, and the rehearsed restore
-procedure) are documented in **[operations.md](operations.md#backups--data-protection)**.
+operations for the hosted cluster are documented in its private operations
+repository.
 
-Quick summary of the production pipeline (see operations.md for detail):
+Quick summary of the pipeline:
 
-- A nightly Kubernetes CronJob (`postgres-backup`, `k8s/base/postgres-backup-cronjob.yaml`
-  + the aws-prod backup-hardening patch) runs `script/backup-postgres.sh`.
+- A nightly Kubernetes CronJob (`postgres-backup`, `k8s/base/postgres-backup-cronjob.yaml`,
+  hardened by the hosted overlay) runs `script/backup-postgres.sh`.
 - It uploads a timestamped `pg_dump` to the dedicated, Object-Locked
   `s3://squiredocs-db-backups/` bucket, non-root, from a pinned image.
 
@@ -1255,8 +1254,7 @@ The IAM credentials need `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` o
 DB-backup credentials.
 
 For the cluster, copy `k8s/s3-images-secret.yaml.example` to
-`k8s/s3-images-secret.yaml` (gitignored) and fill it in. `script/deploy-aws.sh`
-applies it when present; `k8s/app-deployment.yaml` and `k8s/app-dev.yaml` reference
+`k8s/s3-images-secret.yaml` (gitignored) and fill it in. `k8s/app-deployment.yaml` and `k8s/app-dev.yaml` reference
 it with `optional: true`.
 
 ### Migration

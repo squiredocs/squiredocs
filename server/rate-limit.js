@@ -285,7 +285,7 @@ function authRouteLimiter() {
 // (a per-IP 5/hr budget plus a single GLOBAL daily counter of 200) let one
 // abuser lock out registration for ALL users by spending the shared global
 // budget. Coarse edge-level flood protection remains via the WAF per-IP rate
-// limit (2000/5min) in infra/terraform/edge.tf.
+// limit (2000/5min) on the hosted service.
 
 module.exports = {
   perIp,

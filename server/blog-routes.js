@@ -55,9 +55,9 @@ function mountBlogRoutes(app, blogDistDir) {
     }
     if (status === 200) {
       // Blog pages are static, identical for every visitor, and rebuilt on every
-      // deploy (which invalidates /blog* at the edge — script/deploy-aws.sh). Cache
+      // deploy (which invalidates /blog* at the edge on the hosted service). Cache
       // hard at the shared CloudFront edge via a long s-maxage (honored by the
-      // Managed-CachingOptimized behavior in edge.tf), while keeping the browser
+      // hosted edge's Managed-CachingOptimized behavior), while keeping the browser
       // max-age short so a deploy's edge invalidation actually reaches readers —
       // invalidation clears the edge, not already-cached browsers.
       res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=31536000');

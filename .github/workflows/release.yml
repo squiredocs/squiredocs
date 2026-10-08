@@ -5,8 +5,8 @@
 #
 # Triggers: a pushed v* tag, or a manual dispatch. A dispatch from a branch
 # runs every gate with version 0.0.0-ci.<run> and never publishes. A failure
-# anywhere publishes nothing. The hosted deploy (script/build-and-deploy-aws.sh)
-# is independent of this workflow (RBD-060-19).
+# anywhere publishes nothing. The hosted service's deploy (private operations
+# repository) is independent of this workflow (RBD-060-19).
 #
 # Every third-party action is pinned to a full commit SHA, with the version
 # tag it was resolved from in a trailing comment (review finding M4).
