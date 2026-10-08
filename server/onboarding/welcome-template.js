@@ -16,9 +16,8 @@
  * Feature 058 (FR-034, RBD-058-22): the nodes are built per instance.
  * buildWelcomeDocNodes({ appUrl, hosted }) builds the connection commands, the
  * MCP config URL, the agents.md link, and the documentation link from APP_URL,
- * and includes the support paragraph and the beta-credit sentence only on the
- * hosted service. WELCOME_DOC_NODES is the hosted build, byte-identical to the
- * pre-058 constant.
+ * and includes the support paragraph and the AI-credit sentence only on the
+ * hosted service (a self-hosted instance links the GitHub issue tracker). WELCOME_DOC_NODES is the hosted build.
  *
  * Coupling: the assistant's welcome kickoff (client AiChatContext.jsx,
  * buildWelcomeKickoffPrompt) inserts the personalized greeting immediately
@@ -29,10 +28,10 @@ const WELCOME_DOC_TITLE = 'Welcome to Squire Docs';
 
 const HOSTED_APP_URL = 'https://squiredocs.com';
 
-const ABOUT_TEXT =
-  'Squire Docs was built by engineering leaders who needed a better way to move from high-level thinking to specs a team—human or agent—can execute.';
-const BETA_CREDIT_SENTENCE =
-  ' It is currently in free public beta, including a $10 AI credit allotment for new users.';
+const GITHUB_REPO_URL = 'https://github.com/squiredocs/squiredocs';
+
+const HOSTED_CREDIT_SENTENCE =
+  ' On squiredocs.com, every account gets $10 of AI credits a month for the built-in assistant.';
 
 /**
  * @param {{ appUrl: string, hosted: boolean }} opts
@@ -48,31 +47,31 @@ function buildWelcomeDocNodes({ appUrl, hosted }) {
     {
       type: 'paragraph',
       content:
-        'Squire Docs is a collaborative editor for spec-driven development: design docs, ADRs, and specs that engineers, PMs, and coding agents write together, with every edit attributed.',
+        'Squire Docs is a collaborative editor for people and AI agents. Your coding agents edit the same documents you do, live, and everything stays in sync with markdown in your repo.',
     },
     { type: 'heading', level: 2, content: 'How it works' },
     {
       type: 'paragraph',
       content:
-        'Everyone — and every agent — works in the same living document. Every edit is attributed, versioned, and reversible, and the whole thing can sync to your repos as markdown.',
+        'You, your team, and your agents work in the same live document. Every edit is attributed to whoever made it, every version can be restored, and each document can sync both ways with a markdown file in your repo.',
     },
     {
       type: 'mermaid',
       content: [
         'graph TB',
         '    subgraph Clients["Contributors"]',
-        '        T["You & your team<br/>(live cursors)"]',
-        '        A["Squire Assistant<br/>(in-app AI)"]',
-        '        C["Your coding agents<br/>(Claude Code · Kiro via MCP)"]',
+        '        T["You and your team<br/>(live cursors)"]',
+        '        A["Squire Docs assistant<br/>(built-in AI)"]',
+        '        C["Your coding agents<br/>(Claude Code, Codex, any MCP agent)"]',
         '    end',
         '',
-        '    D[("Living document<br>Yjs CRDT<br>attributed · versioned · reversible")]',
+        '    D[("Live document<br>attributed, versioned, restorable")]',
         '',
         '    T -->|"edits"| D',
         '    A -->|"edits"| D',
         '    C -->|"reads / writes"| D',
         '    C -->|"reads / writes"| R',
-        '    D <-->|"markdown two-way sync"| R[("Your git repo<br>.md files")]',
+        '    D <-->|"two-way markdown sync"| R[("Your git repo<br>.md files")]',
         '',
         '    style D fill:#e1f5fe,stroke:#0288d1,stroke-width:2px',
         '    style R fill:#e8f5e9,stroke:#388e3c,stroke-width:2px',
@@ -85,13 +84,13 @@ function buildWelcomeDocNodes({ appUrl, hosted }) {
     {
       type: 'paragraph',
       content:
-        'Squire Docs speaks MCP, so agents like Claude Code and Kiro can read and edit your docs right alongside you. However they connect, your agent appears in your docs as a named, attributed cursor.',
+        'Squire Docs speaks MCP, so Claude Code, Codex, and other agents can read and edit your docs alongside you. Each agent shows up as a named cursor, and its edits are attributed to it.',
     },
     {
       type: 'paragraph',
       content: [
         { text: 'Claude Code', marks: ['bold'] },
-        ' — in a terminal (not inside a running agent session), run:',
+        ': in a terminal (not inside a running Claude Code session), run:',
       ],
     },
     {
@@ -102,29 +101,21 @@ function buildWelcomeDocNodes({ appUrl, hosted }) {
     {
       type: 'paragraph',
       content: [
-        { text: 'Kiro', marks: ['bold'] },
-        " (AWS's spec-driven agentic IDE) — add Squire to the mcpServers block of your MCP config (.kiro/settings/mcp.json in a workspace, or ~/.kiro/settings/mcp.json for every project). Kiro hot-reloads the file on save and walks you through the browser sign-in on first use:",
+        { text: 'Codex', marks: ['bold'] },
+        ': in a terminal, run:',
       ],
     },
     {
       type: 'codeBlock',
-      language: 'json',
-      content: [
-        '{',
-        '  "mcpServers": {',
-        '    "squire": {',
-        `      "url": "${origin}/mcp"`,
-        '    }',
-        '  }',
-        '}',
-      ].join('\n'),
+      language: 'bash',
+      content: `codex mcp add squire --url ${origin}/mcp && codex mcp login squire`,
     },
     {
       type: 'paragraph',
       content: [
         'Using a different agent? Point it at ',
         { text: `${origin}/agents.md`, marks: [{ type: 'link', href: `${origin}/agents.md` }] },
-        ' — most MCP-native agents can read that page and connect themselves. For the full picture, see ',
+        '. Most MCP agents can read that page and connect themselves. For Cursor, Kiro, Claude Desktop, and others, see ',
         {
           text: 'Agents & MCP',
           marks: [{ type: 'link', href: `${origin}/documentation/agents-and-mcp` }],
@@ -135,12 +126,26 @@ function buildWelcomeDocNodes({ appUrl, hosted }) {
     { type: 'heading', level: 2, content: 'About Squire Docs' },
     {
       type: 'paragraph',
-      content: hosted ? ABOUT_TEXT + BETA_CREDIT_SENTENCE : ABOUT_TEXT,
+      content: [
+        'Squire Docs is open source under the MIT license. The code, issues, and releases are on ',
+        { text: 'GitHub', marks: [{ type: 'link', href: GITHUB_REPO_URL }] },
+        hosted ? '.' + HOSTED_CREDIT_SENTENCE : '.',
+      ],
     },
   ];
 
-  // Hosted only: the support paragraph names the hosted service's support
-  // address and page.
+  // Hosted: the support paragraph names the hosted service's support address
+  // and page. Self-hosted: bugs and ideas go to the GitHub issue tracker.
+  if (!hosted) {
+    nodes.push({
+      type: 'paragraph',
+      content: [
+        'Found a bug or have an idea? ',
+        { text: 'Open an issue on GitHub', marks: [{ type: 'link', href: `${GITHUB_REPO_URL}/issues` }] },
+        '.',
+      ],
+    });
+  }
   if (hosted) {
     nodes.push({
       type: 'paragraph',
@@ -156,7 +161,7 @@ function buildWelcomeDocNodes({ appUrl, hosted }) {
   return nodes;
 }
 
-// The hosted build, unchanged from before feature 058.
+// The hosted build.
 const WELCOME_DOC_NODES = buildWelcomeDocNodes({ appUrl: HOSTED_APP_URL, hosted: true });
 
 module.exports = { WELCOME_DOC_TITLE, WELCOME_DOC_NODES, buildWelcomeDocNodes };

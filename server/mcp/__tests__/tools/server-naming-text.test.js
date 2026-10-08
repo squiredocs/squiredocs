@@ -111,16 +111,18 @@ describe('welcome document template (RBD-058-22)', () => {
     const nodes = buildWelcomeDocNodes({ appUrl: 'http://localhost:3910', hosted: false });
     const text = JSON.stringify(nodes);
     expect(text).not.toContain('squiredocs.com');
-    expect(text).not.toMatch(/public beta|\$10 AI credit/);
+    expect(text).not.toMatch(/public beta|\$10 of AI credits/);
     expect(text).not.toContain('Need help?');
+    expect(text).toContain('https://github.com/squiredocs/squiredocs/issues');
     expect(text).toContain('claude mcp add --transport http squire http://localhost:3910/mcp');
     expect(text).toContain('http://localhost:3910/agents.md');
     expect(text).toContain('http://localhost:3910/documentation/agents-and-mcp');
     expect(nodes[0]).toEqual({ type: 'heading', level: 1, content: 'Welcome to Squire Docs!' });
-    expect(nodes).toHaveLength(HOSTED_WELCOME_SNAPSHOT.length - 1);
+    // Each build ends with its own help paragraph: support on hosted, GitHub issues self-hosted.
+    expect(nodes).toHaveLength(HOSTED_WELCOME_SNAPSHOT.length);
   });
 
-  test('hosted build deep-equals the pre-058 template', () => {
+  test('hosted build deep-equals the snapshot', () => {
     const nodes = buildWelcomeDocNodes({ appUrl: 'https://squiredocs.com', hosted: true });
     expect(JSON.parse(JSON.stringify(nodes))).toEqual(HOSTED_WELCOME_SNAPSHOT);
     expect(JSON.parse(JSON.stringify(WELCOME_DOC_NODES))).toEqual(HOSTED_WELCOME_SNAPSHOT);
