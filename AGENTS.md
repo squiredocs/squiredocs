@@ -51,13 +51,13 @@ mkdir squire-docs && cd squire-docs
 Success: exit 0, and the current folder is the new, empty `squire-docs`.
 
 ```sh
-curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/compose.yml
+curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/compose.yml
 ```
 
 Success: exit 0, and `compose.yml` exists in the folder.
 
 ```sh
-curl -fsSLO https://github.com/<org>/<repo>/releases/latest/download/squire && chmod +x squire
+curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/squire && chmod +x squire
 ```
 
 Success: exit 0, and `squire` exists and is executable. It is a one-line

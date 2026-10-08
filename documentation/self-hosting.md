@@ -7,7 +7,7 @@ order: 10
 
 You can run your own Squire Docs instance on your machine with Docker Compose. It needs no account, no API key, and no copy of the source code. Your documents stay on your machine, and your coding agent connects to it over MCP the same way it connects to squiredocs.com.
 
-If you are an agent, follow [https://squiredocs.com/self-host.md](https://squiredocs.com/self-host.md) instead: it lists every step with a command and a success condition. The source code is at [https://github.com/<org>/<repo>](https://github.com/<org>/<repo>).
+If you are an agent, follow [https://squiredocs.com/self-host.md](https://squiredocs.com/self-host.md) instead: it lists every step with a command and a success condition. The source code is at [https://github.com/squiredocs/squiredocs](https://github.com/squiredocs/squiredocs).
 
 ## Prerequisites
 
@@ -134,4 +134,4 @@ Use Docker Desktop with WSL 2 and run the install command in a WSL terminal. The
 
 ## Getting help
 
-Report problems and ask questions in the issues at [https://github.com/<org>/<repo>/issues](https://github.com/<org>/<repo>/issues). Report security issues privately to security@squiredocs.com, not in a public issue.
+Report problems and ask questions in the issues at [https://github.com/squiredocs/squiredocs/issues](https://github.com/squiredocs/squiredocs/issues). Report security issues privately to security@squiredocs.com, not in a public issue.

@@ -10,7 +10,7 @@
 # compose network. The app listens on 127.0.0.1 only.
 services:
   app:
-    image: ghcr.io/<org>/<repo>:${SQUIRE_VERSION:-__SQUIRE_VERSION__}
+    image: ghcr.io/squiredocs/squiredocs:${SQUIRE_VERSION:-__SQUIRE_VERSION__}
     restart: unless-stopped
     env_file:
       - path: .env

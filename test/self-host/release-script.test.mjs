@@ -15,12 +15,13 @@ import {
   parseReleaseTag,
   validateRepository,
 } from '../../distribution/self-host/release.mjs';
-import { SELF_HOST_DIR, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, tempDir, which } from './helpers.mjs';
+import { SELF_HOST_DIR, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, placeholderCopy, tempDir, which } from './helpers.mjs';
 
 const RELEASE = path.join(SELF_HOST_DIR, 'release.mjs');
 
 test('constants', () => {
-  assert.equal(REPOSITORY, PLACEHOLDER, 'REPOSITORY stays the placeholder until Sam names the repository (RBD-060-1)');
+  assert.equal(REPOSITORY, 'squiredocs/squiredocs', 'Sam named the repository on 2026-10-07 (RBD-060-1)');
+  assert.notEqual(REPOSITORY, PLACEHOLDER);
   assert.equal(VERSION_TOKEN, '__SQUIRE_VERSION__');
   assert.deepEqual(ASSET_NAMES, ['compose.yml', 'squire', 'env.example', 'SHA256SUMS']);
 });
@@ -46,13 +47,15 @@ test('validateRepository refuses the placeholder and a mismatch', () => {
 });
 
 test('validateRepository accepts a case-insensitive match', () => {
+  validateRepository(REPOSITORY, 'SquireDocs/SquireDocs');
+  assert.throws(() => validateRepository(REPOSITORY, 'samg/collab'), /runs in samg\/collab/);
   validateRepository('acme/squire-docs', 'acme/squire-docs');
   validateRepository('acme/squire-docs', 'Acme/Squire-Docs');
   validateRepository('acme/squire-docs');
 });
 
 test('CLI validate with the placeholder exits 1 naming the problem', () => {
-  const r = spawnSync(process.execPath, [RELEASE, 'validate', '--tag', 'v1.2.3', '--github-repository', 'samg/collab'], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [path.join(placeholderCopy(), 'release.mjs'), 'validate', '--tag', 'v1.2.3', '--github-repository', 'samg/collab'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.equal(r.stdout, '');
   assert.match(r.stderr, /placeholder/);
@@ -61,7 +64,7 @@ test('CLI validate with the placeholder exits 1 naming the problem', () => {
 
 test('CLI stamp with the placeholder exits 1 and writes nothing', () => {
   const out = path.join(tempDir(), 'assets');
-  const r = spawnSync(process.execPath, [RELEASE, 'stamp', '--version', '1.2.3', '--out', out], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [path.join(placeholderCopy(), 'release.mjs'), 'stamp', '--version', '1.2.3', '--out', out], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /placeholder/);
   assert.equal(fs.existsSync(out), false);
@@ -70,7 +73,7 @@ test('CLI stamp with the placeholder exits 1 and writes nothing', () => {
 test('CLI validate on a released copy prints the output lines', () => {
   const src = releasedCopy();
   const cli = path.join(src, 'release.mjs');
-  let r = spawnSync(process.execPath, [cli, 'validate', '--tag', 'v1.2.3', '--github-repository', 'Acme/Squire-Docs'], { encoding: 'utf8' });
+  let r = spawnSync(process.execPath, [cli, 'validate', '--tag', 'v1.2.3', '--github-repository', 'SquireDocs/SquireDocs'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, `version=1.2.3\nprerelease=false\nimage=ghcr.io/${TEST_REPOSITORY}\n`);
 
@@ -132,8 +135,8 @@ test('stampAssets rejects a version with a leading v', async () => {
 });
 
 test('stampAssets fails when a placeholder survives', async () => {
-  // The production sources with the placeholder still in compose.yml.
-  const mod = await import(pathToFileURL(RELEASE).href);
+  // The sources with the placeholder back in compose.yml (RBD-060-1 refusal).
+  const mod = await import(pathToFileURL(path.join(placeholderCopy(), 'release.mjs')).href);
   assert.throws(
     () => mod.stampAssets({ version: '1.2.3', outDir: path.join(tempDir(), 'a') }),
     /compose\.yml still contains <org>/,

@@ -2,11 +2,10 @@
  * Shared helpers for the Docker-free self-host suite (feature 060). Not a test
  * file (node --test runs only *.test.mjs).
  *
- * The production files carry the placeholder repository '<org>/<repo>' until
- * Sam names the repository (RBD-060-20), and both install.sh and release.mjs
- * refuse to run with it. Tests that need the released behavior run a temp
- * copy of the production files with only that literal replaced; nothing else
- * changes, so the code under test is the production code.
+ * The production files carry REPOSITORY (squiredocs/squiredocs, RBD-060-1).
+ * Tests run a temp copy of the production files, byte-identical by default;
+ * placeholderCopy() swaps only that literal back to '<org>/<repo>' to prove
+ * install.sh and release.mjs still refuse an unnamed repository.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,23 +16,34 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const SELF_HOST_DIR = path.join(ROOT, 'distribution/self-host');
 export const STUB_BIN = path.join(ROOT, 'test/self-host/fixtures/stub-bin');
 export const PLACEHOLDER = '<org>/<repo>';
-export const TEST_REPOSITORY = 'acme/squire-docs';
+// The production value (RBD-060-1, ratified 2026-10-07); release.mjs is the source.
+export const TEST_REPOSITORY = /export const REPOSITORY = '([^']+)'/.exec(
+  fs.readFileSync(path.join(SELF_HOST_DIR, 'release.mjs'), 'utf8'),
+)[1];
 
 export function tempDir(prefix = 'squire-060-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-/** Copy the self-host sources into a temp dir with REPOSITORY replaced. */
+/**
+ * Copy the self-host sources into a temp dir with the production REPOSITORY
+ * literal replaced by `repository` (unchanged by default). placeholderCopy()
+ * puts the pre-decision placeholder back, to test the refusals.
+ */
 export function releasedCopy(repository = TEST_REPOSITORY) {
   const dir = tempDir('squire-060-src-');
   for (const name of ['release.mjs', 'compose.yml', 'squire', '.env.example', 'install.sh']) {
     const src = path.join(SELF_HOST_DIR, name);
     if (!fs.existsSync(src)) continue;
-    const text = fs.readFileSync(src, 'utf8').split(PLACEHOLDER).join(repository);
+    const text = fs.readFileSync(src, 'utf8').split(TEST_REPOSITORY).join(repository);
     fs.writeFileSync(path.join(dir, name), text);
     fs.chmodSync(path.join(dir, name), fs.statSync(src).mode & 0o777);
   }
   return dir;
+}
+
+export function placeholderCopy() {
+  return releasedCopy(PLACEHOLDER);
 }
 
 /** Locate a real binary on the standard system PATH, or null. */

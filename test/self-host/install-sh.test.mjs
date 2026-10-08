@@ -15,13 +15,14 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { SELF_HOST_DIR, STUB_BIN, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, tempDir, which } from './helpers.mjs';
+import { SELF_HOST_DIR, STUB_BIN, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, placeholderCopy, tempDir, which } from './helpers.mjs';
 
 const SHELL = which('dash') || '/bin/sh';
 const REAL_SHA256SUM = which('sha256sum');
 const UTILS = ['cat', 'grep', 'sed', 'head', 'cut', 'tr', 'mkdir', 'rmdir', 'rm', 'mv', 'chmod', 'mktemp', 'dirname', 'basename'];
 const LINK = 'http://localhost:3910/claim#Abc_123-xyz';
 
+// A byte-identical copy of the production files (REPOSITORY is set).
 const SRC = releasedCopy();
 const SCRIPT = path.join(SRC, 'install.sh');
 const { stampAssets } = await import(pathToFileURL(path.join(SRC, 'release.mjs')).href);
@@ -74,8 +75,9 @@ const dockerCalls = (calls) => calls.filter((c) => c.startsWith('docker '));
 // ── Refusals before anything is created ───────────────────────────────────
 
 test('refuses the placeholder repository', () => {
-  const r = run(['--version', '1.2.3'], { script: path.join(SELF_HOST_DIR, 'install.sh') });
-  assert.ok(fs.readFileSync(path.join(SELF_HOST_DIR, 'install.sh'), 'utf8').includes(`REPOSITORY='${PLACEHOLDER}'`));
+  const copy = path.join(placeholderCopy(), 'install.sh');
+  assert.ok(fs.readFileSync(copy, 'utf8').includes(`REPOSITORY='${PLACEHOLDER}'`));
+  const r = run(['--version', '1.2.3'], { script: copy });
   assert.equal(r.status, 1);
   assert.equal(r.stdout, '');
   assert.match(r.stderr, /has not been released yet/);

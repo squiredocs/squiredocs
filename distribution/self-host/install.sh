@@ -30,11 +30,11 @@
 # machines, put a TLS-terminating proxy in front of it and set an https APP_URL
 # in .env.
 #
-# Source: https://github.com/<org>/<repo>/blob/main/distribution/self-host/install.sh
+# Source: https://github.com/squiredocs/squiredocs/blob/main/distribution/self-host/install.sh
 
 set -eu
 
-REPOSITORY='<org>/<repo>'
+REPOSITORY='squiredocs/squiredocs'
 MIN_COMPOSE_MINOR=24
 
 usage() {

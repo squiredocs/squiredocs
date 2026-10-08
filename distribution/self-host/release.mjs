@@ -7,10 +7,11 @@
  * name. Four files carry it as a literal because they are served or published
  * verbatim (AGENTS.md, install.sh, compose.yml, documentation/self-hosting.md);
  * test/self-host/repository-constant.test.mjs fails if any of them drifts.
- * Until the name is decided it is the placeholder '<org>/<repo>', which
- * install.sh refuses to run with and `validate` refuses to publish
- * (RBD-060-1, RBD-060-20). Setting it is a find-and-replace across the four
- * files and this one.
+ * Sam named the public repository squiredocs/squiredocs on 2026-10-07
+ * (RBD-060-1). The placeholder '<org>/<repo>' it replaced is still refused by
+ * install.sh and `validate`, and `validate` refuses to publish from any other
+ * repository (RBD-060-20), so a run in a private or forked repository stays
+ * inert. Changing it is a find-and-replace across the four files and this one.
  *
  * CLI (used by .github/workflows/release.yml):
  *   node distribution/self-host/release.mjs validate --tag vX.Y.Z --github-repository owner/name
@@ -24,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const REPOSITORY = '<org>/<repo>';
+export const REPOSITORY = 'squiredocs/squiredocs';
 export const VERSION_TOKEN = '__SQUIRE_VERSION__';
 export const ASSET_NAMES = ['compose.yml', 'squire', 'env.example', 'SHA256SUMS'];
 
