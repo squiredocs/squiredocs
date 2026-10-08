@@ -17,18 +17,33 @@ const REPO = path.join(__dirname, '../..');
 const AGENTS = fs.readFileSync(path.join(REPO, 'AGENTS.md'));
 const INSTALL = fs.readFileSync(path.join(REPO, 'distribution/self-host/install.sh'));
 
-const saved = { SQUIRE_HOSTED: process.env.SQUIRE_HOSTED, APP_URL: process.env.APP_URL };
+const saved = {
+  SQUIRE_HOSTED: process.env.SQUIRE_HOSTED,
+  APP_URL: process.env.APP_URL,
+  CLIENT_URL: process.env.CLIENT_URL,
+  PORT: process.env.PORT,
+};
 let fixture;
 
-function setEnv(hosted) {
+/**
+ * appUrl null leaves APP_URL and CLIENT_URL unset, so the instance runs on the
+ * localhost default (http://localhost:3910 via PORT).
+ */
+function setEnv(hosted, appUrl = 'http://localhost:3910') {
   if (hosted) process.env.SQUIRE_HOSTED = 'true';
   else delete process.env.SQUIRE_HOSTED;
-  process.env.APP_URL = 'http://localhost:3910';
+  delete process.env.CLIENT_URL;
+  if (appUrl === null) {
+    delete process.env.APP_URL;
+    process.env.PORT = '3910';
+  } else {
+    process.env.APP_URL = appUrl;
+  }
   _resetInstanceConfigForTests();
 }
 
-function appFor(hosted, clientBuildPath = fixture.dir) {
-  setEnv(hosted);
+function appFor(hosted, clientBuildPath = fixture.dir, appUrl) {
+  setEnv(hosted, appUrl);
   const app = express();
   mountWebRoutes(app, { clientBuildPath });
   return app;
@@ -146,10 +161,10 @@ test('a missing source file leaves its route unmounted', async () => {
   }
 });
 
-describe('not hosted: the self-hosted documentation variant', () => {
+describe('not hosted, APP_URL unset: the self-hosted documentation variant uses the request origin', () => {
   let app;
   beforeAll(() => {
-    app = appFor(false);
+    app = appFor(false, fixture.dir, null);
   });
 
   test('pages carry the request origin in place of the sentinel', async () => {
@@ -178,13 +193,50 @@ describe('not hosted: the self-hosted documentation variant', () => {
     'user@host',
     'host/path',
     '[::1',
-  ])('a hostile Host (%s) never appears unescaped and falls back to APP_URL', async (host) => {
+  ])('a hostile Host (%s) never appears unescaped and falls back to the default origin', async (host) => {
     const res = await request(app).get('/documentation/agents-and-mcp').set('Host', host);
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('<script>alert');
     expect(res.text).not.toContain("'onmouseover=");
     expect(res.text).not.toContain('__SQUIRE_ORIGIN__');
     expect(res.text).toContain('<code>http://localhost:3910/mcp</code>');
+  });
+});
+
+// Review finding M5: a configured origin is never replaced by the Host header,
+// so a caching proxy cannot store a page pointing at a client-chosen host.
+describe.each([
+  ['APP_URL', 'https://docs.example.com', 'https://docs.example.com'],
+  ['APP_URL with a port', 'http://localhost:3911', 'http://localhost:3911'],
+])('not hosted, %s configured: the variant always uses the configured origin', (_label, appUrl, origin) => {
+  let app;
+  beforeAll(() => {
+    app = appFor(false, fixture.dir, appUrl);
+  });
+
+  test.each(['evil.example', 'localhost:4000', 'attacker.test:443'])('Host %s is ignored', async (host) => {
+    const res = await request(app).get('/documentation/agents-and-mcp').set('Host', host);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(`<code>${origin}/mcp</code>`);
+    expect(res.text).toContain(`href="${origin}/api/docs"`);
+    expect(res.text).not.toContain(host);
+    const index = await request(app).get('/documentation').set('Host', host).set('X-Forwarded-Host', 'evil.example');
+    expect(index.text).toContain(`SELF-HOSTED DOCS INDEX ${origin}/mcp`);
+    expect(index.text).not.toContain('evil.example');
+  });
+
+  test('CLIENT_URL counts as configured too', async () => {
+    delete process.env.APP_URL;
+    process.env.CLIENT_URL = appUrl;
+    _resetInstanceConfigForTests();
+    try {
+      const res = await request(app).get('/documentation/agents-and-mcp').set('Host', 'evil.example');
+      expect(res.text).toContain(`<code>${origin}/mcp</code>`);
+    } finally {
+      delete process.env.CLIENT_URL;
+      process.env.APP_URL = appUrl;
+      _resetInstanceConfigForTests();
+    }
   });
 });
 

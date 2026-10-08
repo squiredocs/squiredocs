@@ -142,24 +142,29 @@ function escapeHtml(s) {
 }
 
 /**
- * The origin to show in self-hosted documentation pages: the request's own
- * origin (as /agents.md uses) when it parses as a plain http(s) origin, else
- * the configured APP_URL. HTML-escaped, because Host is client-controlled
- * (research R11, Constitution V).
+ * The origin to show in self-hosted documentation pages. A configured origin
+ * (APP_URL or CLIENT_URL) always wins, so a caching reverse proxy in front of
+ * the instance can never store a page carrying a client-chosen Host (review
+ * finding M5, RBD-060-39). Only on the localhost default is the request's own
+ * origin used (as /agents.md does), and only when it parses as a plain http(s)
+ * origin. HTML-escaped either way (research R11, Constitution V).
  */
 function safeOrigin(req) {
+  const { appUrl, appUrlSource } = getInstanceConfig();
   let origin = null;
-  try {
-    const candidate = buildBaseUrl(req);
-    const u = new URL(candidate);
-    // The URL parser accepts quotes and other markup in a host; a real host is
-    // a DNS name or IP literal with an optional port.
-    const plainHost = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/.test(u.host);
-    if ((u.protocol === 'http:' || u.protocol === 'https:') && plainHost && u.origin === candidate) origin = candidate;
-  } catch {
-    origin = null;
+  if (appUrlSource === 'default') {
+    try {
+      const candidate = buildBaseUrl(req);
+      const u = new URL(candidate);
+      // The URL parser accepts quotes and other markup in a host; a real host is
+      // a DNS name or IP literal with an optional port.
+      const plainHost = /^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/.test(u.host);
+      if ((u.protocol === 'http:' || u.protocol === 'https:') && plainHost && u.origin === candidate) origin = candidate;
+    } catch {
+      origin = null;
+    }
   }
-  if (!origin) origin = new URL(getInstanceConfig().appUrl).origin;
+  if (!origin) origin = new URL(appUrl).origin;
   return escapeHtml(origin);
 }
 
