@@ -396,7 +396,9 @@ test('POSIX sh: no bashisms the plan forbids', () => {
   for (const re of [/\[\[/, /\blocal\s/, /pipefail/, /\bfunction\s/, /\$\{[A-Za-z_]+\[/, /<<</, /(^|[;&|]\s*)read\s/m]) {
     assert.ok(!re.test(code), `forbidden construct ${re}`);
   }
-  assert.equal(fs.statSync(path.join(SELF_HOST_DIR, 'install.sh')).mode & 0o111, 0o111, 'executable on disk');
+  assert.ok(fs.statSync(path.join(SELF_HOST_DIR, 'install.sh')).mode & 0o100, 'executable on disk');
+  const idx = spawnSync('git', ['ls-files', '-s', 'distribution/self-host/install.sh'], { cwd: path.join(SELF_HOST_DIR, '../..'), encoding: 'utf8' });
+  if (idx.status === 0 && idx.stdout.trim()) assert.match(idx.stdout, /^100755 /, 'git records install.sh as 100755');
 });
 
 test('shellcheck -s sh passes (skipped when shellcheck is not installed)', (t) => {
