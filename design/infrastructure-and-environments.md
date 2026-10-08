@@ -7,6 +7,8 @@
 
 Where Squire runs and how it ships: the production k3s cluster, the Minikube development environment, the deploy scripts, and the supporting tiers (Postgres, Redis, S3, SES). Also the testing infrastructure, since the test-commit-deploy loop is the whole release process.
 
+**Repository note (2026-10-08):** for the open-source release, the hosted service's operations files moved to a private operations repository: `infra/terraform/`, `k8s/secrets/`, `.sops.yaml`, `k8s/overlays/aws-prod/`, `k8s/o11y/`, `k8s/o11y-dashboards/`, `docs/operations.md`, and the AWS deploy and ops scripts (`build-and-deploy-aws.sh`, `deploy-aws.sh`, `bootstrap-cluster-addons.sh`, `finalize-o11y-cert.sh`, `cache-savings-prod.sh`, `provision-s3-images.sh`). That repository's `deploy.sh` lays them over a checkout of the app, so the paths in this document are the paths in that combined tree. The public repository keeps `k8s/base`, `k8s/overlays/minikube`, and `script/deploy.sh`.
+
 ## Runtime shape
 
 One Node process (`server/index.js`, port 3001) serves the API, the WebSocket collaboration endpoint, the MCP server, and the built client. Kubernetes Deployment `collab-app` (namespace `collab`) runs 2 replicas behind a Service with ClientIP session affinity for WebSocket stability, HPA-scaled; Redis pub/sub makes multi-replica collaboration correct. Postgres runs `pgvector/pgvector:pg16` (embeddings need the extension) with a daily pg_dump-to-S3 backup CronJob; Redis 7 with AOF. Migrations run as a dedicated Job (`npm run migrate`, node-pg-migrate, 38 migrations).

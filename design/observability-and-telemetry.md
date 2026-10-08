@@ -7,6 +7,8 @@
 
 How Squire sees itself in production: metrics, traces, durable centralized logs, dashboards, and alerting for both the infrastructure and the application. This document is the design ground truth for the observability platform (a dedicated monitoring node receiving OpenTelemetry data) and for the application's instrumentation. Companion to Squire Infrastructure and Environments, which owns the cluster and node topology this plugs into.
 
+**Repository note (2026-10-08):** for the open-source release, the files this design describes (`infra/terraform/`, `k8s/o11y/`, `k8s/o11y-dashboards/`, and the o11y scripts) moved to the hosted service's private operations repository, whose `deploy.sh` lays them over a checkout of the app. Paths in this document are paths in that combined tree. The application instrumentation stays in the public repository.
+
 ## Why (the pre-beta gap)
 
 Before this design landed, observability was effectively absent: health probes and account-level audit existed, but there were no metrics, no traces, no durable logs (container logs died with the pod), and almost no alerting — the only failure signal was a best-effort exception email. For a public beta that is the largest operational blind spot. The gap ranking that drives build order: durable centralized logs first, then infra/datastore metrics with alarms, then app metrics, then distributed traces.

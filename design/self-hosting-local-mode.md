@@ -56,7 +56,7 @@ An instance runs in one of two modes, set by `SQUIRE_MODE`. Mode decides who can
 - CLI sign-in links keep working, as the recovery path for an administrator.
 - The server refuses to boot in team mode with no provider configured, with an error that names the variables to set.
 
-The hosted service runs in team mode with Google as its only provider, which is today's behavior. Because local mode is the default, the hosted deployment sets `SQUIRE_MODE=team` in the aws-prod overlay in the same change that introduces the setting, and the development overlays set it too.
+The hosted service runs in team mode with Google as its only provider, which is today's behavior. Because local mode is the default, the hosted deployment sets `SQUIRE_MODE=team` in its production overlay (kept in the hosted service's private operations repository) in the same change that introduces the setting, and the development overlays set it too.
 
 Moving from local to team mode is a configuration change and a restart. The owner account and its documents carry over. The owner can add a password or link an OIDC identity from Settings.
 
