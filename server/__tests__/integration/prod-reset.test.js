@@ -3,7 +3,8 @@
  * RBD-4, D6, Acc 5.1-5.4, SC-005). Serial.
  *
  * The ONE prod-reachable endpoint: admin-gated, NOT behind ENABLE_DEV_ENDPOINTS,
- * target is the hardcoded PROD_RESET_ACCOUNT and NOTHING a request body can name.
+ * target is PROD_RESET_ACCOUNT (from SELFTEST_RESET_ACCOUNT) and NOTHING a request
+ * body can name; unset, the endpoint is a 404.
  */
 const request = require('supertest');
 const express = require('express');
@@ -13,6 +14,7 @@ const cookieParser = require('cookie-parser');
 // SQUIRE_HOSTED=true, which the production overlay sets. The self-hosted 404
 // is covered by hosted-gating.test.js.
 process.env.SQUIRE_HOSTED = 'true';
+process.env.SELFTEST_RESET_ACCOUNT = 'selftest@example.com';
 require('../../instance-config')._resetInstanceConfigForTests();
 
 jest.mock('../../auth/google', () => ({
@@ -177,6 +179,40 @@ describe('Feature 029 US5 — production single-account reset', () => {
       expect(nonAdmin.status).toBe(403); // still admin-only
     } finally {
       process.env.ENABLE_DEV_ENDPOINTS = prev;
+    }
+  });
+});
+
+describe('SELFTEST_RESET_ACCOUNT unset — the reset is off', () => {
+  test('an admin gets 404 and nothing is deleted', async () => {
+    const prev = process.env.SELFTEST_RESET_ACCOUNT;
+    delete process.env.SELFTEST_RESET_ACCOUNT;
+    const pool = createPool();
+    try {
+      let router;
+      jest.isolateModules(() => { router = require('../../auth/routes'); });
+      expect(router.PROD_RESET_ACCOUNT).toBeNull();
+      require('../../auth/users').init(pool);
+      const app = express();
+      app.use(cookieParser());
+      app.use(express.json());
+      app.use('/auth', router);
+      const admin = await pool.query(
+        "INSERT INTO users (google_id, email, name, is_admin) VALUES ('prodreset-unset-admin', 'prodreset-unset-admin@example.com', 'Admin', true) RETURNING *"
+      );
+      try {
+        const res = await request(app)
+          .post('/auth/prod-reset-selftest-account')
+          .set('Authorization', `Bearer ${jwt.generateAccessToken(admin.rows[0])}`)
+          .send({});
+        expect(res.status).toBe(404);
+        expect(res.body.error).toBe('selftest_reset_not_configured');
+      } finally {
+        await pool.query('DELETE FROM users WHERE id = $1', [admin.rows[0].id]);
+      }
+    } finally {
+      process.env.SELFTEST_RESET_ACCOUNT = prev;
+      await pool.end();
     }
   });
 });

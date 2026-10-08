@@ -397,9 +397,11 @@ router.post('/logout', requireAuth, async (req, res) => {
 // hardcoded single-target (FR-002).
 // ---------------------------------------------------------------------------
 
-// The production self-test account (D6, RBD-4). Hardcoded compile-time constant —
-// the ENTIRE target surface of the prod reset. No parameter is ever consulted.
-const PROD_RESET_ACCOUNT = 'selftest@example.com';
+// The production self-test account (D6, RBD-4): the ENTIRE target surface of the
+// prod reset. Read once at load from the operator's environment, never from a
+// request, so no parameter can widen it. Unset (every self-hosted instance)
+// disables the reset.
+const PROD_RESET_ACCOUNT = (process.env.SELFTEST_RESET_ACCOUNT || '').trim() || null;
 
 // Nonce grammar for the faucet (RBD-3), matching the SYNTHETIC namespace bound.
 const NONCE_RE = /^[a-z0-9-]{1,32}$/;
@@ -627,12 +629,14 @@ router.post('/dev-consent-approve', requireDevEndpoints, requireAuth, async (req
  *
  * The ONE feature-029 endpoint reachable in production. Admin-gated (reuses the
  * existing requireAdmin, no new auth machinery — 008/009 lesson) and DELIBERATELY
- * not behind ENABLE_DEV_ENDPOINTS. Its entire target surface is the compile-time
- * constant PROD_RESET_ACCOUNT — NO request body is consulted for targeting, so a
- * parameter-handling bug cannot widen the blast radius (SC-005). Idempotent no-op
- * when the account is already reset.
+ * not behind ENABLE_DEV_ENDPOINTS. Its entire target surface is the load-time
+ * value PROD_RESET_ACCOUNT, set by SELFTEST_RESET_ACCOUNT — NO request body is
+ * consulted for targeting, so a parameter-handling bug cannot widen the blast
+ * radius (SC-005). 404 when the variable is unset. Idempotent no-op when the
+ * account is already reset.
  */
 router.post('/prod-reset-selftest-account', hostedOnly, requireAdmin, async (req, res) => {
+  if (!PROD_RESET_ACCOUNT) return res.status(404).json({ error: 'selftest_reset_not_configured' });
   try {
     const { deleted, docCount } = await deleteUserByEmail(PROD_RESET_ACCOUNT);
     return res.json({ ok: true, account: PROD_RESET_ACCOUNT, deleted, docCount });

@@ -653,8 +653,10 @@ config dir does not clear — macOS support is out of scope (not built).
 
 The one dev-support endpoint reachable in production. Admin-gated (`requireAdmin`),
 NOT behind `ENABLE_DEV_ENDPOINTS`. It takes **no target parameter** — the target
-is the hardcoded self-test account `selftest@example.com` and nothing else.
-Idempotent no-op when already reset.
+is the self-test account named by the server's `SELFTEST_RESET_ACCOUNT`
+environment variable (set in the hosted service's production overlay) and
+nothing else. Unset, the endpoint returns 404. Idempotent no-op when already
+reset.
 
 ```bash
 curl -sX POST https://squiredocs.com/auth/prod-reset-selftest-account \
