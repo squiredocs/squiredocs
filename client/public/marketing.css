@@ -747,3 +747,17 @@
     max-width: 320px;
   }
 }
+/* Phones: the three footer columns (Product, Legal, Contact) need about 370px
+   side by side, wider than a 375px screen once the footer padding is taken
+   out, so the page scrolled sideways. Below 480px the columns wrap onto a
+   second row and the footer uses a 16px side gutter. */
+@media (max-width: 480px) {
+  .landing-footer {
+    padding: 2.5rem 1rem 1.5rem;
+  }
+
+  .landing-footer-links {
+    flex-wrap: wrap;
+    gap: 1.5rem 2.5rem;
+  }
+}
