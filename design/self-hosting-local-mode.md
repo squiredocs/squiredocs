@@ -95,7 +95,7 @@ These are the changes that let the image boot with no environment variables set:
 
 The core loop (the editor, version history, sharing, and the MCP surface) needs no LLM key, because the developer's own agent supplies the AI. Features that call a model degrade:
 
-- The in-app assistant panel shows how to add a key. Per-user BYOK keys in Settings already exist and work unchanged. Server-wide keys come from the same environment variables production uses.
+- The in-app assistant panel shows how to add a key. Per-user BYOK keys in Settings already exist and work unchanged. Server-wide keys come from the same environment variables production uses. (Amended 2026-10-08, from the first real v1.0.0 install:) any one server key is enough: with only an OpenRouter or only a Gemini key the shared assistant runs on that provider’s default model. With no server key and no BYOK key, `GET /api/settings/byok` reports `assistantAvailable: false`, the panel shows a setup state in place of the composer, the welcome document skips its assistant kickoff, and a chat request is rejected as `assistant_not_configured` before any provider call, without notifying the operator.
 - Content search already falls back to full-text when `GOOGLE_GENERATIVE_AI_API_KEY` is unset (`server/search.js`), and the indexer skips embedding. `squire doctor` reports this as "semantic search: off (no embedding key)".
 
 ### Images and upgrades
