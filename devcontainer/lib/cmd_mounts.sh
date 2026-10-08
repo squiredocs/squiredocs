@@ -110,14 +110,29 @@ report_pod_visibility() {
   fi
   echo "In-pod visibility ($pod):"
   local targets; targets="$(all_mount_paths)"
-  local pod_path verdict bad=0
+  local pod_path verdict rc needs_rebind=0 needs_remount=0
   while IFS= read -r p; do
     [[ -z "$p" ]] && continue
     pod_path="$(pod_path_for "$p")"
-    verdict="$(pod_mount_view "$pod" "$p" "$pod_path")" || bad=1
+    rc=0
+    verdict="$(pod_mount_view "$pod" "$p" "$pod_path")" || rc=$?
     echo "  $verdict: $pod_path"
+    # Which fix applies is decided by the NODE, not by how the pod's probe
+    # failed. If the node reads the path fine, the mount is live and only the
+    # pod's bind is stale (a remount underneath a running container is not
+    # re-delivered to it) — that needs a rebind. Only a path the node itself
+    # can't read needs remounting; recommending a restart for that one just
+    # kills the container and rebinds onto the same bad mount.
+    if (( rc != 0 )); then
+      if node_can_read "$p"; then needs_rebind=1; else needs_remount=1; fi
+    fi
   done <<<"$targets"
-  if (( bad )); then
+  if (( needs_remount )); then
+    echo
+    echo "Fix: collab-devcontainer mounts    (remounts the broken 9p mounts at the node)"
+    echo "     A pod restart will NOT help — it would rebind onto the same bad mount."
+  fi
+  if (( needs_rebind )); then
     echo
     echo "Fix: collab-devcontainer restart   (rebinds the pod onto the live mounts)"
   fi

@@ -215,11 +215,19 @@ check_mount_path() {
     pass "mounted: $host_path -> $shown (pod not running; not verified in-pod)"
     return
   fi
-  local verdict
-  if verdict="$(pod_mount_view "$pod" "$host_path" "$pod_path")"; then
+  local verdict rc=0
+  verdict="$(pod_mount_view "$pod" "$host_path" "$pod_path")" || rc=$?
+  if (( rc == 0 )); then
     pass "mounted: $host_path -> $shown${verdict:+ [$verdict]}"
-  else
+  elif node_can_read "$host_path"; then
+    # The node reads it fine, so the mount is live and only the pod's bind is
+    # stale — a remount underneath a running container is not re-delivered to it.
     fail "$pod_path: $verdict. Fix: collab-devcontainer restart"
+    return
+  else
+    # The mount itself is bad. `restart` would recreate the pod onto the same
+    # broken mount and fix nothing.
+    fail "$pod_path: $verdict. Fix: collab-devcontainer mounts"
     return
   fi
 
