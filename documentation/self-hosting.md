@@ -34,12 +34,14 @@ The script accepts `--dir PATH` to choose the install folder (the default is `./
 ## What the install script does
 
 1. Checks that Docker Compose 2.24 or later is installed and that Docker is running, and stops with a message naming the fix if not.
-2. Creates the `squire-docs` folder. If the folder already holds an installation, it changes nothing and prints the upgrade command instead. If it holds anything else, it stops without changing anything.
+2. Creates the `squire-docs` folder. If the folder already holds an installation, it skips to step 4 and changes no file in it. If it holds anything else, it stops without changing anything.
 3. Downloads the release files (`compose.yml`, the `squire` wrapper, `.env.example`, and `SHA256SUMS`), checks every file against `SHA256SUMS`, and writes `.env` with the release version and a Compose project name unique to this install.
 4. Starts the stack with `docker compose up -d --wait`, which returns once the app, Postgres, and Redis are all healthy, then runs `./squire doctor`.
-5. Prints a claim link as the last line of its output.
+5. Prints a claim link as the last line of its output. On an instance that already has an owner, the link signs the owner in instead.
 
 It never prompts, so an agent can run it unattended. If a step fails, it exits with one message that says what to do next.
+
+If the script stops partway, for example because an image could not be downloaded, fix the cause and run the same command again. It picks up where it left off: it starts the installation already in the folder and prints a new link. It never upgrades an installation; when a newer release is out, it prints the upgrade command described under Upgrading.
 
 ## Sign in with a claim link
 

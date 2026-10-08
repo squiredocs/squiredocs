@@ -19,7 +19,7 @@ import { SELF_HOST_DIR, STUB_BIN, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, pl
 
 const SHELL = which('dash') || '/bin/sh';
 const REAL_SHA256SUM = which('sha256sum');
-const UTILS = ['cat', 'grep', 'sed', 'head', 'cut', 'tr', 'mkdir', 'rmdir', 'rm', 'mv', 'chmod', 'mktemp', 'dirname', 'basename', 'od'];
+const UTILS = ['cat', 'grep', 'sed', 'head', 'cut', 'tr', 'mkdir', 'rmdir', 'rm', 'mv', 'chmod', 'mktemp', 'dirname', 'basename', 'od', 'awk'];
 const LINK = 'http://localhost:3910/claim#Abc_123-xyz';
 
 // A byte-identical copy of the production files (REPOSITORY is set).
@@ -156,35 +156,221 @@ test('Compose 2.24.0 exactly is accepted, and a desktop suffix parses', () => {
 
 // ── Existing installation ─────────────────────────────────────────────────
 
-test('existing compose.yml prints the upgrade command and changes nothing', () => {
-  const cwd = tempDir('squire-060-cwd-');
-  const dir = path.join(cwd, 'squire-docs');
-  fs.mkdirSync(dir);
-  fs.writeFileSync(path.join(dir, 'compose.yml'), 'services: {}\n');
-  fs.writeFileSync(path.join(dir, '.env'), 'SQUIRE_VERSION=1.0.0\n');
-  const before = fs.readdirSync(dir).sort();
-  const r = run([], { cwd, env: { STUB_LATEST_VERSION: '1.4.0' } });
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout, '');
-  const real = fs.realpathSync(dir);
-  assert.equal(
-    r.stderr,
-    `Squire Docs is already installed in ${real}.\n` +
-      `To upgrade, set SQUIRE_VERSION in ${real}/.env to the new release, for example 1.4.0, then run:\n` +
-      `  cd ${real} && docker compose pull && docker compose up -d --wait\n`,
-  );
-  assert.deepEqual(fs.readdirSync(dir).sort(), before);
-  assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'SQUIRE_VERSION=1.0.0\n');
+// Rerunning the installer on an installation resumes it (first-user report
+// 2026-10-08: a failed image pull left a folder the rerun refused to start).
+
+/** A completed install at 1.2.3; returns its cwd and folder. */
+function installed(args = []) {
+  const r = run(['--version', '1.2.3', ...args]);
+  assert.equal(r.status, 0, r.stderr);
+  return { cwd: r.cwd, dir: r.dir };
+}
+
+/** Every entry in the folder with its bytes, mode, and mtime. */
+function snapshot(dir) {
+  const out = {};
+  for (const n of fs.readdirSync(dir).sort()) {
+    const p = path.join(dir, n);
+    const st = fs.statSync(p);
+    out[n] = { body: fs.readFileSync(p, 'utf8'), mode: st.mode, mtime: st.mtimeMs };
+  }
+  return out;
+}
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const UPGRADE_RE = /To upgrade, set SQUIRE_VERSION/;
+
+test('rerun on an existing install starts it, runs doctor, prints the link, and touches no file', () => {
+  const { cwd, dir } = installed();
+  const before = snapshot(dir);
+  const r = run(['--name', 'Ada Lovelace', '--email', 'ada@example.com'], { cwd });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `${LINK}\n`);
+  assert.deepEqual(snapshot(dir), before, 'folder unchanged, byte for byte');
   assert.ok(!r.calls.some((c) => c.startsWith('curl') && c.includes(' -o ')), 'no downloads');
+  assert.deepEqual(dockerCalls(r.calls).filter((c) => / (up|exec) /.test(c)), [
+    'docker compose up -d --wait',
+    'docker compose exec -T app squire doctor',
+    'docker compose exec -T app squire claim-link --name Ada Lovelace --email ada@example.com',
+  ]);
+  const real = fs.realpathSync(dir);
+  assert.match(r.stderr, new RegExp(`^Squire Docs 1\\.2\\.3 is already installed in ${esc(real)}\\. Starting it again; nothing in the folder is downloaded or changed\\.\n`));
+  assert.match(r.stderr, /Open the claim link below, check your name and email, and click Continue\./);
+  assert.match(r.stderr, /Open this link within 15 minutes to create the owner account\./, 'claim-link stderr passed through');
+  assert.match(r.stderr, new RegExp(`running at http://localhost:3910 in ${esc(real)}\\.`));
+  assert.doesNotMatch(r.stderr, UPGRADE_RE, 'latest is the installed release');
+  assert.doesNotMatch(r.stderr, /^Error/m);
 });
 
-test('existing install without a resolvable latest version omits the example', () => {
-  const cwd = tempDir('squire-060-cwd-');
-  fs.mkdirSync(path.join(cwd, 'squire-docs'));
-  fs.writeFileSync(path.join(cwd, 'squire-docs', 'compose.yml'), '');
-  const r = run([], { cwd, env: { STUB_LATEST_VERSION: '' } });
+test('rerun on a claimed instance says the link signs the owner in', () => {
+  const { cwd } = installed();
+  const r = run(['--name', 'Ada'], {
+    cwd,
+    env: { STUB_CLAIM_STDERR: 'This instance already has an owner (Ada Lovelace, ada@example.com); --name and --email were ignored. The link signs in the owner within 15 minutes.' },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `${LINK}\n`);
+  assert.match(r.stderr, /already has an owner \(Ada Lovelace, ada@example\.com\)/);
+  assert.match(r.stderr, /Open the sign-in link below to sign in as the owner\./);
+  assert.doesNotMatch(r.stderr, /Open the claim link/);
+});
+
+test('the upgrade hint appears only when the latest release is newer than the installed one', () => {
+  const { cwd, dir } = installed();
+  const real = fs.realpathSync(dir);
+  const newer = run([], { cwd, env: { STUB_LATEST_VERSION: '1.4.0' } });
+  assert.equal(newer.status, 0, newer.stderr);
+  assert.equal(newer.stdout, `${LINK}\n`);
+  assert.ok(
+    newer.stderr.endsWith(
+      `Squire Docs 1.4.0 is available. This installation runs 1.2.3. To upgrade, set SQUIRE_VERSION=1.4.0 in ${real}/.env, then run:\n` +
+        `  cd ${real} && docker compose pull && docker compose up -d --wait\n`,
+    ),
+    newer.stderr,
+  );
+  assert.ok(!dockerCalls(newer.calls).some((c) => c.includes(' pull')), 'never upgrades by itself');
+  assert.match(envLines(dir)[0], /^SQUIRE_VERSION=1\.2\.3$/);
+  for (const latest of ['1.2.3', '1.2.0', '0.9.9', '']) {
+    const r = run([], { cwd, env: { STUB_LATEST_VERSION: latest } });
+    assert.equal(r.status, 0, `${latest}: ${r.stderr}`);
+    assert.doesNotMatch(r.stderr, UPGRADE_RE, `latest ${JSON.stringify(latest)}`);
+    assert.doesNotMatch(r.stderr, /is available/);
+  }
+});
+
+test('the installed release comes from .env, then from the compose.yml default; prereleases sort first', () => {
+  for (const [envBody, latest, hint] of [
+    ['SQUIRE_VERSION=1.2.3-rc.1\n', '1.2.3', true],
+    ['SQUIRE_VERSION="1.2.3"\n', '1.10.0', true],
+    ['SQUIRE_VERSION=1.10.0\n', '1.9.0', false],
+    ['COMPOSE_PROJECT_NAME=x\n', '1.2.3', false], // compose default 1.2.3
+    ['COMPOSE_PROJECT_NAME=x\n', '2.0.0', true],
+  ]) {
+    const { cwd, dir } = installed();
+    fs.writeFileSync(path.join(dir, '.env'), envBody);
+    const r = run([], { cwd, env: { STUB_LATEST_VERSION: latest } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(UPGRADE_RE.test(r.stderr), hint, `${envBody.trim()} vs ${latest}: ${r.stderr}`);
+    assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), envBody, '.env untouched');
+  }
+});
+
+test('--version on an existing install explains how to switch and does not apply it', () => {
+  const { cwd, dir } = installed();
+  const real = fs.realpathSync(dir);
+  const r = run(['--version', '1.4.0'], { cwd, env: { STUB_LATEST_VERSION: '1.4.0' } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `${LINK}\n`);
+  assert.match(
+    r.stderr,
+    new RegExp(
+      `--version 1\\.4\\.0 was not applied: the installer never changes the release of an existing installation, which runs 1\\.2\\.3\\.\n` +
+        `To switch to 1\\.4\\.0, set SQUIRE_VERSION=1\\.4\\.0 in ${esc(real)}/\\.env, then run:\n` +
+        `  cd ${esc(real)} && docker compose pull && docker compose up -d --wait\n`,
+    ),
+  );
+  assert.doesNotMatch(r.stderr, UPGRADE_RE, 'the switch note replaces the upgrade hint');
+  assert.match(envLines(dir)[0], /^SQUIRE_VERSION=1\.2\.3$/);
+  assert.ok(!r.calls.some((c) => c.startsWith('curl')), 'no lookup, no downloads');
+
+  const same = run(['--version', '1.2.3'], { cwd });
+  assert.equal(same.status, 0, same.stderr);
+  assert.doesNotMatch(same.stderr, /was not applied|To switch/);
+});
+
+test('a rerun uses the port saved in .env, and SQUIRE_PORT when set', () => {
+  const { cwd, dir } = installed();
+  fs.appendFileSync(path.join(dir, '.env'), 'SQUIRE_PORT=4011\n');
+  const r = run([], { cwd });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /running at http:\/\/localhost:4011 /);
+  const e = run([], { cwd, env: { SQUIRE_PORT: '4022' } });
+  assert.equal(e.status, 0, e.stderr);
+  assert.match(e.stderr, /running at http:\/\/localhost:4022 /);
+  assert.ok(envLines(dir).includes('SQUIRE_PORT=4011'), '.env untouched');
+});
+
+test('a failed rerun never removes anything from the installation', () => {
+  for (const env of [
+    { STUB_DOCKER_UP_EXIT: '1', STUB_DOCKER_UP_STDERR: 'dependency failed to start: container is unhealthy' },
+    { STUB_DOCKER_UP_EXIT: '1', STUB_DOCKER_UP_STDERR: ' app Error error from registry: unauthorized' },
+    { STUB_DOCTOR_EXIT: '1' },
+    { STUB_CLAIM_EXIT: '1' },
+  ]) {
+    const { cwd, dir } = installed();
+    const before = snapshot(dir);
+    const r = run([], { cwd, env });
+    assert.equal(r.status, 1, JSON.stringify(env));
+    assert.equal(r.stdout, '');
+    assert.deepEqual(snapshot(dir), before, JSON.stringify(env));
+  }
+});
+
+test('an install folder without the ./squire wrapper still gets doctor and a link', () => {
+  const { cwd, dir } = installed();
+  fs.rmSync(path.join(dir, 'squire'));
+  const r = run([], { cwd });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `${LINK}\n`);
+  assert.deepEqual(dockerCalls(r.calls).filter((c) => / exec /.test(c)), [
+    'docker compose exec -T app squire doctor',
+    'docker compose exec -T app squire claim-link',
+  ]);
+});
+
+// ── Image download failures ───────────────────────────────────────────────
+
+test('an unauthorized image pull names the image and the registry reason, keeps the files, and a rerun finishes', () => {
+  const out = [
+    ' app Pulling',
+    ' app Error error from registry: unauthorized',
+    'Error response from daemon: error from registry: unauthorized',
+  ].join('\n');
+  const bad = run(['--version', '1.2.3', '--name', 'Ada'], { env: { STUB_DOCKER_UP_EXIT: '1', STUB_DOCKER_UP_STDERR: out } });
+  assert.equal(bad.status, 1);
+  assert.equal(bad.stdout, '');
+  const lines = bad.stderr.trim().split('\n');
+  assert.equal(
+    lines.pop(),
+    'Error: Could not download the image ghcr.io/squiredocs/squiredocs:1.2.3 (the registry said: error from registry: unauthorized). ' +
+      'Your install folder is fine. Run the same install command again; it picks up where it left off.',
+  );
+  assert.match(bad.stderr, /Error response from daemon/, 'compose output passed through');
+  assert.doesNotMatch(bad.stderr, /did not start/);
+  const before = snapshot(bad.dir);
+  assert.deepEqual(Object.keys(before), ['.env', '.env.example', 'SHA256SUMS', 'compose.yml', 'squire']);
+  assert.ok(!dockerCalls(bad.calls).some((c) => c.includes('doctor')));
+
+  const again = run(['--version', '1.2.3', '--name', 'Ada'], { cwd: bad.cwd });
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stdout, `${LINK}\n`);
+  assert.deepEqual(snapshot(bad.dir), before);
+  assert.ok(dockerCalls(again.calls).includes('docker compose exec -T app squire claim-link --name Ada'));
+});
+
+test('other registry and network failures get the download message, naming the failing service image', () => {
+  for (const [stderr, image, reason] of [
+    ['Error response from daemon: pull access denied for ghcr.io/squiredocs/squiredocs, repository does not exist or may require authorization', 'ghcr.io/squiredocs/squiredocs:1.2.3', 'pull access denied for ghcr.io/squiredocs/squiredocs'],
+    [' app Error manifest for ghcr.io/squiredocs/squiredocs:1.2.3 not found: manifest unknown: manifest unknown', 'ghcr.io/squiredocs/squiredocs:1.2.3', 'manifest for ghcr.io/squiredocs/squiredocs:1.2.3 not found'],
+    [' postgres Error toomanyrequests: You have reached your pull rate limit.', 'pgvector/pgvector:pg16', 'toomanyrequests: You have reached your pull rate limit.'],
+    [' redis Error Get "https://registry-1.docker.io/v2/": dial tcp: lookup registry-1.docker.io: no such host', 'redis:7', 'dial tcp: lookup registry-1.docker.io: no such host'],
+    ['Error response from daemon: Get "https://ghcr.io/v2/": net/http: TLS handshake timeout', 'ghcr.io/squiredocs/squiredocs:1.2.3', 'TLS handshake timeout'],
+  ]) {
+    const r = run(['--version', '1.2.3'], { env: { STUB_DOCKER_UP_EXIT: '1', STUB_DOCKER_UP_STDERR: stderr } });
+    assert.equal(r.status, 1, stderr);
+    const last = r.stderr.trim().split('\n').pop();
+    assert.ok(last.startsWith(`Error: Could not download the image ${image} (the registry said: `), last);
+    assert.ok(last.includes(reason), last);
+    assert.match(last, /Run the same install command again; it picks up where it left off\.$/);
+    assert.ok(fs.existsSync(path.join(r.dir, 'compose.yml')), 'installation kept');
+  }
+});
+
+test('a pull failure on a rerun names the installed release', () => {
+  const { cwd } = installed();
+  const r = run([], { cwd, env: { STUB_LATEST_VERSION: '1.4.0', STUB_DOCKER_UP_EXIT: '1', STUB_DOCKER_UP_STDERR: ' app Error error from registry: denied' } });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /to the new release, then run:/);
+  assert.match(r.stderr, /Could not download the image ghcr\.io\/squiredocs\/squiredocs:1\.2\.3 \(the registry said: error from registry: denied\)/);
 });
 
 test('an empty existing folder is a fresh install and is kept on failure', () => {
@@ -475,7 +661,7 @@ test('another up failure names docker compose logs app', () => {
   assert.equal(r.stdout, '');
   assert.match(r.stderr, /container squire-docs-app-1 is unhealthy/);
   assert.match(r.stderr, /docker compose logs app/);
-  assert.ok(fs.existsSync(path.join(r.dir, 'compose.yml')), 'installation kept, so a rerun prints the upgrade command');
+  assert.ok(fs.existsSync(path.join(r.dir, 'compose.yml')), 'installation kept, so a rerun resumes it');
 });
 
 test('a doctor failure exits 1 and never mints a link', () => {

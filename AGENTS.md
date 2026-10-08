@@ -36,8 +36,11 @@ Success: exit 0, and the last line of stdout is a claim link of the form
 `http://localhost:3910/claim#<token>`. Progress goes to stderr. Options:
 `--dir PATH` (install folder), `--version X.Y.Z` (a specific release).
 
-If it fails, it prints one message naming the fix. Apply it, then continue
-with step 3 or the recovery steps. Skip step 3 when step 2 succeeded.
+If it fails, it prints one message naming the fix. Apply it, then run the
+same command again: on a folder that already holds an installation it changes
+no file, starts the stack, runs `squire doctor`, and prints a new link (on a
+claimed instance, a link that signs the owner in). It never upgrades. Or
+continue with the recovery steps. Skip step 3 when step 2 succeeded.
 
 ## 3. Or run the same steps by hand
 

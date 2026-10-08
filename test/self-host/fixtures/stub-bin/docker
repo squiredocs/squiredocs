@@ -11,6 +11,7 @@
 #   STUB_DOCTOR_EXIT                exit code of `... squire doctor` (default 0)
 #   STUB_CLAIM_OUTPUT               stdout of `... squire claim-link` (default a valid link)
 #   STUB_CLAIM_EXIT                 exit code of `... squire claim-link` (default 0)
+#   STUB_CLAIM_STDERR               stderr of `... squire claim-link` (default the unclaimed message)
 #   STUB_EXEC_EXIT                  exit code of any other `compose exec` (default 0)
 #   STUB_STDIN_LOG                  when set, `compose exec` appends what it reads on stdin here
 #   STUB_PWD_LOG                    when set, every `docker compose` call appends its working directory here
@@ -50,7 +51,7 @@ case "${1:-}" in
             exit "${STUB_DOCTOR_EXIT:-0}"
             ;;
           *" squire claim-link"*)
-            echo "This link claims the instance. It expires in 15 minutes." >&2
+            printf '%s\n' "${STUB_CLAIM_STDERR:-Open this link within 15 minutes to create the owner account.}" >&2
             printf '%s\n' "${STUB_CLAIM_OUTPUT-http://localhost:3910/claim#Abc_123-xyz}"
             exit "${STUB_CLAIM_EXIT:-0}"
             ;;
