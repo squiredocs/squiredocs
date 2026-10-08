@@ -180,9 +180,16 @@ describe('keepSelfHostedHref and HOSTED_ONLY_PATHS (RBD-060-25)', () => {
 describe('filterFooter (FR-031, FR-032)', () => {
   const hrefsOf = (html) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
 
-  it('keeps Documentation, Agents, GitHub, Sign In, the brand, and the copyright from today\'s FOOTER', () => {
+  it('keeps Documentation, Agents, GitHub, Self-host, Sign In, the brand, and the copyright from today\'s FOOTER', () => {
     const f = filterFooter(FOOTER);
-    expect(hrefsOf(f)).toEqual(['/', '/documentation', '/agents.md', 'https://github.com/squiredocs', '/login']);
+    expect(hrefsOf(f)).toEqual([
+      '/',
+      '/documentation',
+      '/agents.md',
+      'https://github.com/squiredocs/squiredocs',
+      '/documentation/self-hosting',
+      '/login',
+    ]);
     expect(f).toContain('<span>Squire Docs</span>');
     expect(f).toContain('class="landing-footer-tagline"');
     expect(f).toContain('&copy; 2026 21st Harmonic LLC');
@@ -199,16 +206,9 @@ describe('filterFooter (FR-031, FR-032)', () => {
     expect(f.match(/landing-footer-column/g)).toHaveLength(1);
   });
 
-  it('a 062-shaped FOOTER keeps the new tagline and the Self-host link', () => {
-    const shaped = FOOTER
-      .replace('Write with AI, right in your doc', 'Living specs for you and your agents. Open source.')
-      .replace(
-        '                <li><a href="/agents.md">Agents</a></li>\n',
-        '                <li><a href="/agents.md">Agents</a></li>\n                <li><a href="/documentation/self-hosting">Self-host</a></li>\n'
-      );
-    expect(shaped).toContain('/documentation/self-hosting');
-    const f = filterFooter(shaped);
-    expect(f).toContain('Living specs for you and your agents. Open source.');
+  it('keeps the 062 tagline and the Self-host link', () => {
+    const f = filterFooter(FOOTER);
+    expect(f).toContain('Collaborative docs for people and AI agents');
     expect(f).toContain('<li><a href="/documentation/self-hosting">Self-host</a></li>');
     expect(f).not.toContain('href="/pricing"');
   });
