@@ -26,14 +26,16 @@ const SQUIRE_HOSTED = String(process.env.SQUIRE_HOSTED || '').toLowerCase() === 
 
 // Inject the same instance flag (and, hosted only, the Google tag) the server
 // injects into the built shell. Dev only: the built dist/index.html must stay
-// un-injected, because the server renders it per instance at mount.
+// un-injected, because the server renders it per instance at mount. The require
+// is deferred to the first served page because the Docker client build stage
+// has no server/ directory, and `vite build` loads this config too.
 function appShellPlugin() {
   const require = createRequire(import.meta.url);
-  const { renderAppShell } = require('../server/app-shell.js');
   return {
     name: 'squire-app-shell',
     apply: 'serve',
     transformIndexHtml(html) {
+      const { renderAppShell } = require('../server/app-shell.js');
       return renderAppShell(html, { hosted: SQUIRE_HOSTED });
     },
   };
