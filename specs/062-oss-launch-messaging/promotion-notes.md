@@ -163,3 +163,7 @@ Gate items for Sam and the merge-queue owner (not fixed in 062):
 - `screenshot-versionhistory.png` (landing section 2) shows the old "HeroDocs" name; recapture before launch.
 - Pre-existing on main, not caused by 062: every marketing page scrolls horizontally at 375px (footer columns about 403px wide) and the header Sign In / Sign Up labels wrap at 375px.
 - Kept as is: "There's no export fee and no lock-in." (retained pricing FAQ line), and "Any agent, any model" heading over a five-provider list (design wording).
+
+## Sam's sign-off on gate items (2026-10-08)
+
+Sam accepted all three as is: the `screenshot-versionhistory.png` image stays (no recapture), the managed-instance "cloud region you choose" claim stays, and the Codex setup commands 060 writes for the Agents & MCP guide need no further check.
