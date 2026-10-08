@@ -27,7 +27,7 @@ The four tools were built for different jobs, and that origin explains most of w
 | Two-way sync to repo markdown | Yes | No | No | No |
 | Agent edits inside the document | Agent-first, node-level | Prompt-based, coarse | Via MCP, page-level | Agent-first, precise |
 | Real-time human editing | Yes | Best in class | Yes | Yes |
-| Open source and self-hostable | Paid self-host; not open source | No | No | Yes |
+| Open source and self-hostable | Yes, MIT | No | No | Yes |
 | Human vs. agent attribution | Per edit, human or agent | Version history, built for humans | Page-level, last edited by | Character-level provenance |
 | Connect any MCP coding agent | Yes, MCP and REST | No | Yes, official MCP | Via its own HTTP bridge |
 
@@ -55,7 +55,7 @@ The difference is the repository. Proof is a standalone editor: you write in it 
 
 Squire Docs is built for spec-driven development, where the document that drives the work belongs in the repository. Two-way markdown sync keeps a Squire Docs document and a file in your repo as the same content: edit either side and the other follows, so your spec is both the file your coding agent implements against and a document your product manager can open in a browser. Agents edit it surgically over the Model Context Protocol or a REST API, changing the specific node they mean to change the way they edit a line of code, and every edit is attributed to a person or an agent.
 
-Its trade-offs are licensing and focus. Squire Docs is not open source, and although you can run it on your own infrastructure, self-hosting is a paid option for teams rather than the free download Proof offers ([pricing](/pricing)). It is also opinionated about the repository: two-way sync is the whole point, so if your documents do not belong in a codebase, most of what sets it apart does not apply, and one of the other three is the better fit.
+Its main trade-off is focus. Like Proof, Squire Docs is open source under the MIT license, and you can run it yourself for free with one command ([self-hosting guide](/documentation/self-hosting)). It is opinionated about the repository: two-way sync is the whole point, so if your documents do not belong in a codebase, most of what sets it apart does not apply, and one of the other three is the better fit.
 
 ## Which one to pick
 
