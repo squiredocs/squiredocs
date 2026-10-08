@@ -210,3 +210,62 @@ to Sam. Later phases append here.
   prefill; the `edit(doc)` script form); `contracts/served-routes.md` (the
   plain-host check, RBD-060-37); `contracts/install-sh.md` (stdin closed for
   children, RBD-060-36; absolute paths in messages, RBD-060-38).
+
+## Review dispositions (post-merge review, 2026-10-08)
+
+All findings fixed on `main`. New defaults are RBD-060-39 to RBD-060-43.
+
+- **H1, truncated `curl | sh` runs a prefix: FIXED.** Above `main()` the
+  script holds only assignments and function definitions (`set -eu` moved
+  into `main`, because a cut `set -eu` line becomes `set`, which prints every
+  variable on stdout); the last line is `main "$@"`. Tests pipe every
+  line-boundary prefix, and mid-line cuts sampled every 41 bytes, into
+  `sh -s` and assert no stub call, no stdout, and no files. Known remainder: a
+  cut inside the last line that leaves exactly `main` runs `main` with no
+  arguments (a default install). Closing it would need a last line such as
+  `{ main "$@"; }`; the review asked for `main "$@"`, so it is left for the
+  lead to decide.
+- **H2, `--dir` on a non-empty folder overwrote and then deleted user files:
+  FIXED** (RBD-060-40). Tests for a folder with user files (nothing
+  downloaded, every file byte-identical), a user `SHA256SUMS` plus a failed
+  download, a hidden-files-only folder, and a `--dir` that is a file.
+- **M1, same-basename installs share a Compose project: FIXED**
+  (RBD-060-41). Tests: two installs into same-named folders get different
+  `COMPOSE_PROJECT_NAME` values, and every compose `up`/`exec` call runs in
+  the install folder (a new `STUB_PWD_LOG` hook in the docker stub).
+  `documentation/self-hosting.md` and the README say so; AGENTS.md never named
+  the project.
+- **M2, `validate | tee` without pipefail: FIXED.** Workflow-level
+  `defaults.run.shell: bash`; the structure test pins it and that no job or
+  step overrides it.
+- **M3, workflow-wide write permissions: FIXED.** Top level
+  `contents: read`; `publish` alone has `contents: write` and
+  `packages: write`. Pinned in the structure test.
+- **M4, actions on movable tags: FIXED.** Each action pinned to the SHA
+  `git ls-remote` returned for its newest tag in the same major (checkout
+  v4.4.0, setup-node v4.4.0, upload-artifact v4.6.2, download-artifact
+  v4.3.0, setup-buildx-action v3.12.0, login-action v3.7.0; all lightweight
+  tags, each equal to its major tag's SHA on 2026-10-08). The structure test
+  requires a 40-character SHA and a `# vX.Y.Z` comment on every `uses:`.
+- **M5, request Host reflected into cacheable documentation: FIXED**
+  (RBD-060-39). Jest covers APP_URL unset (Host used, hostile Hosts fall
+  back) and APP_URL or CLIENT_URL set (Host and X-Forwarded-Host ignored).
+- **M6, `SQUIRE_PORT` not persisted: FIXED** (RBD-060-42), with tests for
+  set, empty, and six invalid values.
+- **L1, manual path skipped SHA256SUMS: FIXED.** AGENTS.md downloads
+  `SHA256SUMS` first and verifies with
+  `sha256sum -c --ignore-missing` or, without it, the two lines piped to
+  `shasum -a 256 -c`. A test runs that exact command with the pod's real
+  `sha256sum` and real `shasum` 6.02 (the macOS version), clean and
+  tampered. `/self-host.md` serves AGENTS.md, so it stays byte-identical.
+- **L2, backport moves `latest` back: FIXED** (RBD-060-43).
+  `release.mjs latest` with unit and CLI tests; the structure test pins the
+  step, its order, and both consumers. `contracts/release-workflow.md` now
+  documents the per-arch staging tags (`X.Y.Z-amd64`, `X.Y.Z-arm64`).
+- **L3, Codex sentence refers to a rewritten URL: FIXED.** The self-hosted
+  variant drops the "For a self-hosted instance, ..." sentence. Hosted output
+  is unchanged; the golden hashes pass without re-recording.
+
+Owed (Docker or GitHub only): the first `release.yml` run is also the first
+evidence for the bash default, the narrowed token, the pinned actions, and
+`git ls-remote` with the checkout credentials in the publish job.

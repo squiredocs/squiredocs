@@ -39,12 +39,18 @@ to the backend so the dev server and production agree.
 `web-routes.js` not-hosted branch mounts
 `path.join(clientBuildPath, 'documentation', '_self-hosted')` with
 `transformHtml = (html, req) => html.split('__SQUIRE_ORIGIN__').join(safeOrigin(req))`,
-where `safeOrigin(req)` is `buildBaseUrl(req)` if `new URL(v).origin === v`
-and the protocol is http or https, else `getInstanceConfig().appUrl`, then
-HTML-escaped.
+where `safeOrigin(req)` is the configured `getInstanceConfig().appUrl`
+whenever `appUrlSource` is not `'default'` (APP_URL or CLIENT_URL is set, as
+compose.yml always does), so a caching proxy can never store a page carrying a
+client-chosen Host (review finding M5, RBD-060-39). Only on the localhost
+default is it `buildBaseUrl(req)`, and only if `new URL(v).origin === v`, the
+protocol is http or https, and the host is plain (RBD-060-37); otherwise the
+default `appUrl`. The result is HTML-escaped.
 
 Tests: not-hosted pages contain no `googletagmanager`, no `rel="canonical"`,
-no `og:url`, no `__SQUIRE_ORIGIN__`, and show `http://localhost:3910/mcp`
-for `Host: localhost:3910`; a hostile `Host` value never appears unescaped;
+no `og:url`, no `__SQUIRE_ORIGIN__`; with APP_URL unset they show
+`http://localhost:3910/mcp` for `Host: localhost:3910`; with APP_URL or
+CLIENT_URL set they show the configured origin whatever the `Host` or
+`X-Forwarded-Host`; a hostile `Host` value never appears unescaped;
 `/documentation/_self-hosted/index.html` and `/documentation/_self-hosted`
 return the documentation 404 on both instance kinds.

@@ -685,3 +685,70 @@ the folder's absolute path (`cd /abs/path && docker compose pull && ...`), so
 it works from wherever the agent runs it. The port-conflict and
 `docker compose logs app` messages use the same absolute path.
 
+## RBD-060-39 - Self-hosted documentation uses the configured origin, not the request Host
+
+**Question**: Post-merge review M5. `safeOrigin` put the request's own origin
+into self-hosted documentation pages. A caching reverse proxy in front of an
+instance could store a page carrying a client-chosen Host for every visitor.
+
+**Default chosen**: When `APP_URL` or `CLIENT_URL` is set (`appUrlSource` is
+not `'default'`), the page always carries that configured origin. The
+request origin, still validated and escaped per RBD-060-37, is used only on
+the localhost default, where no proxy is expected. The shipped `compose.yml`
+always sets `APP_URL`, so every Compose install uses the configured origin.
+This narrows RBD-060-8 and research R11, which chose the request origin to
+match `/agents.md`; `/agents.md` itself is unchanged.
+
+## RBD-060-40 - install.sh installs only into an absent or empty folder
+
+**Question**: Post-merge review H2. `--dir` pointing at a non-empty folder
+overwrote `.env`, `.env.example`, `squire`, and `SHA256SUMS`, and a failed
+download then removed those files even though the user had them first.
+
+**Default chosen**: A folder holding `compose.yml` still prints the upgrade
+command (FR-018). Any other non-empty folder (hidden files count) is refused
+before any download, exit 1, naming the folder and `--dir`; a `--dir` that is
+a file is refused the same way. The cleanup rule is unchanged, and now can
+only remove files this run created in a folder it created or found empty.
+
+## RBD-060-41 - Each install gets its own Compose project name
+
+**Question**: Post-merge review M1. Compose names a project after the
+folder's basename, so two installs in folders that share a basename (for
+example `~/a/squire-docs` and `~/b/squire-docs`) shared containers and
+volumes.
+
+**Default chosen**: `install.sh` writes
+`COMPOSE_PROJECT_NAME=squire-docs-<8 random hex digits>` (from
+`od -An -N4 -tx1 /dev/urandom`) into `.env`, and fails naming `od` if it
+cannot. Compose reads `.env` from the folder it runs in, and every
+`docker compose` and `./squire` call (the wrapper changes to its own folder
+first), the printed upgrade command, and the documented commands run in the
+install folder, so they all use the project. Volumes are now prefixed with
+that name; `documentation/self-hosting.md` says to keep the line. The manual
+path in `AGENTS.md` writes no `.env` and keeps the folder-name project, which
+is fine for its single fixed folder.
+
+## RBD-060-42 - SQUIRE_PORT given to install.sh is saved to .env
+
+**Question**: Post-merge review M6. `SQUIRE_PORT` set for the install was
+used for the first `up` but not saved, so the next `docker compose up` from
+the folder moved the instance back to 3910.
+
+**Default chosen**: When `SQUIRE_PORT` is set and non-empty, `install.sh`
+checks it is a number from 1 to 65535 (else exit 1 before creating anything,
+which also keeps a newline or other text out of `.env`) and writes
+`SQUIRE_PORT=<value>` into `.env`. Empty means unset.
+
+## RBD-060-43 - `latest` moves only to the highest X.Y.Z release
+
+**Question**: Post-merge review L2. `release.yml` tagged every non-prerelease
+image `latest`, so a backport (v1.2.4 after v1.3.0) moved `latest` back, and
+`gh release create` would also have moved GitHub's Latest release, which
+`install.sh` follows.
+
+**Default chosen**: The publish job lists tags with `git ls-remote --tags
+origin` and `release.mjs latest` prints `latest=true` only when the version
+has no prerelease suffix and no `vX.Y.Z` release tag is higher (prerelease
+tags are ignored). That one decision sets both the `:latest` manifest tag and
+`gh release create --latest=true|false`.
