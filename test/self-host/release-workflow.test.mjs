@@ -30,8 +30,28 @@ test('triggers: v* tags and manual dispatch with the two inputs, never a branch 
   }
 });
 
-test('permissions and concurrency', () => {
-  assert.deepEqual(wf.permissions, { contents: 'write', packages: 'write' });
+test('permissions: read-only at the top, write scopes only on publish (review M3)', () => {
+  assert.deepEqual(wf.permissions, { contents: 'read' });
+  for (const [name, job] of Object.entries(jobs)) {
+    if (name === 'publish') continue;
+    assert.equal(job.permissions, undefined, `${name} inherits the read-only default`);
+  }
+  assert.deepEqual(jobs.publish.permissions, { contents: 'write', packages: 'write' });
+});
+
+test('every run step uses bash, which GitHub runs with -eo pipefail (review M2)', () => {
+  assert.deepEqual(wf.defaults, { run: { shell: 'bash' } });
+  for (const [name, job] of Object.entries(jobs)) {
+    assert.equal(job.defaults, undefined, `${name} keeps the workflow default`);
+    for (const step of job.steps || []) {
+      if (step.run) assert.ok(step.shell === undefined || step.shell === 'bash', `${name}: ${step.name} shell ${step.shell}`);
+    }
+  }
+  // The piped steps the review named: a failing validate must fail the step.
+  assert.match(runText('validate'), /release\.mjs validate [^\n]*\| tee -a "\$GITHUB_OUTPUT"/);
+});
+
+test('concurrency', () => {
   assert.equal(wf.concurrency.group, 'release-${{ github.ref }}');
   assert.equal(wf.concurrency['cancel-in-progress'], false);
 });
@@ -112,7 +132,21 @@ test('publish: guarded, checks every gate, pushes tested bytes, latest only for 
   const run = runText('publish');
   assert.match(run, /docker tag "\$IMAGE:\$VERSION" "\$IMAGE:\$VERSION-\$arch"/);
   assert.match(run, /docker buildx imagetools create/);
-  assert.match(run, /if \[ "\$PRERELEASE" = "false" \]; then tags="\$tags -t \$IMAGE:latest"; fi/);
+  // Review L2: latest moves only for the highest X.Y.Z release.
+  const latest = p.steps.find((s) => s.id === 'latest');
+  assert.ok(latest, 'a step decides latest');
+  assert.match(latest.run, /git ls-remote --tags origin > ls-remote\.txt/);
+  assert.match(latest.run, /node distribution\/self-host\/release\.mjs latest --version "\$VERSION" --ls-remote ls-remote\.txt \| tee -a "\$GITHUB_OUTPUT"/);
+  const idx = (re) => p.steps.findIndex((s) => re.test(s.name || ''));
+  assert.ok(idx(/Checkout/) < p.steps.indexOf(latest), 'checkout before the latest decision');
+  assert.ok(idx(/Set up Node/) < p.steps.indexOf(latest), 'node before the latest decision');
+  const manifest = p.steps.find((s) => /manifest/i.test(s.name) && /imagetools create/.test(s.run || ''));
+  assert.equal(manifest.env.LATEST, '${{ steps.latest.outputs.latest }}');
+  assert.match(manifest.run, /if \[ "\$LATEST" = "true" \]; then tags="\$tags -t \$IMAGE:latest"; fi/);
+  assert.ok(!/PRERELEASE" = "false"/.test(run), 'latest no longer follows prerelease alone');
+  const release = p.steps.find((s) => /gh release create/.test(s.run || ''));
+  assert.equal(release.env.LATEST, '${{ steps.latest.outputs.latest }}');
+  assert.match(release.run, /flags="--latest=\$LATEST"/);
   assert.match(run, /docker buildx imagetools inspect --raw/);
   assert.match(run, /gh release create "v\$VERSION"/);
   assert.match(run, /--prerelease/);
@@ -126,11 +160,25 @@ test('no step uses a development endpoint', () => {
   assert.ok(!text.includes('ENABLE_DEV_ENDPOINTS'));
 });
 
-test('every action is pinned to a major version tag or a SHA', () => {
+test('every action is pinned to a full commit SHA with its version tag in a comment (review M4)', () => {
+  let count = 0;
   for (const job of Object.keys(jobs)) {
     for (const u of usesOf(job)) {
-      assert.match(u, /^[\w.-]+\/[\w.-]+@(v\d+(\.\d+){0,2}|[0-9a-f]{40})$/, `${job}: ${u}`);
+      assert.match(u, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${job}: ${u}`);
+      count++;
     }
+  }
+  assert.ok(count > 0);
+  const usesLines = text.split('\n').filter((l) => /^\s*(-\s+)?uses:/.test(l));
+  assert.equal(usesLines.length, count, 'every uses: line is a step uses');
+  const shaOf = new Map();
+  for (const l of usesLines) {
+    const m = /uses: ([\w.-]+\/[\w.-]+)@([0-9a-f]{40}) # (v\d+\.\d+\.\d+)$/.exec(l);
+    assert.ok(m, `SHA plus a trailing # vX.Y.Z comment: ${l.trim()}`);
+    const key = `${m[1]}@${m[3]}`;
+    // One action version resolves to one SHA everywhere it is used.
+    if (shaOf.has(key)) assert.equal(shaOf.get(key), m[2], key);
+    shaOf.set(key, m[2]);
   }
 });
 

@@ -19,6 +19,10 @@
  *     stderr: one message naming the problem                              (exit 1)
  *   node distribution/self-host/release.mjs stamp --version X.Y.Z --out DIR
  *     writes compose.yml, squire, env.example, SHA256SUMS                  (exit 0/1)
+ *   node distribution/self-host/release.mjs latest --version X.Y.Z --ls-remote FILE
+ *     FILE is `git ls-remote --tags origin` output. stdout: latest=true when
+ *     X.Y.Z is a release (not a prerelease) and no vA.B.C release tag in FILE
+ *     is higher, else latest=false, so a backport never moves `latest` back.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -63,6 +67,39 @@ export function validateRepository(repo, githubRepository) {
   if (githubRepository !== undefined && r !== String(githubRepository).toLowerCase()) {
     throw new Error(`REPOSITORY is ${r} but this workflow runs in ${githubRepository}. A release publishes only from the repository REPOSITORY names.`);
   }
+}
+
+/** Release tag names (vX.Y.Z...) from `git ls-remote --tags` output; peeled ^{} lines fold into their tag. */
+export function tagsFromLsRemote(text) {
+  const tags = new Set();
+  for (const line of String(text).split('\n')) {
+    const ref = line.trim().split(/\s+/).pop() || '';
+    const m = /^refs\/tags\/(.+?)(\^\{\})?$/.exec(ref);
+    if (m) tags.add(m[1]);
+  }
+  return [...tags];
+}
+
+/**
+ * Whether `version` should carry the `latest` image tag and GitHub's Latest
+ * badge: it is a release (no prerelease suffix) and no release tag in `tags`
+ * is a higher X.Y.Z. Prerelease and malformed tags in `tags` are ignored.
+ */
+export function isHighestRelease(version, tags) {
+  const m = VERSION_RE.exec(String(version || ''));
+  if (!m) throw new Error(`Version ${JSON.stringify(version)} is not X.Y.Z (no leading v).`);
+  if (m[4]) return false;
+  const mine = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (const tag of tags) {
+    const t = TAG_RE.exec(tag);
+    if (!t || t[4]) continue;
+    const other = [Number(t[1]), Number(t[2]), Number(t[3])];
+    for (let i = 0; i < 3; i++) {
+      if (other[i] > mine[i]) return false;
+      if (other[i] < mine[i]) break;
+    }
+  }
+  return true;
 }
 
 function sha256(file) {
@@ -137,7 +174,13 @@ export function cli(argv, { out = process.stdout, err = process.stderr, reposito
       err.write(`Stamped ${files.join(', ')} for ${flags.version} in ${flags.out}\n`);
       return 0;
     }
-    throw new Error('Usage: release.mjs validate|stamp ...');
+    if (cmd === 'latest') {
+      if (!flags.version || !flags['ls-remote']) throw new Error('Usage: release.mjs latest --version X.Y.Z --ls-remote FILE');
+      const tags = tagsFromLsRemote(fs.readFileSync(flags['ls-remote'], 'utf8'));
+      out.write(`latest=${isHighestRelease(flags.version, tags)}\n`);
+      return 0;
+    }
+    throw new Error('Usage: release.mjs validate|stamp|latest ...');
   } catch (e) {
     err.write(`${e.message}\n`);
     return 1;

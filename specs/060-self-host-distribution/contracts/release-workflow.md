@@ -11,8 +11,10 @@ on:
       publish:            { type: boolean, default: false }
       allow_single_arch:  { type: boolean, default: false }
 permissions:
-  contents: write
-  packages: write
+  contents: read          # the publish job alone adds contents: write, packages: write
+defaults:
+  run:
+    shell: bash           # GitHub runs it as bash --noprofile --norc -eo pipefail
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -20,6 +22,15 @@ concurrency:
 
 Never triggered by a branch push (RBD-060-4). `test.yml` is unchanged in its
 triggers.
+
+Review findings M2 to M4: every job but `publish` runs with the read-only
+token; `publish` declares `permissions: { contents: write, packages: write }`.
+Every `run` step uses bash with `pipefail`, so `release.mjs validate | tee`
+fails the step when `validate` fails. Every third-party action is pinned to a
+full commit SHA with the version tag it was resolved from in a trailing
+comment (`uses: actions/checkout@<sha> # v4.4.0`); bump one by resolving the
+new tag with `git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>`
+(the peeled `^{}` SHA for an annotated tag).
 
 ## Jobs
 
@@ -58,24 +69,41 @@ and `agent` succeeded and either `build-arm64` succeeded or (`build-arm64` was
 skipped and `inputs.allow_single_arch` is true). It never succeeds silently
 with a gate missing.
 
-1. Download the image tarballs and `assets`.
-2. `docker login ghcr.io` with `GITHUB_TOKEN`.
-3. Per arch: `docker load`, `docker tag` to `<image>:<version>-<arch>`, `docker push`.
-4. `docker buildx imagetools create -t <image>:<version> [-t <image>:latest]`
-   from the per-arch tags (`latest` only when `prerelease == 'false'`).
-5. `docker buildx imagetools inspect <image>:<version>` lists exactly the
+1. Check out the repository and set up Node, then decide `latest`:
+   `git ls-remote --tags origin` into a file and
+   `release.mjs latest --version <version> --ls-remote <file>` prints
+   `latest=true` only when `<version>` has no prerelease suffix and no
+   `vX.Y.Z` release tag is higher (prerelease tags are ignored). A backport
+   such as v1.2.4 published after v1.3.0 therefore leaves `latest` on 1.3.0
+   (review finding L2, RBD-060-43).
+2. Download the image tarballs and `assets`.
+3. `docker login ghcr.io` with `GITHUB_TOKEN`.
+4. Per arch: `docker load`, `docker tag` to the staging tag
+   `<image>:<version>-<arch>` (for example `1.2.3-amd64`, `1.2.3-arm64`),
+   `docker push`. The staging tags carry the exact tested bytes (RBD-060-26),
+   stay in GHCR after the release as the per-architecture images the manifest
+   points at, and are not meant to be pulled directly; `<image>:<version>` and
+   `<image>:latest` are the public tags.
+5. `docker buildx imagetools create -t <image>:<version> [-t <image>:latest]`
+   from the staging tags (`latest` only when step 1 printed `latest=true`).
+6. `docker buildx imagetools inspect <image>:<version>` lists exactly the
    expected platforms, else fail.
-6. `gh release create v<version> assets/* --title "Squire Docs <version>" --notes ... [--prerelease]`.
-7. `gh release view v<version> --json assets` names exactly
+7. `gh release create v<version> assets/* --title "Squire Docs <version>" --notes ... --latest=<true|false> [--prerelease]`,
+   with the step 1 decision, so GitHub's `releases/latest` (which `install.sh`
+   follows) never moves back either.
+8. `gh release view v<version> --json assets` names exactly
    `compose.yml`, `squire`, `env.example`, `SHA256SUMS`, else fail.
 
 ## Structure test (Docker-free)
 
 `test/self-host/release-workflow.test.mjs` parses the YAML and asserts: the
-triggers above and no `branches`; the two permissions; `publish` needs all
+triggers above and no `branches`; read-only top-level permissions with the
+write scopes only on `publish`; the workflow-level `bash` default and no
+step overriding it; `publish` needs all
 four upstream jobs; `publish` has the explicit guard expression; `validate`
 runs `release.mjs validate` and `stamp`; the arm64 job uses
 `ubuntu-24.04-arm` and the condition; the agent job runs `install.sh` with
 `SQUIRE_INSTALL_ASSET_URL` and the driver with `--signin-link`; no step uses
-`/auth/dev-login` or `dev-consent-approve`; every action is pinned to a major
-version tag or SHA.
+`/auth/dev-login` or `dev-consent-approve`; every action is pinned to a
+40-character SHA with a `# vX.Y.Z` comment, one SHA per action version; the
+`latest` decision feeds both the manifest tags and `gh release create`.

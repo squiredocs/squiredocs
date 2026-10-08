@@ -14,6 +14,8 @@ import {
   ASSET_NAMES,
   parseReleaseTag,
   validateRepository,
+  isHighestRelease,
+  tagsFromLsRemote,
 } from '../../distribution/self-host/release.mjs';
 import { SELF_HOST_DIR, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, placeholderCopy, tempDir, which } from './helpers.mjs';
 
@@ -150,4 +152,42 @@ test('CLI stamp on a released copy succeeds', () => {
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, '');
   assert.deepEqual(fs.readdirSync(out).sort(), [...ASSET_NAMES].sort());
+});
+
+// Review finding L2: a backport release never moves `latest` backwards.
+test('isHighestRelease: only the highest X.Y.Z release is latest', () => {
+  const tags = ['v1.0.0', 'v1.2.0', 'v1.2.1', 'v2.0.0-rc.1', 'v1.10.0', 'not-a-tag', 'v3.0'];
+  assert.equal(isHighestRelease('1.10.0', tags), true, 'its own tag and lower ones');
+  assert.equal(isHighestRelease('1.2.2', tags), false, 'a backport below 1.10.0');
+  assert.equal(isHighestRelease('1.9.9', tags), false, 'numeric, not string, comparison');
+  assert.equal(isHighestRelease('1.11.0', tags), true);
+  assert.equal(isHighestRelease('2.0.0', tags), true, 'a higher prerelease tag never blocks a release');
+  assert.equal(isHighestRelease('2.0.0-rc.2', tags), false, 'a prerelease is never latest');
+  assert.equal(isHighestRelease('0.0.1', []), true, 'the first release');
+  assert.throws(() => isHighestRelease('v1.0.0', tags), /not X\.Y\.Z/);
+});
+
+test('tagsFromLsRemote reads git ls-remote --tags output, folding peeled lines', () => {
+  const text = [
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.0.0',
+    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1.0.0^{}',
+    'cccccccccccccccccccccccccccccccccccccccc\trefs/tags/v1.2.0',
+    'dddddddddddddddddddddddddddddddddddddddd\trefs/heads/main',
+    '',
+  ].join('\n');
+  assert.deepEqual(tagsFromLsRemote(text), ['v1.0.0', 'v1.2.0']);
+});
+
+test('CLI latest prints latest=true|false from an ls-remote file', () => {
+  const file = path.join(tempDir(), 'ls-remote.txt');
+  fs.writeFileSync(file, 'a\trefs/tags/v1.0.0\nb\trefs/tags/v1.4.0\nc\trefs/tags/v1.3.1\n');
+  const run = (version) => spawnSync(process.execPath, [RELEASE, 'latest', '--version', version, '--ls-remote', file], { encoding: 'utf8' });
+  for (const [v, want] of [['1.4.0', 'true'], ['1.3.1', 'false'], ['1.5.0-rc.1', 'false'], ['1.5.0', 'true']]) {
+    const r = run(v);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, `latest=${want}\n`, v);
+  }
+  const bad = spawnSync(process.execPath, [RELEASE, 'latest', '--version', '1.0.0'], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /Usage: release\.mjs latest/);
 });
