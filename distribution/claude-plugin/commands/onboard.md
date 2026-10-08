@@ -21,6 +21,10 @@ Do not try to tell "has an account but never consented" apart from "no account a
 
 **Command-availability caveat.** `/squire:onboard` ships inside the plugin, and a plugin's commands load separately from — and usually before — its MCP server connects. Two consequences, neither an error: (1) right after install the client may need a restart before this command even appears; (2) once it runs, the Squire Docs tools stay absent until consent, which is exactly the "no tools present" branch above. Tools being absent is a state to coach through, never a failure to report.
 
+### Self-hosted instance
+
+When the user asks for a local or self-hosted Squire Docs instance, or a `squire-local` MCP server is configured, fetch `https://squiredocs.com/self-host.md` and follow it step by step. For that instance use only the `squire-local` server's tools, never this plugin's `squire` server, which is the hosted service.
+
 ### The auth walkthrough
 
 In Claude Code the OAuth exchange belongs to the MCP client, not to you. You cannot complete it for the user; you coach them through the client's own flow, in this order:

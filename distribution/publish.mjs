@@ -79,7 +79,7 @@ export const KIRO_SERVER_KEY = 'squire-docs';
 // 1.0.0 (first publish). Kiro's carrier is POWER.md frontmatter `version:` (RBD-2);
 // Cursor's is `.cursor-plugin/plugin.json` `version`.
 export const KIRO_POWER_VERSION = '1.0.0';
-export const CURSOR_PLUGIN_VERSION = '1.0.0';
+export const CURSOR_PLUGIN_VERSION = '1.0.1'; // 1.0.1: LICENSE holder 21st Harmonic LLC (feature 060)
 
 // The one shipping endpoint. The committed `.mcp.json` always hardcodes this;
 // only the rehearsal harness rewrites it (in a throwaway copy) for the dev server.
@@ -95,14 +95,16 @@ export const PROD_ENDPOINT = 'https://squiredocs.com/mcp';
 //   plugin  1.0.0 initial · 1.0.1 add MIT LICENSE
 //   registry 1.0.0 initial · 1.0.1 add MIT LICENSE · 1.0.2 migrate to the
 //            2025-12-11 registry schema (plugin unchanged at 1.0.1)
-export const SHIP_VERSION = '1.0.1';
-export const REGISTRY_VERSION = '1.0.2';
+//   060: plugin 1.0.2 (self-host pointer in onboard.md, LICENSE holder
+//        21st Harmonic LLC) · registry 1.0.3 (LICENSE holder)
+export const SHIP_VERSION = '1.0.2';
+export const REGISTRY_VERSION = '1.0.3';
 
 // MIT license, generated into every published bundle so the mirrors carry it
 // (they are generated-only — a hand-added LICENSE would be pruned on publish).
 // Copyright holder + year here are the single source of truth.
 const LICENSE_YEAR = '2026';
-const LICENSE_HOLDER = 'Squire Docs';
+const LICENSE_HOLDER = '21st Harmonic LLC'; // RBD-060-13; matches the repository LICENSE
 function licenseText() {
   return `MIT License
 
