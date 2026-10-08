@@ -141,3 +141,45 @@ test('prose says "Squire Docs", never bare "Squire"', () => {
   assert.deepEqual(bare, []);
   assert.ok(!text.includes('—'), 'no em dashes');
 });
+
+// Review finding L1: the manual path verifies what it downloaded.
+test('the manual path downloads SHA256SUMS and verifies compose.yml and squire on Linux and macOS tools', async (t) => {
+  const R = `https://github.com/${REPOSITORY}/releases/latest/download`;
+  const order = [`curl -fsSLO ${R}/SHA256SUMS`, `curl -fsSLO ${R}/compose.yml`, `curl -fsSLO ${R}/squire && chmod +x squire`, 'sha256sum -c --ignore-missing SHA256SUMS', 'docker compose up -d --wait'];
+  let from = 0;
+  for (const needle of order) {
+    const j = text.indexOf(needle, from);
+    assert.ok(j >= 0, `${needle} in order`);
+    from = j + needle.length;
+  }
+  const verify = commandLines.find((l) => l.includes('sha256sum -c'));
+  assert.match(verify, /shasum -a 256 -c/);
+
+  const { stampAssets } = await import('../../distribution/self-host/release.mjs');
+  const { tempDir, which } = await import('./helpers.mjs');
+  const { spawnSync } = await import('node:child_process');
+  const tools = [['sha256sum', which('sha256sum')], ['shasum', which('shasum')]].filter(([, p]) => p);
+  if (!tools.length) {
+    t.skip('neither sha256sum nor shasum installed');
+    return;
+  }
+  for (const [tool, real] of tools) {
+    for (const tamper of [false, true]) {
+      const dir = tempDir('squire-060-manual-');
+      stampAssets({ version: '1.2.3', outDir: dir });
+      fs.rmSync(path.join(dir, 'env.example')); // the manual path never downloads it
+      if (tamper) fs.appendFileSync(path.join(dir, 'squire'), '\n');
+      const bin = tempDir('squire-060-bin-');
+      for (const u of ['grep']) fs.symlinkSync(which(u), path.join(bin, u));
+      fs.symlinkSync(real, path.join(bin, tool));
+      const r = spawnSync('/bin/sh', ['-c', verify], { cwd: dir, encoding: 'utf8', env: { PATH: bin } });
+      if (tamper) {
+        assert.notEqual(r.status, 0, `${tool}: a tampered squire fails`);
+      } else {
+        assert.equal(r.status, 0, `${tool}: ${r.stdout}${r.stderr}`);
+        assert.match(r.stdout, /^compose\.yml: OK$/m);
+        assert.match(r.stdout, /^squire: OK$/m);
+      }
+    }
+  }
+});

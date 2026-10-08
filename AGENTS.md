@@ -51,6 +51,12 @@ mkdir squire-docs && cd squire-docs
 Success: exit 0, and the current folder is the new, empty `squire-docs`.
 
 ```sh
+curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/SHA256SUMS
+```
+
+Success: exit 0, and `SHA256SUMS` exists in the folder.
+
+```sh
 curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/compose.yml
 ```
 
@@ -62,6 +68,17 @@ curl -fsSLO https://github.com/squiredocs/squiredocs/releases/latest/download/sq
 
 Success: exit 0, and `squire` exists and is executable. It is a one-line
 wrapper for people; agents use the full `docker compose exec` form below.
+
+Verify both files against `SHA256SUMS` before running anything. This works
+with `sha256sum` (Linux) and with `shasum` (macOS):
+
+```sh
+if command -v sha256sum >/dev/null 2>&1; then sha256sum -c --ignore-missing SHA256SUMS; else grep -E '  (compose\.yml|squire)$' SHA256SUMS | shasum -a 256 -c; fi
+```
+
+Success: exit 0, and the output has `compose.yml: OK` and `squire: OK`. On
+any other result, delete the folder, tell the user the download did not match
+the release checksums, and stop.
 
 ```sh
 docker compose up -d --wait
