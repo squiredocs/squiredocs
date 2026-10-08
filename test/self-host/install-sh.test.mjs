@@ -19,7 +19,7 @@ import { SELF_HOST_DIR, STUB_BIN, PLACEHOLDER, TEST_REPOSITORY, releasedCopy, pl
 
 const SHELL = which('dash') || '/bin/sh';
 const REAL_SHA256SUM = which('sha256sum');
-const UTILS = ['cat', 'grep', 'sed', 'head', 'cut', 'tr', 'mkdir', 'rmdir', 'rm', 'mv', 'chmod', 'mktemp', 'dirname', 'basename'];
+const UTILS = ['cat', 'grep', 'sed', 'head', 'cut', 'tr', 'mkdir', 'rmdir', 'rm', 'mv', 'chmod', 'mktemp', 'dirname', 'basename', 'od'];
 const LINK = 'http://localhost:3910/claim#Abc_123-xyz';
 
 // A byte-identical copy of the production files (REPOSITORY is set).
@@ -71,6 +71,21 @@ function run(args = [], { env = {}, bin = {}, cwd, script = SCRIPT } = {}) {
 }
 
 const dockerCalls = (calls) => calls.filter((c) => c.startsWith('docker '));
+
+/** .env as lines; the Compose project name is random, so it is matched apart. */
+const PROJECT_RE = /^COMPOSE_PROJECT_NAME=squire-docs-[0-9a-f]{8}$/;
+function envLines(dir) {
+  return fs.readFileSync(path.join(dir, '.env'), 'utf8').split('\n');
+}
+/** Assert .env holds exactly these lines plus one unique project name, in order. */
+function assertEnv(dir, { version = '1.2.3', port } = {}) {
+  const lines = envLines(dir);
+  assert.equal(lines.pop(), '', '.env ends with a newline');
+  assert.equal(lines[0], `SQUIRE_VERSION=${version}`);
+  assert.match(lines[1], PROJECT_RE);
+  assert.deepEqual(lines.slice(2), port ? [`SQUIRE_PORT=${port}`] : []);
+  return lines[1].split('=')[1];
+}
 
 // ── Refusals before anything is created ───────────────────────────────────
 
@@ -186,6 +201,59 @@ test('an empty existing folder is a fresh install and is kept on failure', () =>
   assert.deepEqual(fs.readdirSync(path.join(cwd2, 'squire-docs')), [], 'files removed, folder it did not create kept');
 });
 
+// Review finding H2: a non-empty folder is never written to, and the failure
+// cleanup can only ever remove files this run created.
+test('a non-empty --dir is refused before anything is downloaded, and its files are untouched', () => {
+  const cwd = tempDir('squire-060-cwd-');
+  const dir = path.join(cwd, 'mine');
+  fs.mkdirSync(dir);
+  const mine = { '.env': 'MY_SECRET=1\n', '.env.example': 'mine\n', squire: 'my script\n', 'notes.txt': 'keep me\n' };
+  for (const [n, body] of Object.entries(mine)) fs.writeFileSync(path.join(dir, n), body);
+  const r = run(['--dir', 'mine', '--version', '1.2.3'], { cwd });
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, '');
+  const real = fs.realpathSync(dir);
+  assert.equal(
+    r.stderr,
+    `Error: ${real} is not empty. Squire Docs installs only into a new or empty folder, so it never overwrites your files. Choose another folder with --dir.\n`,
+  );
+  assert.deepEqual(fs.readdirSync(dir).sort(), Object.keys(mine).sort());
+  for (const [n, body] of Object.entries(mine)) assert.equal(fs.readFileSync(path.join(dir, n), 'utf8'), body, n);
+  assert.ok(!r.calls.some((c) => c.startsWith('curl')), 'nothing downloaded');
+  assert.ok(!dockerCalls(r.calls).some((c) => / up /.test(c)), 'nothing started');
+});
+
+test('a failed download never removes a file the user already had (hidden files count as content)', () => {
+  const cwd = tempDir('squire-060-cwd-');
+  const dir = path.join(cwd, 'squire-docs');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'SHA256SUMS'), 'my checksums\n');
+  fs.writeFileSync(path.join(dir, '.hidden'), 'x\n');
+  const r = run(['--version', '1.2.3'], { cwd, env: { STUB_CURL_FAIL: 'compose.yml' } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is not empty/);
+  assert.equal(fs.readFileSync(path.join(dir, 'SHA256SUMS'), 'utf8'), 'my checksums\n');
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['.hidden', 'SHA256SUMS']);
+
+  const onlyHidden = tempDir('squire-060-cwd-');
+  fs.mkdirSync(path.join(onlyHidden, 'squire-docs'));
+  fs.writeFileSync(path.join(onlyHidden, 'squire-docs', '.env'), 'MINE=1\n');
+  const h = run(['--version', '1.2.3'], { cwd: onlyHidden });
+  assert.equal(h.status, 1);
+  assert.match(h.stderr, /is not empty/);
+  assert.equal(fs.readFileSync(path.join(onlyHidden, 'squire-docs', '.env'), 'utf8'), 'MINE=1\n');
+});
+
+test('a --dir that is a file is refused', () => {
+  const cwd = tempDir('squire-060-cwd-');
+  fs.writeFileSync(path.join(cwd, 'squire-docs'), 'a file\n');
+  const r = run(['--version', '1.2.3'], { cwd });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /squire-docs exists and is not a folder\. Choose a new or empty folder with --dir\./);
+  assert.equal(fs.readFileSync(path.join(cwd, 'squire-docs'), 'utf8'), 'a file\n');
+  assert.ok(!r.calls.some((c) => c.startsWith('curl')));
+});
+
 // ── Version resolution and downloads ──────────────────────────────────────
 
 test('without --version the latest release comes from the releases/latest Location header', () => {
@@ -200,7 +268,7 @@ test('without --version the latest release comes from the releases/latest Locati
       (n) => `https://github.com/${TEST_REPOSITORY}/releases/download/v1.2.3/${n}`,
     ),
   );
-  assert.equal(fs.readFileSync(path.join(r.dir, '.env'), 'utf8'), 'SQUIRE_VERSION=1.2.3\n');
+  assertEnv(r.dir);
 });
 
 test('an unresolvable latest version names --version and removes the folder', () => {
@@ -218,7 +286,7 @@ test('--version skips latest resolution; --dir is honored', () => {
   assert.ok(!r.calls.some((c) => c.startsWith('curl') && / -[a-zA-Z]*I /.test(c)), 'no latest lookup');
   const dir = path.join(cwd, 'other-folder');
   assert.deepEqual(fs.readdirSync(dir).sort(), ['.env', '.env.example', 'SHA256SUMS', 'compose.yml', 'squire']);
-  assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'SQUIRE_VERSION=1.2.3\n');
+  assertEnv(dir);
   assert.equal(fs.existsSync(path.join(cwd, 'squire-docs')), false);
 });
 
@@ -243,7 +311,7 @@ test('SQUIRE_INSTALL_ASSET_URL replaces the download base and changes nothing el
     downloads.map((c) => c.split(' ').pop()),
     ['SHA256SUMS', 'compose.yml', 'squire', 'env.example'].map((n) => `http://127.0.0.1:8000/${n}`),
   );
-  assert.equal(fs.readFileSync(path.join(r.dir, '.env'), 'utf8'), 'SQUIRE_VERSION=1.2.3\n');
+  assertEnv(r.dir);
 });
 
 // ── Checksums ─────────────────────────────────────────────────────────────
@@ -291,7 +359,7 @@ test('success: folder contents, .env, executable wrapper, call order, and stdout
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, `${LINK}\n`);
   assert.deepEqual(fs.readdirSync(r.dir).sort(), ['.env', '.env.example', 'SHA256SUMS', 'compose.yml', 'squire']);
-  assert.equal(fs.readFileSync(path.join(r.dir, '.env'), 'utf8'), 'SQUIRE_VERSION=1.2.3\n');
+  assertEnv(r.dir);
   assert.equal(fs.readFileSync(path.join(r.dir, '.env.example'), 'utf8'), fs.readFileSync(path.join(ASSETS, 'env.example'), 'utf8'));
   assert.equal(fs.statSync(path.join(r.dir, 'squire')).mode & 0o111, 0o111);
   const order = dockerCalls(r.calls).filter((c) => / (up|exec) /.test(c));
@@ -300,6 +368,53 @@ test('success: folder contents, .env, executable wrapper, call order, and stdout
     'docker compose exec -T app squire doctor',
     'docker compose exec -T app squire claim-link --name Ada Lovelace --email ada@example.com',
   ]);
+});
+
+// Review finding M1: folders that share a basename never share a Compose project.
+test('each install writes its own COMPOSE_PROJECT_NAME, and every compose call runs where .env is', () => {
+  const pwdLog = path.join(tempDir(), 'pwd.log');
+  const a = run(['--version', '1.2.3'], { env: { STUB_PWD_LOG: pwdLog } });
+  assert.equal(a.status, 0, a.stderr);
+  const b = run(['--version', '1.2.3']);
+  assert.equal(b.status, 0, b.stderr);
+  assert.equal(path.basename(a.dir), path.basename(b.dir));
+  const pa = assertEnv(a.dir);
+  const pb = assertEnv(b.dir);
+  assert.notEqual(pa, pb, 'two installs in same-named folders get different project names');
+  // docker compose reads .env (and so COMPOSE_PROJECT_NAME) from its working
+  // directory: up, doctor, and claim-link must all run in the install folder.
+  const composeCalls = dockerCalls(a.calls).filter((c) => c.startsWith('docker compose'));
+  const pwds = fs.readFileSync(pwdLog, 'utf8').split('\n').filter(Boolean);
+  assert.equal(pwds.length, composeCalls.length);
+  const real = fs.realpathSync(a.dir);
+  composeCalls.forEach((c, i) => {
+    if (/ (up|exec) /.test(c)) assert.equal(fs.realpathSync(pwds[i]), real, c);
+  });
+  assert.equal(composeCalls.filter((c) => / (up|exec) /.test(c)).length, 3);
+  // The wrapper changes to its own folder first, so ./squire from anywhere does too.
+  assert.match(fs.readFileSync(path.join(a.dir, 'squire'), 'utf8'), /^cd "\$\(dirname "\$0"\)"/m);
+});
+
+// Review finding M6: the port the first up used is the port later commands use.
+test('SQUIRE_PORT is written to .env when set, and left out when unset or empty', () => {
+  const r = run(['--version', '1.2.3'], { env: { SQUIRE_PORT: '4011' } });
+  assert.equal(r.status, 0, r.stderr);
+  assertEnv(r.dir, { port: '4011' });
+  assert.match(r.stderr, /running at http:\/\/localhost:4011/);
+  const e = run(['--version', '1.2.3'], { env: { SQUIRE_PORT: '' } });
+  assert.equal(e.status, 0, e.stderr);
+  assertEnv(e.dir);
+});
+
+test('an invalid SQUIRE_PORT is refused before anything is created', () => {
+  for (const port of ['abc', '0', '65536', '123456', '80 81', '4000\nAPP_URL=http://evil']) {
+    const r = run(['--version', '1.2.3'], { env: { SQUIRE_PORT: port } });
+    assert.equal(r.status, 1, JSON.stringify(port));
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /is not a port number\. Set it to a free port from 1 to 65535/);
+    assert.equal(fs.existsSync(r.dir), false);
+    assert.deepEqual(r.calls, []);
+  }
 });
 
 test('success without --name and --email calls a bare claim-link', () => {
@@ -385,6 +500,52 @@ test('a claim-link that fails or prints a non-link exits 1 naming ./squire claim
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /\.\/squire claim-link/);
   }
+});
+
+// ── Truncated downloads (review finding H1) ──────────────────────────────
+
+/** Feed `text` to the shell on stdin, as curl | sh does, with every stub on PATH. */
+function runPiped(text) {
+  const cwd = tempDir('squire-060-cwd-');
+  const log = path.join(tempDir(), 'stub.log');
+  fs.writeFileSync(log, '');
+  const r = spawnSync(SHELL, ['-s', '--', '--version', '1.2.3', '--name', 'Ada'], {
+    cwd,
+    input: text,
+    encoding: 'utf8',
+    env: { PATH: PIPE_BIN, HOME: cwd, STUB_LOG: log, STUB_CURL_DIR: ASSETS, STUB_LATEST_VERSION: '1.2.3', STUB_REAL_SHA256SUM: REAL_SHA256SUM || '' },
+  });
+  return { status: r.status, stdout: r.stdout, calls: fs.readFileSync(log, 'utf8').split('\n').filter(Boolean), cwd };
+}
+const PIPE_BIN = makeBin();
+
+function assertRunsNothing(text, label) {
+  const r = runPiped(text);
+  assert.deepEqual(r.calls, [], `${label}: no docker or curl call`);
+  assert.equal(r.stdout, '', `${label}: prints nothing on stdout`);
+  assert.deepEqual(fs.readdirSync(r.cwd), [], `${label}: creates nothing`);
+}
+
+test('the whole script piped on stdin installs (control for the truncation tests)', () => {
+  const r = runPiped(fs.readFileSync(SCRIPT, 'utf8'));
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, `${LINK}\n`);
+});
+
+test('every truncation at a line boundary runs nothing', () => {
+  const text = fs.readFileSync(SCRIPT, 'utf8');
+  assert.ok(text.endsWith('\nmain "$@"\n'), 'the last line calls main');
+  const lines = text.split('\n');
+  // lines ends with '' (the final newline); the last real line is main "$@".
+  for (let k = 0; k < lines.length - 2; k++) {
+    assertRunsNothing(lines.slice(0, k).join('\n') + (k ? '\n' : ''), `first ${k} lines`);
+  }
+});
+
+test('sampled truncations inside a line run nothing', () => {
+  const text = fs.readFileSync(SCRIPT, 'utf8');
+  const end = text.lastIndexOf('\nmain "$@"');
+  for (let cut = 1; cut < end; cut += 41) assertRunsNothing(text.slice(0, cut), `first ${cut} bytes`);
 });
 
 // ── Static checks ─────────────────────────────────────────────────────────

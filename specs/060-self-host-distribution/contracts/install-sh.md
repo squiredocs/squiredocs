@@ -2,7 +2,10 @@
 
 Source: `distribution/self-host/install.sh` (mode 100755). Served verbatim at
 `/install.sh` on every instance (see `served-routes.md`). POSIX `sh`; passes
-`shellcheck -s sh` with no errors. Never reads stdin.
+`shellcheck -s sh` with no errors. Never reads stdin. Above `main()` the file
+holds only assignments and function definitions, and its last line is
+`main "$@"`, so a download cut short at a line boundary runs nothing (review
+finding H1).
 
 ## Invocation
 
@@ -13,7 +16,7 @@ curl -fsSL https://squiredocs.com/install.sh | sh -s -- --name "Ada" --email "ad
 
 | Flag | Default | Notes |
 | --- | --- | --- |
-| `--dir PATH` | `./squire-docs` | Created if missing. |
+| `--dir PATH` | `./squire-docs` | Created if missing. Must be absent or empty (hidden files count); see the refusals below. |
 | `--version X.Y.Z` | latest non-prerelease | No `v`. A leading `v` is a usage error naming the form. |
 | `--name NAME` | none | Passed to `squire claim-link --name`. |
 | `--email EMAIL` | none | Passed to `squire claim-link --email`. |
@@ -24,6 +27,7 @@ Unknown flag, flag without value, or positional argument: usage on stderr, exit 
 | Environment | Default | Notes |
 | --- | --- | --- |
 | `SQUIRE_INSTALL_ASSET_URL` | `https://github.com/<REPOSITORY>/releases/download/v<version>` | Base URL for the four assets (RBD-060-6). Changes nothing else. Documented in the header comment only. |
+| `SQUIRE_PORT` | `3910` | Host port. When set (non-empty) it must be 1 to 65535, and it is written to `.env` so later `docker compose` and `./squire` commands use the same port (review finding M6, RBD-060-42). |
 
 ## Output discipline
 
@@ -38,12 +42,15 @@ Unknown flag, flag without value, or positional argument: usage on stderr, exit 
 | --- | --- | --- |
 | Usage error | 2 | the flag and `--help` |
 | `REPOSITORY` still a placeholder | 1 | "has not been released yet" |
+| `SQUIRE_PORT` set but not 1 to 65535 | 1 | "is not a port number" |
 | `docker` missing or `docker compose version` fails | 1 | install Docker Compose v2 (link to Docker's install page) |
 | Compose v1, or v2 older than 2.24.0 | 1 | the found version and "Docker Compose 2.24 or later" |
 | `docker info` fails | 1 | start Docker (Docker Desktop or the docker service) |
 | `curl` missing | 1 | install curl |
 | neither `sha256sum` nor `shasum` | 1 | install coreutils or perl's shasum; verification is never skipped |
 | `<dir>/compose.yml` exists | 1 | the upgrade command (below), with the folder path |
+| `<dir>` exists and is not a folder | 1 | "Choose a new or empty folder with --dir" |
+| `<dir>` is a non-empty folder without `compose.yml` | 1 | the folder and "never overwrites your files"; nothing downloaded (review finding H2, RBD-060-40) |
 | latest version cannot be resolved | 1 | `--version` |
 | a download fails | 1 | the asset name and the release version; files from this run removed |
 | a checksum mismatch | 1 | the file name; files from this run removed; nothing started |
@@ -63,17 +70,22 @@ To upgrade, set SQUIRE_VERSION in <dir>/.env to the new release<, for example X.
 ## Steps (success path)
 
 1. Prerequisites as above.
-2. Create `<dir>`.
+2. Create `<dir>` (or use it when it exists and is empty).
 3. Download `SHA256SUMS`, `compose.yml`, `squire`, `env.example`; verify the
    three against `SHA256SUMS`; rename `env.example` to `.env.example`;
-   `chmod +x squire`; write `.env` as `SQUIRE_VERSION=<version>`.
+   `chmod +x squire`; write `.env` as `SQUIRE_VERSION=<version>`,
+   `COMPOSE_PROJECT_NAME=squire-docs-<8 random hex digits>` (review finding M1,
+   RBD-060-41), and `SQUIRE_PORT=<port>` when `SQUIRE_PORT` is set. Every
+   later `docker compose` and `./squire` call runs in `<dir>`, where Compose
+   reads `.env`.
 4. In `<dir>`: `docker compose up -d --wait`, then `./squire doctor`.
 5. `./squire claim-link [--name ...] [--email ...]`; print its single line to stdout.
 
 ## Cleanup rule (FR-016)
 
 Before step 4 starts, any failure removes exactly the files this run created
-and the folder if this run created it. From step 4 on, nothing is removed.
+and the folder if this run created it. Because the folder was absent or empty,
+those files can never be ones the user already had. From step 4 on, nothing is removed.
 Volumes are never removed.
 
 ## Test hooks (Docker-free)

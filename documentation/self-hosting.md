@@ -29,13 +29,13 @@ curl -fsSL https://squiredocs.com/install.sh | sh -s -- --name "Ada Lovelace" --
 
 When it finishes, the last line it prints is a claim link. If you would rather read the script before running it, open [https://squiredocs.com/install.sh](https://squiredocs.com/install.sh); the manual steps in [self-host.md](https://squiredocs.com/self-host.md) do the same thing by hand.
 
-The script accepts `--dir PATH` to choose the install folder (the default is `./squire-docs`) and `--version X.Y.Z` to install a specific release instead of the latest one.
+The script accepts `--dir PATH` to choose the install folder (the default is `./squire-docs`) and `--version X.Y.Z` to install a specific release instead of the latest one. The folder must be new or empty, so the script never overwrites your files. If `SQUIRE_PORT` is set when you run it, the script uses that port and saves it in `.env`.
 
 ## What the install script does
 
 1. Checks that Docker Compose 2.24 or later is installed and that Docker is running, and stops with a message naming the fix if not.
-2. Creates the `squire-docs` folder. If the folder already holds an installation, it changes nothing and prints the upgrade command instead.
-3. Downloads the release files (`compose.yml`, the `squire` wrapper, `.env.example`, and `SHA256SUMS`), checks every file against `SHA256SUMS`, and writes `.env` with the release version.
+2. Creates the `squire-docs` folder. If the folder already holds an installation, it changes nothing and prints the upgrade command instead. If it holds anything else, it stops without changing anything.
+3. Downloads the release files (`compose.yml`, the `squire` wrapper, `.env.example`, and `SHA256SUMS`), checks every file against `SHA256SUMS`, and writes `.env` with the release version and a Compose project name unique to this install.
 4. Starts the stack with `docker compose up -d --wait`, which returns once the app, Postgres, and Redis are all healthy, then runs `./squire doctor`.
 5. Prints a claim link as the last line of its output.
 
@@ -107,7 +107,7 @@ Database migrations run when the new version starts. Your documents, owner accou
 
 ## Backing up
 
-Your data lives in three Docker volumes: `squire-data` (generated secrets, including the encryption key for stored API keys, and image files), `postgres-data` (documents, accounts, and version history), and `redis-data` (short-lived state). Back up the first two. For example, in the install folder:
+Your data lives in three Docker volumes: `squire-data` (generated secrets, including the encryption key for stored API keys, and image files), `postgres-data` (documents, accounts, and version history), and `redis-data` (short-lived state). Compose prefixes each volume with the `COMPOSE_PROJECT_NAME` in `.env` (for example `squire-docs-1a2b3c4d_postgres-data`), which keeps two installs on one machine apart. Keep that line when you edit `.env`: without it, Compose starts a new, empty instance. Back up the first two volumes. For example, in the install folder:
 
 ```
 docker compose exec -T postgres pg_dump -U squire squire > squire-docs.sql

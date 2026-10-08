@@ -13,6 +13,10 @@
 #   STUB_CLAIM_EXIT                 exit code of `... squire claim-link` (default 0)
 #   STUB_EXEC_EXIT                  exit code of any other `compose exec` (default 0)
 #   STUB_STDIN_LOG                  when set, `compose exec` appends what it reads on stdin here
+#   STUB_PWD_LOG                    when set, every `docker compose` call appends its working directory here
+if [ -n "${STUB_PWD_LOG:-}" ] && [ "${1:-}" = compose ]; then
+  printf '%s\n' "$PWD" >> "$STUB_PWD_LOG"
+fi
 if [ -n "${STUB_LOG:-}" ]; then
   printf 'docker' >> "$STUB_LOG"
   for a in "$@"; do printf ' %s' "$a" >> "$STUB_LOG"; done
