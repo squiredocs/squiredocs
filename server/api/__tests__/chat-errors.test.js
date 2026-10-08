@@ -37,6 +37,13 @@ describe('chat-errors classify()', () => {
       expect(s.notifyAdminCredit).toBe(false);
     });
 
+    test('no usable key → assistant_not_configured 400, fatal, no page, no admin email', () => {
+      const s = classify(null, { isAssistantNotConfigured: true });
+      expect(s).toMatchObject({ code: CODES.ASSISTANT_NOT_CONFIGURED, status: 400, notifyOperator: false, notifyAdminCredit: false });
+      expect(FATAL_CODES.has(CODES.ASSISTANT_NOT_CONFIGURED)).toBe(true);
+      expect(s.error).toMatch(/Squire Docs assistant needs an AI key/);
+    });
+
     test('usage limit wins over a provider signal', () => {
       const s = classify(billing(400, 'credit balance is too low'), { isUsageLimit: true, isByok: false, providerId: 'anthropic' });
       expect(s.code).toBe(CODES.APP_USAGE_LIMIT);
@@ -116,6 +123,7 @@ describe('chat-errors classify()', () => {
         rate_limited: 429,
         provider_overloaded: 429,
         model_no_image_support: 400,
+        assistant_not_configured: 400,
         internal: 500,
       });
     });
@@ -146,5 +154,31 @@ describe('chat-errors classify()', () => {
       const payload = buildErrorPayload({ code: CODES.BYOK_INSUFFICIENT_CREDITS, provider: 'anthropic' });
       expect(payload.error).not.toMatch(/console\.anthropic|credit balance is too low/i);
     });
+  });
+});
+
+// The client keeps its own copy of the taxonomy (client/src/utils/chatErrorMessages.js:
+// MESSAGES + FATAL_CODES). Pin the two in sync from the server side so a new server
+// code can't ship without client copy, or render as the generic `internal` fallback.
+describe('client taxonomy mirrors the server', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '../../../client/src/utils/chatErrorMessages.js'), 'utf8');
+  const block = (name) => {
+    const m = src.match(new RegExp(`export const ${name} = [^\\n]*\\n([\\s\\S]*?)\\n(?:\\}|\\]\\));`));
+    if (!m) throw new Error(`${name} not found in chatErrorMessages.js`);
+    return m[1];
+  };
+
+  test('every server code has a client MESSAGES entry', () => {
+    const messages = block('MESSAGES');
+    for (const code of Object.values(CODES)) {
+      expect(messages).toMatch(new RegExp(`^  ${code}: \\{`, 'm'));
+    }
+  });
+
+  test('client FATAL_CODES equals the server FATAL_CODES', () => {
+    const clientFatal = [...block('FATAL_CODES').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    expect(clientFatal).toEqual([...FATAL_CODES].sort());
   });
 });

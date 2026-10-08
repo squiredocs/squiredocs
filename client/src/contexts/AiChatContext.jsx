@@ -297,6 +297,11 @@ export function AiChatProvider({ children }) {
   // Track last sent text/files so we can restore them on error
   const lastSentTextRef = useRef('');
   const lastSentFilesRef = useRef(null);
+  // Metadata `kind` of the last send. A hidden prompt (the welcome kickoff) is
+  // never restored into the composer, and a retry or auth-resend re-sends it
+  // hidden, never as a visible user message.
+  const lastSentKindRef = useRef(null);
+  const isLastSendHidden = () => lastSentKindRef.current === WELCOME_KICKOFF_KIND;
   const [draftText, setDraftText] = useState('');
   const [draftFiles, setDraftFiles] = useState(null);
 
@@ -437,8 +442,13 @@ export function AiChatProvider({ children }) {
     // BEFORE the user message was persisted — otherwise restoring duplicates it on
     // resend (see the mid-stream branch below).
     const fallback = () => {
-      if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
-      if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+      // A hidden prompt (the welcome kickoff) was never typed by the user: restoring
+      // it would put the internal instructions in their composer. Retry re-sends it
+      // hidden instead (retryLastMessage).
+      if (!isLastSendHidden()) {
+        if (lastSentTextRef.current) setDraftText(lastSentTextRef.current);
+        if (lastSentFilesRef.current) setDraftFiles(lastSentFilesRef.current);
+      }
       surfaceError();
     };
 
@@ -451,6 +461,7 @@ export function AiChatProvider({ children }) {
           instance.sendMessage({
             text: lastSentTextRef.current || ' ',
             files: lastSentFilesRef.current?.length ? lastSentFilesRef.current : undefined,
+            ...(isLastSendHidden() ? { metadata: { kind: lastSentKindRef.current } } : {}),
           });
         })
         .catch(fallback); // refresh failed — restore draft for manual retry
@@ -500,7 +511,10 @@ export function AiChatProvider({ children }) {
         // Capture what we're about to restore BEFORE fallback mutates the draft, so
         // the late-reply watcher can recognise (and only then withdraw) an untouched
         // draft (F2).
-        const restored = { text: lastSentTextRef.current, files: lastSentFilesRef.current };
+        // A hidden send restores nothing (see fallback), so there's nothing to withdraw.
+        const restored = isLastSendHidden()
+          ? { text: null, files: null }
+          : { text: lastSentTextRef.current, files: lastSentFilesRef.current };
         fallback();
         // The resumed stream may still land a reply after the establish window —
         // keep watching so a late success retires the stale banner + draft (F2).
@@ -771,6 +785,7 @@ export function AiChatProvider({ children }) {
     async (text, files) => {
       authRetryRef.current = false;
       lastSentTextRef.current = text;
+      lastSentKindRef.current = null;
 
       // Supersession (feature 025, FR-011a): clear the durable turn-error for this
       // chat on every send attempt. The banner clears immediately and re-trips only
@@ -855,6 +870,7 @@ export function AiChatProvider({ children }) {
     authRetryRef.current = false;
     lastSentTextRef.current = text;
     lastSentFilesRef.current = null;
+    lastSentKindRef.current = WELCOME_KICKOFF_KIND;
 
     const chatId = await createChatOnServer();
     if (!chatId) return;
@@ -878,8 +894,19 @@ export function AiChatProvider({ children }) {
   // Retry the last failed message (for the error-banner retry button)
   const retryLastMessage = useCallback(() => {
     if (!lastSentTextRef.current && !lastSentFilesRef.current) return;
+    if (isLastSendHidden()) {
+      // Re-send the welcome kickoff hidden, on the chat it failed in. Going through
+      // sendMessage would post it as a visible user turn and auto-title from it.
+      const chatId = currentChatId;
+      if (!chatId) return;
+      authRetryRef.current = false;
+      clearChatError(chatId);
+      recoverAttemptsRef.current.delete(chatId);
+      chat.sendMessage({ text: lastSentTextRef.current, metadata: { kind: lastSentKindRef.current } });
+      return;
+    }
     sendMessage(lastSentTextRef.current, lastSentFilesRef.current);
-  }, [sendMessage]);
+  }, [sendMessage, currentChatId, clearChatError, chat.sendMessage]);
 
   // ── Derived error rendering, from durable state ONLY (feature 025, FR-008) ──
   // The transcript's trailing-turn failure record is authoritative and self-

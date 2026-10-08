@@ -889,6 +889,19 @@ router.post('/', requireAuth, rateLimit.perUser('chat'), async (req, res) => {
       teardownEntry();
       return sendClassifiedError(byokSignal);
     }
+    if (resolved && resolved.error === 'assistant_not_configured') {
+      // BYOK off and no provider holds a shared server key (a self-hosted instance
+      // started without assistant keys). Reject BEFORE any provider call: calling
+      // without a key would fail as `internal` and page the operator. This is a
+      // supported setup state, so no exception notification. The shared-key path
+      // took a reservation; release it (L4).
+      releaseReservation();
+      const notConfiguredSignal = classify(null, { isAssistantNotConfigured: true });
+      pendingFailureStamp = stampFromSignal(notConfiguredSignal);
+      await stampTurnFailure(pendingFailureStamp);
+      teardownEntry();
+      return sendClassifiedError(notConfiguredSignal);
+    }
     if (!resolved) {
       // No shared model configured at all — a genuine server misconfiguration.
       // This is the shared-key path, so a reservation IS outstanding — release it

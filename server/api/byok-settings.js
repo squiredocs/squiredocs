@@ -8,7 +8,7 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const { encrypt } = require('../crypto');
-const { MODEL_DEFS, getAvailableModels } = require('./chat-models');
+const { MODEL_DEFS, getAvailableModels, hasUsableSharedModel } = require('./chat-models');
 const { getProviderConfig, listProviders } = require('./ai-providers');
 
 const router = express.Router();
@@ -46,6 +46,12 @@ function buildResponse(row) {
     providers,
     modelKey: row.byok_model_key,
     models: getAvailableModels(),
+    // Whether the in-app assistant can answer this user right now: a shared server
+    // key backs some model, or the user's own BYOK setup is complete. False on a
+    // self-hosted instance with no assistant keys until the user adds their own; the
+    // client then shows a setup state instead of sending a doomed turn. The chat
+    // route enforces the same rule (assistant_not_configured).
+    assistantAvailable: hasUsableSharedModel() || isByokActive(row),
   };
   for (const p of providers) response[p.id] = { hasKey: p.hasKey };
   return response;

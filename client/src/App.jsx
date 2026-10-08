@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AiChatProvider, useAiChat } from './contexts/AiChatContext';
 import { useAiPanel } from './hooks/useAiPanel';
 import { ByokProvider } from './contexts/ByokContext';
+import { useWelcomeOnboarding } from './hooks/useWelcomeOnboarding';
 import { useMobile } from './hooks/useMobile';
 import useClientConfig from './hooks/useClientConfig';
 import DocList from './components/DocList';
@@ -338,7 +339,6 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   const isMobile = useMobile();
   const lastDocGuidRef = useRef(null);
   const prevViewRef = useRef(route.view);
-  const welcomeStartedRef = useRef(false);
 
   // Track most recently viewed document for chat↔editor toggle
   if (route.view === 'editor' && route.docGuid) {
@@ -354,22 +354,8 @@ function AuthenticatedApp({ route, listKey, user, navigateToDocs, navigateToDoc,
   }, [route.view, aiPanel.open]);
 
   // Onboarding: landing on the welcome doc (?welcome=1) opens the AI panel and
-  // has the assistant greet the user. Fires exactly once, then strips the flag
-  // so a refresh or back-nav doesn't re-trigger the greeting.
-  useEffect(() => {
-    if (welcomeStartedRef.current) return;
-    if (route.view !== 'editor' || !route.docGuid) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('welcome') !== '1') return;
-
-    welcomeStartedRef.current = true;
-    aiPanel.open();
-    aiChat.sendWelcomeMessage();
-
-    params.delete('welcome');
-    const qs = params.toString();
-    window.history.replaceState({}, '', `/d/${route.docGuid}${qs ? `?${qs}` : ''}`);
-  }, [route.view, route.docGuid, aiPanel.open, aiChat.sendWelcomeMessage]);
+  // has the assistant greet the user, unless it has no usable key yet.
+  useWelcomeOnboarding({ route, openPanel: aiPanel.open, sendWelcomeMessage: aiChat.sendWelcomeMessage });
 
   const aiPanelClass = aiPanel.isOpen && !isMobile
     ? ` ai-panel-${aiPanel.position}` : '';

@@ -78,6 +78,14 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
   const byok = useByok();
   const [byokError, setByokError] = useState(null);
 
+  // The assistant's setup state links to /settings#assistant-key. The BYOK
+  // subsection renders only once its settings load, so scroll when it appears.
+  const byokReady = !!byok.settings;
+  useEffect(() => {
+    if (!byokReady || window.location.hash !== '#assistant-key') return;
+    document.getElementById('assistant-key')?.scrollIntoView?.({ block: 'start' });
+  }, [byokReady]);
+
   useEffect(() => {
     api.get('/api/usage')
       .then(res => setUsage(res.data))
@@ -222,7 +230,7 @@ export default function SettingsPage({ onNavigateHome, onNavigateToSettings, onN
             )}
 
             {byok.settings && (
-              <div className="settings-subsection">
+              <div className="settings-subsection" id="assistant-key">
                 <h3>Bring Your Own Key</h3>
                 <p className="settings-description">
                   Configure the built-in assistant to use your AI provider account and choice of model.

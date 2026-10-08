@@ -5,6 +5,7 @@ import { useByok } from '../contexts/ByokContext';
 import AiChatBody from '../components/AiChatBody';
 import AiChatInput from '../components/AiChatInput';
 import AiChatHistory from '../components/AiChatHistory';
+import AssistantSetupState from '../components/AssistantSetupState';
 import ChatFontSizeControl from '../components/ChatFontSizeControl';
 import { useChatFontScale } from '../hooks/useChatFontScale';
 import { PlusIcon, ListIcon } from '../components/icons';
@@ -19,7 +20,7 @@ import './ChatPage.css';
 function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupport, onNavigateToDoc, onNavigateBack, initialDocGuid }) {
   const aiChat = useAiChat();
   const { logout } = useAuth();
-  const { accentColor, canAttachImages, activeModelLabel } = useByok();
+  const { accentColor, canAttachImages, activeModelLabel, assistantUnavailable } = useByok();
   const chatFont = useChatFontScale();
   const chatInputRef = useRef(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -140,38 +141,45 @@ function ChatPage({ user, onNavigateHome, onNavigateToSettings, onNavigateToSupp
           <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />
         ) : (
           <>
-            <AiChatBody
-              messages={messages} status={status}
-              messagesLoading={messagesLoading} messagesError={messagesError}
-              retryLoadMessages={retryLoadMessages}
-              usageLimitReached={usageLimitReached} error={error}
-              errorInfo={errorInfo} interruptionReason={interruptionReason}
-              onRetry={retryLastMessage} reconnecting={reconnecting}
-              greeting={getGreeting(user?.name)} accentColor={accentColor}
-              iconSize={48} onDocLinkClick={handleDocLinkClick}
-            />
-            <div className="chat-page-input-wrap">
-              <AiChatInput
-                key={currentChatId || '__new__'}
-                ref={chatInputRef}
-                onSend={sendMessage}
-                onStop={stop}
-                isStreaming={isStreaming}
-                autoFocus
-                placeholder={isEmpty ? 'How can I help you?' : 'Reply...'}
-                draftText={draftText}
-                onDraftConsumed={clearDraft}
-                draftFiles={draftFiles}
-                onDraftFilesConsumed={clearDraftFiles}
-                chatId={currentChatId}
-                getChatDraft={getChatDraft}
-                saveChatDraft={saveChatDraft}
-                pendingRefs={pendingRefs}
-                onRemoveRef={removeSelectionRef}
-                canAttachImages={canAttachImages}
-                imageModelLabel={activeModelLabel}
+            {(!assistantUnavailable || !isEmpty) && (
+              <AiChatBody
+                messages={messages} status={status}
+                messagesLoading={messagesLoading} messagesError={messagesError}
+                retryLoadMessages={retryLoadMessages}
+                usageLimitReached={usageLimitReached} error={error}
+                errorInfo={errorInfo} interruptionReason={interruptionReason}
+                onRetry={retryLastMessage} reconnecting={reconnecting}
+                greeting={getGreeting(user?.name)} accentColor={accentColor}
+                iconSize={48} onDocLinkClick={handleDocLinkClick}
               />
-            </div>
+            )}
+            {/* Same setup state as the side panel: no usable key, no composer. */}
+            {assistantUnavailable ? (
+              <AssistantSetupState isAdmin={!!user?.isAdmin} compact={!isEmpty} />
+            ) : (
+              <div className="chat-page-input-wrap">
+                <AiChatInput
+                  key={currentChatId || '__new__'}
+                  ref={chatInputRef}
+                  onSend={sendMessage}
+                  onStop={stop}
+                  isStreaming={isStreaming}
+                  autoFocus
+                  placeholder={isEmpty ? 'How can I help you?' : 'Reply...'}
+                  draftText={draftText}
+                  onDraftConsumed={clearDraft}
+                  draftFiles={draftFiles}
+                  onDraftFilesConsumed={clearDraftFiles}
+                  chatId={currentChatId}
+                  getChatDraft={getChatDraft}
+                  saveChatDraft={saveChatDraft}
+                  pendingRefs={pendingRefs}
+                  onRemoveRef={removeSelectionRef}
+                  canAttachImages={canAttachImages}
+                  imageModelLabel={activeModelLabel}
+                />
+              </div>
+            )}
           </>
         )}
       </main>

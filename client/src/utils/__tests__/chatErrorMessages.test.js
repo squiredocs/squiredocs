@@ -13,7 +13,7 @@ import {
 const ALL_CODES = [
   'app_usage_limit', 'byok_insufficient_credits', 'byok_invalid_key',
   'byok_misconfigured', 'rate_limited', 'provider_overloaded',
-  'model_no_image_support', 'internal',
+  'model_no_image_support', 'assistant_not_configured', 'internal',
 ];
 
 describe('MESSAGES map', () => {
@@ -124,6 +124,17 @@ describe('parseChatError', () => {
     expect(FATAL_CODES.has('model_no_image_support')).toBe(true);
     expect(RETRYABLE_CODES.has('model_no_image_support')).toBe(false);
     expect(MESSAGES.model_no_image_support.action).toBe('settings');
+  });
+
+  it('assistant_not_configured is fatal, non-retryable, and points at Settings', () => {
+    const parsed = parseChatError(Object.assign(
+      new Error(JSON.stringify({ code: 'assistant_not_configured', error: 'x' })), { status: 400 },
+    ));
+    expect(parsed.code).toBe('assistant_not_configured');
+    expect(parsed.text).toBe('The Squire Docs assistant needs an AI key. Add your own key in Settings.');
+    expect(FATAL_CODES.has('assistant_not_configured')).toBe(true);
+    expect(RETRYABLE_CODES.has('assistant_not_configured')).toBe(false);
+    expect(MESSAGES.assistant_not_configured.action).toBe('settings');
   });
 
   it('reads status when present on the error', () => {

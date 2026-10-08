@@ -71,8 +71,19 @@ export function ByokProvider({ children }) {
   const canAttachImages = !activeModel || activeModel.supportsImages !== false;
   const activeModelLabel = activeModel?.label || null;
 
+  // The server reports whether the assistant can answer this user at all: a
+  // shared server key backs some model, or the user's own key is fully set up
+  // (key saved, "Use my key" on, model picked). False on a self-hosted instance
+  // with no assistant keys, where the panel shows a setup state instead of
+  // sending a turn that can only fail. Unknown (still loading, fetch failed, or
+  // an older server without the field) counts as available, so the panel never
+  // flashes the setup state and the server's assistant_not_configured code
+  // remains the backstop. Saving BYOK updates `settings`, so the panel recovers
+  // with no reload.
+  const assistantUnavailable = !loading && settings?.assistantAvailable === false;
+
   return (
-    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey, accentColor, canAttachImages, activeModelLabel }}>
+    <ByokContext.Provider value={{ settings, loading, saving, error, saveSettings, clearKey, accentColor, canAttachImages, activeModelLabel, assistantUnavailable }}>
       {children}
     </ByokContext.Provider>
   );

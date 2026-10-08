@@ -539,9 +539,11 @@ function isSharedEligible(key) {
  * after OPENROUTER_API_KEY is removed (the feature's rollback path), or an unknown
  * key left by a later release — is skipped with a logged warning so the deployment
  * degrades gracefully instead of failing every shared turn at the provider
- * (feature 026 FR-005/D4). DEFAULT_MODEL_KEY (claude-sonnet-5-5) is the terminal fallback
- * and is returned unconditionally; it is not re-validated (it is the load-bearing
- * default for the whole deployment).
+ * (feature 026 FR-005/D4). After that come the per-provider fallbacks
+ * (SHARED_FALLBACK_KEYS, led by DEFAULT_MODEL_KEY, claude-sonnet-5-5), so an instance
+ * with only an OpenRouter or Gemini server key still resolves a usable model. With no
+ * server key at all, DEFAULT_MODEL_KEY is returned unvalidated; the chat path turns
+ * that into `assistant_not_configured` (see resolveChatModel).
  *
  * @param {string} [storedKey] The admin-selected key from app_settings (may be null).
  * @returns {string} The resolved model key.
@@ -562,7 +564,37 @@ function resolveSharedDefaultKey(storedKey) {
       + `provider has no shared server key); falling back to built-in default.`
     );
   }
-  return DEFAULT_MODEL_KEY;
+  // DEFAULT_MODEL_KEY is the deployment default whenever its provider holds a server
+  // key (the hosted service always does, so this is a no-op there). A self-hosted
+  // instance may configure only OPENROUTER_API_KEY or only the Gemini key: walk the
+  // per-provider fallbacks, then any shared-eligible registry entry, so that instance
+  // still gets a working assistant. With no server key at all, DEFAULT_MODEL_KEY is
+  // still returned (callers that serve a turn check isSharedEligible on the result;
+  // see resolveChatModel → assistant_not_configured).
+  const fallback = SHARED_FALLBACK_KEYS.find(isSharedEligible)
+    || MODEL_DEFS.find((d) => hasServerKey(d.provider))?.key;
+  return fallback || DEFAULT_MODEL_KEY;
+}
+
+/**
+ * Preferred shared default per provider, in order, used when nothing is stored or
+ * set in AI_CHAT_MODEL. DEFAULT_MODEL_KEY comes first, so a deployment with an
+ * Anthropic server key resolves exactly as before. OpenRouter precedes Google
+ * because the self-host .env lists it as an assistant key, while the Gemini key is
+ * often set only for semantic search.
+ */
+const SHARED_FALLBACK_KEYS = [DEFAULT_MODEL_KEY, 'or-kimi-k3', 'gemini-3.5-flash'];
+
+/**
+ * Whether ANY model can back the shared (non-BYOK) assistant on this deployment:
+ * true exactly when some registry provider holds a shared server key. False on a
+ * self-hosted instance started without ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or
+ * GOOGLE_GENERATIVE_AI_API_KEY; there, only a user's own BYOK key can run the
+ * assistant.
+ * @returns {boolean}
+ */
+function hasUsableSharedModel() {
+  return MODEL_DEFS.some((d) => hasServerKey(d.provider));
 }
 
 /**
@@ -607,6 +639,8 @@ function resolveUserChatModelKey(overrideKey, sharedDefaultKey) {
  *  3. Shared default (non-BYOK only) — the admin-selected model (sharedDefaultKey),
  *     else AI_CHAT_MODEL, else DEFAULT_MODEL_KEY (see resolveSharedDefaultKey).
  *  4. DEFAULT_MODEL_KEY as a final fallback if the resolved shared key is unknown.
+ *  5. Non-BYOK with no shared-eligible model (no provider server key at all):
+ *     `{ error: 'assistant_not_configured' }`, before any client is built.
  *
  * @param {object}   opts
  * @param {boolean}  opts.isByok       Whether BYOK is enabled/intended for this user.
@@ -617,9 +651,10 @@ function resolveUserChatModelKey(overrideKey, sharedDefaultKey) {
  *   OPTIONAL: omitting it reproduces the pre-035 resolution exactly, and it is consumed
  *   only on the shared-key path — the BYOK branch below never reads it, which is what
  *   makes "BYOK wins" and "byok_misconfigured never falls back" structural (FR-003).
- * @returns {{ model, def, provider } | { error: 'byok_misconfigured', provider: string|null } | null}
- *   Resolved model; the misconfig signal when BYOK is on but unresolvable; or null
- *   if no shared model is configured at all (genuine server misconfiguration).
+ * @returns {{ model, def, provider } | { error: 'byok_misconfigured', provider: string|null } | { error: 'assistant_not_configured' } | null}
+ *   Resolved model; the misconfig signal when BYOK is on but unresolvable; the
+ *   not-configured signal when BYOK is off and no provider holds a shared server key;
+ *   or null if the shared model cannot be instantiated at all.
  */
 function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, userOverrideKey }) {
   if (isByok && byokSettings) {
@@ -643,6 +678,10 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, 
   }
 
   const modelKey = resolveUserChatModelKey(userOverrideKey, sharedDefaultKey);
+  // No shared server key can back this turn (a self-hosted instance started without
+  // any assistant key, and the user has no BYOK key). Reject before instantiating a
+  // client: calling the provider without a key only fails later as `internal`.
+  if (!isSharedEligible(modelKey)) return { error: 'assistant_not_configured' };
   const resolved = resolveModel(modelKey);
   if (resolved) return resolved;
 
@@ -652,4 +691,4 @@ function resolveChatModel({ isByok, byokSettings, decryptKey, sharedDefaultKey, 
 
 // isSharedEligible is exported so the admin write-time validation and this
 // module's resolution-time fallback are literally the same predicate (035 FR-005).
-module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, shouldStripReasoningFromHistory, stripUiOnlyDiffParts, DEFAULT_MODEL_KEY, MODEL_DEFS };
+module.exports = { resolveModel, resolveModelWithKey, resolveChatModel, resolveSharedDefaultKey, resolveUserChatModelKey, isSharedEligible, hasUsableSharedModel, getAvailableModels, getCompactionModel, getContextualizerModel, getThinkingSummaryModels, getProvider, buildProviderOptions, tagLastMessageWithCache, stripProviderExecutedTools, stripReasoningParts, shouldStripReasoningFromHistory, stripUiOnlyDiffParts, DEFAULT_MODEL_KEY, MODEL_DEFS };

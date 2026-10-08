@@ -28,6 +28,7 @@ const CODES = {
   RATE_LIMITED: 'rate_limited',
   PROVIDER_OVERLOADED: 'provider_overloaded',
   MODEL_NO_IMAGE_SUPPORT: 'model_no_image_support',
+  ASSISTANT_NOT_CONFIGURED: 'assistant_not_configured',
   INTERNAL: 'internal',
 };
 
@@ -42,6 +43,10 @@ const STATUS_BY_CODE = {
   [CODES.RATE_LIMITED]: 429,
   [CODES.PROVIDER_OVERLOADED]: 429,
   [CODES.MODEL_NO_IMAGE_SUPPORT]: 400,
+  // No server key and no BYOK key: setup, not a fault. 400 like byok_misconfigured
+  // (the user fixes it in Settings); never 5xx (no operator fault) or 401/403 (those
+  // drive the app's session-refresh path).
+  [CODES.ASSISTANT_NOT_CONFIGURED]: 400,
   [CODES.INTERNAL]: 500,
 };
 
@@ -63,6 +68,7 @@ const DEFAULT_MESSAGES = {
   [CODES.RATE_LIMITED]: 'You are sending messages too fast. Wait a few seconds and try again.',
   [CODES.PROVIDER_OVERLOADED]: 'The AI provider is busy right now. Try again in a moment.',
   [CODES.MODEL_NO_IMAGE_SUPPORT]: "The selected model can't read images. Switch to a vision-capable model in Settings, or remove the image.",
+  [CODES.ASSISTANT_NOT_CONFIGURED]: 'The Squire Docs assistant needs an AI key. Add your own key in Settings.',
   [CODES.INTERNAL]: 'Something went wrong generating a response. Try again.',
 };
 
@@ -109,6 +115,7 @@ function providerRetryAfter(err) {
  * @param {boolean} [ctx.isRateLimited]     App per-user request/concurrency limit tripped.
  * @param {boolean} [ctx.isByokMisconfigured] BYOK on but key/model unresolvable.
  * @param {boolean} [ctx.isImageUnsupported]  The turn attached an image but the resolved model is text-only.
+ * @param {boolean} [ctx.isAssistantNotConfigured] BYOK off and no provider holds a shared server key.
  * @returns {{ code, status, error, provider?, notifyOperator, notifyAdminCredit, trueCause?, retryAfterSec? }}
  */
 function classify(err, ctx = {}) {
@@ -119,6 +126,7 @@ function classify(err, ctx = {}) {
     isRateLimited = false,
     isByokMisconfigured = false,
     isImageUnsupported = false,
+    isAssistantNotConfigured = false,
   } = ctx;
 
   // 1. App-level, pre-provider conditions — no provider signal needed.
@@ -129,6 +137,12 @@ function classify(err, ctx = {}) {
     // Caught before the provider call (a text-only model + an image attachment):
     // an honest, fatal user error — not a server fault, so no operator page.
     return finalize(CODES.MODEL_NO_IMAGE_SUPPORT, { provider: providerId });
+  }
+  if (isAssistantNotConfigured) {
+    // Setup state, not a fault: no shared server key and no BYOK key. Fatal for the
+    // turn, and never an operator page (a self-hosted instance without keys is a
+    // supported configuration).
+    return finalize(CODES.ASSISTANT_NOT_CONFIGURED);
   }
   if (isByokMisconfigured) {
     return finalize(CODES.BYOK_MISCONFIGURED, { provider: providerId });

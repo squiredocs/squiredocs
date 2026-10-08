@@ -6,6 +6,7 @@ import { useResizeHandle } from '../hooks/useResizeHandle';
 import AiChatBody from './AiChatBody';
 import AiChatInput from './AiChatInput';
 import AiChatHistory from './AiChatHistory';
+import AssistantSetupState from './AssistantSetupState';
 import ChatFontSizeControl from './ChatFontSizeControl';
 import { useChatFontScale } from '../hooks/useChatFontScale';
 import { PlusIcon, ListIcon, ChevronLeftIcon, ChatBubbleIcon, CloseIcon, LayoutBottomIcon, LayoutRightIcon } from './icons';
@@ -228,17 +229,26 @@ function AiPanel({ aiPanel, aiChat, onNavigateToChat, onNavigateToDoc, docGuid }
         <AiChatHistory aiChat={aiChat} onBack={() => setShowHistory(false)} />
       ) : (
         <>
-          <AiChatBody
-            messages={messages} status={status}
-            messagesLoading={messagesLoading} messagesError={messagesError}
-            retryLoadMessages={retryLoadMessages}
-            usageLimitReached={usageLimitReached} error={error}
-            errorInfo={errorInfo} interruptionReason={interruptionReason}
-            onRetry={retryLastMessage} reconnecting={reconnecting}
-            greeting={getGreeting(user?.name)} accentColor={accentColor}
-            onDocLinkClick={handleDocLinkClick}
-          />
-          <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} pendingRefs={pendingRefs} onRemoveRef={removeSelectionRef} canAttachImages={byok.canAttachImages} imageModelLabel={byok.activeModelLabel} />
+          {/* No usable key (self-hosted, no server key, no BYOK): the setup state
+              replaces the composer, so nothing can be sent. Earlier messages, if
+              any, stay readable above it. */}
+          {(!byok.assistantUnavailable || !isEmpty) && (
+            <AiChatBody
+              messages={messages} status={status}
+              messagesLoading={messagesLoading} messagesError={messagesError}
+              retryLoadMessages={retryLoadMessages}
+              usageLimitReached={usageLimitReached} error={error}
+              errorInfo={errorInfo} interruptionReason={interruptionReason}
+              onRetry={retryLastMessage} reconnecting={reconnecting}
+              greeting={getGreeting(user?.name)} accentColor={accentColor}
+              onDocLinkClick={handleDocLinkClick}
+            />
+          )}
+          {byok.assistantUnavailable ? (
+            <AssistantSetupState isAdmin={!!user?.isAdmin} compact={!isEmpty} onNavigate={isMobile ? close : undefined} />
+          ) : (
+            <AiChatInput key={currentChatId || '__new__'} ref={chatInputRef} onSend={sendMessage} onStop={stop} isStreaming={isStreaming} autoFocus placeholder={isEmpty ? 'How can I help you?' : 'Reply...'} draftText={draftText} onDraftConsumed={clearDraft} draftFiles={draftFiles} onDraftFilesConsumed={clearDraftFiles} chatId={currentChatId} getChatDraft={getChatDraft} saveChatDraft={saveChatDraft} pendingRefs={pendingRefs} onRemoveRef={removeSelectionRef} canAttachImages={byok.canAttachImages} imageModelLabel={byok.activeModelLabel} />
+          )}
         </>
       )}
     </WrapperTag>

@@ -733,6 +733,96 @@ describe('AiChatContext', () => {
     });
   });
 
+  // ── Hidden welcome kickoff never reaches the composer ────────────────────
+  // Self-host first-run finding: a failed kickoff turn restored the hidden prompt
+  // ("The user just opened their welcome document...") into the input box.
+  describe('welcome kickoff error recovery', () => {
+    async function startWelcome(result, id) {
+      mockNewChatFlow(id);
+      await act(async () => { await result.current.sendWelcomeMessage(); });
+      await waitFor(() => expect(capturedUseChatOptions.chat.id).toBe(id));
+      return capturedUseChatOptions.chat;
+    }
+
+    it('sends the kickoff hidden', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      sendMessageSpy.mockClear();
+      await startWelcome(result, 'chat-welcome-0');
+      expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ metadata: { kind: 'welcome-kickoff' } }));
+    });
+
+    it('a fatal error on the kickoff does not restore it into the composer', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await startWelcome(result, 'chat-welcome-1');
+
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ code: 'assistant_not_configured' })), { status: 400 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(result.current.errorInfo.code).toBe('assistant_not_configured');
+      expect(result.current.errorInfo.text).toBe('The Squire Docs assistant needs an AI key. Add your own key in Settings.');
+      expect(result.current.draftText).toBe('');
+      expect(result.current.draftFiles).toBeNull();
+    });
+
+    it('an internal error whose recovery fails does not restore the kickoff either', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await startWelcome(result, 'chat-welcome-2');
+      mockApi.get.mockRejectedValueOnce(new Error('offline')); // recoverChat's refetch fails
+
+      await act(async () => {
+        inst.onError(new Error(JSON.stringify({ code: 'internal', error: 'Something went wrong' })));
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      expect(result.current.errorInfo.code).toBe('internal');
+      expect(result.current.draftText).toBe('');
+    });
+
+    it('Retry re-sends the kickoff hidden on the same chat (no new chat, no visible turn)', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await startWelcome(result, 'chat-welcome-3');
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ code: 'provider_overloaded' })), { status: 429 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      sendMessageSpy.mockClear();
+      mockApi.post.mockClear();
+      mockApi.patch.mockClear();
+
+      await act(async () => { result.current.retryLastMessage(); });
+
+      expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+      const sent = sendMessageSpy.mock.calls[0][0];
+      expect(sent.metadata).toEqual({ kind: 'welcome-kickoff' });
+      expect(sent.text).toContain('welcome document');
+      expect(mockApi.post).not.toHaveBeenCalled();  // no new chat row
+      expect(mockApi.patch).not.toHaveBeenCalled(); // not re-titled from the hidden text
+      expect(result.current.errorInfo).toBeNull();  // banner cleared for the new attempt
+      expect(result.current.draftText).toBe('');
+    });
+
+    it('an ordinary message sent after the kickoff is restored as before', async () => {
+      const { result } = renderAiChat();
+      await waitFor(() => expect(mockApi.get).toHaveBeenCalled());
+      const inst = await startWelcome(result, 'chat-welcome-4');
+      mockApi.get.mockResolvedValue({ data: [] });
+      await act(async () => { await result.current.sendMessage('my own words'); });
+
+      await act(async () => {
+        inst.onError(Object.assign(new Error(JSON.stringify({ code: 'provider_overloaded' })), { status: 429 }));
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      expect(result.current.draftText).toBe('my own words');
+    });
+  });
+
   // ── bfcache restore (Cmd+Shift+T) ─────────────────────────────────────────
 
   describe('bfcache restore (persisted pageshow)', () => {

@@ -61,6 +61,10 @@ export const MESSAGES = {
     text: "The selected model can't read images. Switch to a vision-capable model in Settings, or remove the image.",
     action: 'settings',
   },
+  assistant_not_configured: {
+    text: 'The Squire Docs assistant needs an AI key. Add your own key in Settings.',
+    action: 'settings',
+  },
   internal: {
     text: 'Something went wrong generating a response. Try again.',
     action: 'retry',
@@ -77,6 +81,7 @@ export const FATAL_CODES = new Set([
   'rate_limited',
   'provider_overloaded',
   'model_no_image_support',
+  'assistant_not_configured',
 ]);
 
 // Only these render a Retry button (D4). Others show their fixing action; the
